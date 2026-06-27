@@ -920,3 +920,67 @@ initMultiplayer();
 // ============================================================
 // END MULTIPLAYER MODULE
 // ============================================================
+
+
+// ============================================================
+// WORKFLOW SYNC MODULE — sync การแก้ไขข้อมูลให้ทุกคนเห็น
+// ============================================================
+
+// Override saveLiveEdit เพื่อ broadcast ผ่าน Socket.IO
+const _origSaveLiveEdit = saveLiveEdit;
+window.saveLiveEdit = function() {
+    if (!activeSelectedMeshUUID) return;
+    const newTitle = document.getElementById('input-edit-title').value.trim();
+    const newDesc = document.getElementById('input-edit-desc').value.trim();
+    const newStepsArray = document.getElementById('input-edit-steps').value.split(',').map(s => s.trim()).filter(s => s.length > 0);
+
+    // บันทึกในเครื่องตัวเอง
+    _origSaveLiveEdit();
+
+    // Broadcast ให้ทุกคน
+    if (socket && socket.connected) {
+        socket.emit('workflow_update', {
+            meshUUID: activeSelectedMeshUUID,
+            name: newTitle,
+            desc: newDesc,
+            steps: newStepsArray,
+            colorClass: 'tag-blue'
+        });
+    }
+};
+
+// รับ workflow_update จากคนอื่น
+function applyRemoteWorkflowUpdate(data) {
+    // บันทึกลง database
+    workflowDatabase[data.meshUUID] = {
+        name: data.name,
+        desc: data.desc,
+        steps: data.steps,
+        colorClass: data.colorClass || 'tag-blue'
+    };
+
+    // อัปเดตชื่อใน mesh list
+    if (factoryModel) {
+        factoryModel.traverse(function(child) {
+            if (child.isMesh && child.uuid === data.meshUUID) {
+                child.name = data.name;
+                const sideListItem = document.getElementById(`mesh-item-${child.uuid}`);
+                if (sideListItem) sideListItem.innerText = `🏭 ${data.name}`;
+            }
+        });
+    }
+
+    // ถ้าตอนนี้กำลังดู mesh นี้อยู่ ให้อัปเดต UI ทันที
+    if (activeSelectedMeshUUID === data.meshUUID) {
+        renderWorkflowUI(data.name, data.desc, data.steps, "✏️ อัปเดตโดยผู้เล่นอื่น", data.colorClass || 'tag-blue');
+        cancelLiveEdit();
+    }
+
+    appendChat({
+        id: 'system', name: 'ระบบ', color: '#ffaa00',
+        text: `✏️ ข้อมูล "${data.name}" ถูกแก้ไขแล้ว`
+    });
+}
+// ============================================================
+// END WORKFLOW SYNC MODULE
+// ============================================================
