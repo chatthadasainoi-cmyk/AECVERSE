@@ -68,6 +68,12 @@ io.on('connection', (socket) => {
         });
     });
 
+    // Workflow data update — broadcast to all
+    socket.on("workflow_update", (data) => {
+        socket.broadcast.emit("workflow_updated", data);
+        console.log(`[WORKFLOW] Updated by ${socket.id}: ${data.name}`);
+    });
+
     // Someone uploaded a model — save URL and broadcast to all
     socket.on('model_shared', (data) => {
         currentModelUrl = data.url;
