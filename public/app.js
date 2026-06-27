@@ -540,46 +540,153 @@ window.addEventListener('resize', () => {
     renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
+
+
 // ============================================================
 // MULTIPLAYER MODULE — ต่อท้าย app.js (ไม่แก้ไขโค้ดเดิม)
-// Socket.IO client: sync avatar positions ของผู้เล่นทุกคน
+// Socket.IO + Supabase Storage สำหรับ sync โมเดลและผู้เล่น
 // ============================================================
 
+const SUPABASE_URL = 'https://hzlokmixfkfrmkuucfhg.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh6bG9rbWl4Zmtmcm1rdXVjZmhnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1NzA5NTUsImV4cCI6MjA5ODE0Njk1NX0.DSj0c7XN979948Iq5rGmWqI9ddcbg56OmfKFin--Luo';
+const SUPABASE_BUCKET = 'models';
+
+// --- Upload file to Supabase Storage ---
+async function uploadToSupabase(file) {
+    const fileName = `model_${Date.now()}_${file.name.replace(/\s+/g, '_')}`;
+    const uploadUrl = `${SUPABASE_URL}/storage/v1/object/${SUPABASE_BUCKET}/${fileName}`;
+
+    document.getElementById('factory-status').innerText = `⬆️ กำลังอัปโหลด ${file.name} ขึ้น Cloud... (${(file.size/1024/1024).toFixed(1)} MB)`;
+
+    const res = await fetch(uploadUrl, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+            'Content-Type': file.type || 'application/octet-stream',
+            'x-upsert': 'true'
+        },
+        body: file
+    });
+
+    if (!res.ok) {
+        const err = await res.text();
+        throw new Error(`Supabase upload failed: ${err}`);
+    }
+
+    // Build public URL
+    const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/${SUPABASE_BUCKET}/${fileName}`;
+    return publicUrl;
+}
+
+// --- Load model from a public URL (for remote players) ---
+function loadModelFromUrl(url, fileName) {
+    if (factoryModel) { scene.remove(factoryModel); originalMaterials.clear(); factoryColliders = []; }
+
+    document.getElementById('factory-status').innerText = `⬇️ กำลังโหลดโมเดลจาก Cloud...`;
+
+    const loader = getLoaderForFile(fileName || url);
+    loader.load(url, function(loadedObject) {
+        factoryModel = loadedObject.scene ? loadedObject.scene : loadedObject;
+
+        let meshCount = 0;
+        const container = document.getElementById('mesh-container');
+        container.innerHTML = '';
+
+        factoryModel.traverse(function(child) {
+            if (child.isMesh) {
+                meshCount++;
+                originalMaterials.set(child.uuid, child.material.clone());
+                const item = document.createElement('div');
+                item.className = 'mesh-item';
+                const mName = child.name || `ชิ้นส่วนที่_${meshCount}`;
+                item.innerText = `🏭 ${mName}`;
+                item.id = `mesh-item-${child.uuid}`;
+                item.addEventListener('click', () => { highlightAndShowWorkflow(child, mName, "คลิกเลือกโมเดล"); });
+                container.appendChild(item);
+            }
+        });
+
+        document.getElementById('model-meta').innerHTML = `<span class="info-tag">ตรวจพบชิ้นส่วน: ${meshCount} รายการ</span>`;
+        document.getElementById('details-panel').style.display = 'block';
+
+        const box = new THREE.Box3().setFromObject(factoryModel);
+        const size = box.getSize(new THREE.Vector3());
+        initialFactoryScale = 12 / Math.max(size.x, size.y, size.z);
+        factoryModel.scale.set(initialFactoryScale, initialFactoryScale, initialFactoryScale);
+        const center = box.getCenter(new THREE.Vector3());
+        factoryModel.position.set(-center.x * initialFactoryScale, 0, -center.z * initialFactoryScale);
+
+        scene.add(factoryModel);
+        document.getElementById('factory-status').innerText = `✓ โหลดสำเร็จ: ${fileName || 'โมเดลจาก Cloud'}`;
+        buildColliders();
+        setFactoryMaterialMode(currentMaterialMode);
+        syncSlidersWithModel();
+    }, undefined, (err) => {
+        document.getElementById('factory-status').innerText = `❌ โหลดโมเดลล้มเหลว`;
+        console.error(err);
+    });
+}
+
+// --- Override factory-input to upload to Supabase first ---
+const _origFactoryInput = document.getElementById('factory-input');
+const newFactoryInput = _origFactoryInput.cloneNode(true);
+_origFactoryInput.parentNode.replaceChild(newFactoryInput, _origFactoryInput);
+
+newFactoryInput.addEventListener('change', async function(event) {
+    const files = event.target.files;
+    if (files.length === 0) return;
+
+    let modelFile = null;
+    for (let i = 0; i < files.length; i++) {
+        const ext = files[i].name.split('.').pop().toLowerCase();
+        if (ext === 'gltf' || ext === 'glb' || ext === 'fbx') { modelFile = files[i]; break; }
+    }
+    if (!modelFile) {
+        document.getElementById('factory-status').innerText = '❌ ผิดพลาด: ไม่พบไฟล์ 3D หลัก';
+        return;
+    }
+
+    try {
+        const publicUrl = await uploadToSupabase(modelFile);
+        document.getElementById('factory-status').innerText = `✅ อัปโหลดสำเร็จ — กำลังแชร์ให้ผู้เล่นทุกคน...`;
+
+        // Broadcast URL ให้ทุกคนผ่าน Socket.IO (server จะ relay)
+        if (socket && socket.connected) {
+            socket.emit('model_shared', { url: publicUrl, fileName: modelFile.name });
+        } else {
+            // ถ้าไม่มี multiplayer ก็โหลดเฉพาะตัวเอง
+            loadModelFromUrl(publicUrl, modelFile.name);
+        }
+    } catch (err) {
+        document.getElementById('factory-status').innerText = `❌ อัปโหลดล้มเหลว: ${err.message}`;
+        console.error(err);
+    }
+});
+
 // --- Remote player registry ---
-// remoteAvatars: { socketId: THREE.Group }
 const remoteAvatars = {};
 let mySocketId = null;
 let myColor = '#00ffff';
 
-// Build a colored capsule avatar for a remote player
 function buildRemoteAvatar(color) {
     const hex = parseInt(color.replace('#', ''), 16);
     const group = new THREE.Group();
-
     const bodyMat = new THREE.MeshStandardMaterial({ color: hex, emissive: hex >> 1, roughness: 0.3, metalness: 0.7 });
     const body = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 1.2, 16), bodyMat);
     body.position.y = 0.6;
     group.add(body);
-
     const headMat = new THREE.MeshStandardMaterial({ color: hex, emissive: hex >> 2 });
     const head = new THREE.Mesh(new THREE.SphereGeometry(0.35, 16, 16), headMat);
     head.position.y = 1.2;
     group.add(head);
-
-    const ptr = new THREE.Mesh(
-        new THREE.BoxGeometry(0.1, 0.1, 0.4),
-        new THREE.MeshBasicMaterial({ color: 0xffffff })
-    );
+    const ptr = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.4), new THREE.MeshBasicMaterial({ color: 0xffffff }));
     ptr.position.set(0, 0.9, -0.45);
     group.add(ptr);
-
-    // Name label sprite (canvas texture)
-    group.userData.nameLabel = null; // filled later via setAvatarLabel()
+    group.userData.nameLabel = null;
     return group;
 }
 
 function setAvatarLabel(avatarGroup, name, color) {
-    // Remove old label if any
     if (avatarGroup.userData.nameLabel) {
         avatarGroup.remove(avatarGroup.userData.nameLabel);
         avatarGroup.userData.nameLabel.material.map.dispose();
@@ -606,7 +713,7 @@ function setAvatarLabel(avatarGroup, name, color) {
 }
 
 function addRemotePlayer(data) {
-    if (remoteAvatars[data.id]) return; // already exists
+    if (remoteAvatars[data.id]) return;
     const avatar = buildRemoteAvatar(data.color || '#ffffff');
     avatar.position.set(data.position.x, data.position.y, data.position.z);
     avatar.rotation.y = data.rotation?.y || 0;
@@ -617,15 +724,11 @@ function addRemotePlayer(data) {
 }
 
 function removeRemotePlayer(id) {
-    if (remoteAvatars[id]) {
-        scene.remove(remoteAvatars[id]);
-        delete remoteAvatars[id];
-    }
+    if (remoteAvatars[id]) { scene.remove(remoteAvatars[id]); delete remoteAvatars[id]; }
     updatePlayerListUI();
 }
 
-// --- Smooth interpolation targets for remote avatars ---
-const remoteTargets = {}; // { id: { pos, rotY } }
+const remoteTargets = {};
 
 function applyRemoteMove(data) {
     if (!remoteTargets[data.id]) remoteTargets[data.id] = { pos: new THREE.Vector3(), rotY: 0 };
@@ -633,7 +736,6 @@ function applyRemoteMove(data) {
     remoteTargets[data.id].rotY = data.rotation?.y || 0;
 }
 
-// Called from the existing animation loop — lerp remote players
 function updateRemoteAvatars() {
     for (const id in remoteAvatars) {
         const avatar = remoteAvatars[id];
@@ -644,8 +746,7 @@ function updateRemoteAvatars() {
     }
 }
 
-// --- Player list UI ---
-const _playerNames = {}; // id -> { name, color }
+const _playerNames = {};
 const _playerColors = {};
 
 function updatePlayerListUI() {
@@ -656,7 +757,7 @@ function updatePlayerListUI() {
     list.innerHTML = allIds.map(id => {
         const isMe = id === mySocketId;
         const name = _playerNames[id] || (isMe ? 'คุณ' : id.substring(0, 6));
-        const color = _playerColors[id] || (isMe ? myColor : '#ffffff');
+        const color = _playerColors[id] || '#ffffff';
         return `<div style="display:flex;align-items:center;gap:6px;padding:3px 0;font-size:12px;color:#cbd5e1;">
             <span style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0;"></span>
             <span style="color:${color};font-weight:${isMe?'bold':'normal'}">${isMe ? '👤 ' : ''}${name}</span>
@@ -667,7 +768,6 @@ function updatePlayerListUI() {
 function appendChat(msg) {
     const log = document.getElementById('mp-chat-log');
     if (!log) return;
-    const isMe = msg.id === mySocketId;
     const div = document.createElement('div');
     div.style.cssText = `margin-bottom:4px;color:${msg.color||'#fff'};word-break:break-all;`;
     div.innerHTML = `<strong>${msg.name}:</strong> ${msg.text}`;
@@ -675,7 +775,6 @@ function appendChat(msg) {
     log.scrollTop = log.scrollHeight;
 }
 
-// Throttle position broadcasts (max 20/s)
 let _lastSendTime = 0;
 const SEND_INTERVAL_MS = 50;
 
@@ -691,10 +790,6 @@ function maybeSendPosition() {
     });
 }
 
-// --- Patch the existing animate() to call multiplayer updates ---
-// We hook into the existing requestAnimationFrame by overriding the function variable.
-// The original animate() calls requestAnimationFrame(animate) at the top, so we monkey-patch
-// by wrapping the renderer's render call.
 const _origRender = renderer.render.bind(renderer);
 renderer.render = function(scene, camera) {
     updateRemoteAvatars();
@@ -702,7 +797,6 @@ renderer.render = function(scene, camera) {
     _origRender(scene, camera);
 };
 
-// --- Global UI functions ---
 window.setMyName = function() {
     const input = document.getElementById('mp-name-input');
     const name = input.value.trim();
@@ -720,7 +814,6 @@ window.sendChat = function() {
     input.value = '';
 };
 
-// Enter key to send chat
 document.getElementById('mp-chat-input')?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') window.sendChat();
 });
@@ -728,11 +821,10 @@ document.getElementById('mp-name-input')?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') window.setMyName();
 });
 
-// HUD key: U
 window.addEventListener('keydown', (e) => {
     if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
     if (e.key.toLowerCase() === 'u') togglePanelElement('multiplayer-panel');
-}, true); // capture so it fires after the existing listener too
+}, true);
 
 // --- Socket.IO connection ---
 let socket;
@@ -740,17 +832,18 @@ function initMultiplayer() {
     const statusDot = document.getElementById('mp-dot');
     const statusText = document.getElementById('mp-status-text');
 
-    // If Socket.IO script didn't load (e.g. opened as file://) just skip gracefully
     if (typeof io === 'undefined') {
-        statusText.innerText = 'ไม่พบ Socket.IO — ใช้งานแบบ Single Player';
+        statusText.innerText = 'ไม่พบ Socket.IO — Single Player mode';
         return;
     }
 
-    socket = io({ transports: ['websocket', 'polling'] });
+    // ใส่ Railway URL ตรงนี้
+    const RAILWAY_URL = window.RAILWAY_SERVER_URL || window.location.origin;
+    socket = io(RAILWAY_URL, { transports: ['websocket', 'polling'] });
 
     socket.on('connect', () => {
         statusDot.style.background = '#22c55e';
-        statusText.innerText = 'เชื่อมต่อแล้ว';
+        statusText.innerText = 'เชื่อมต่อแล้ว ✓';
     });
 
     socket.on('disconnect', () => {
@@ -761,25 +854,27 @@ function initMultiplayer() {
     socket.on('self_init', (data) => {
         mySocketId = data.self.id;
         myColor = data.self.color;
-
         _playerNames[mySocketId] = data.self.name;
         _playerColors[mySocketId] = myColor;
 
-        // Spawn our avatar at server-assigned start position
         if (avatarModel) {
             avatarModel.position.set(data.self.position.x, data.self.position.y, data.self.position.z);
         }
 
-        // Pre-fill name input with server-assigned name
         const nameInput = document.getElementById('mp-name-input');
         if (nameInput) nameInput.value = data.self.name;
 
-        // Spawn all existing players
         data.others.forEach(p => {
             _playerNames[p.id] = p.name;
             _playerColors[p.id] = p.color;
             addRemotePlayer(p);
         });
+
+        // โหลดโมเดลที่มีอยู่แล้วในห้อง (ถ้ามี)
+        if (data.modelUrl) {
+            appendChat({ id: 'system', name: 'ระบบ', color: '#64748b', text: `กำลังโหลดโมเดลที่มีอยู่ในห้อง...` });
+            loadModelFromUrl(data.modelUrl, data.modelName);
+        }
 
         updatePlayerListUI();
     });
@@ -806,10 +901,14 @@ function initMultiplayer() {
 
     socket.on('player_renamed', (data) => {
         _playerNames[data.id] = data.name;
-        if (remoteAvatars[data.id]) {
-            setAvatarLabel(remoteAvatars[data.id], data.name, _playerColors[data.id] || '#fff');
-        }
+        if (remoteAvatars[data.id]) setAvatarLabel(remoteAvatars[data.id], data.name, _playerColors[data.id] || '#fff');
         updatePlayerListUI();
+    });
+
+    // ได้รับ URL โมเดลจากผู้เล่นคนอื่น — โหลดทันที
+    socket.on('load_model', (data) => {
+        appendChat({ id: 'system', name: 'ระบบ', color: '#00ffff', text: `📦 ผู้เล่นแชร์โมเดลใหม่: ${data.fileName}` });
+        loadModelFromUrl(data.url, data.fileName);
     });
 
     socket.on('chat_message', (msg) => {
