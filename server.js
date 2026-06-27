@@ -24,9 +24,10 @@ const PLAYER_COLORS = [
     '#c77dff', '#ff9f43', '#00d2d3', '#ff6b9d'
 ];
 
-// Track latest model URL so late-joiners get it too
+// Room state — persistent ตลอด session
 let currentModelUrl = null;
 let currentModelName = null;
+const workflowDatabase = {}; // meshUUID -> { name, desc, steps, colorClass }
 
 function getRandomColor() {
     return PLAYER_COLORS[Math.floor(Math.random() * PLAYER_COLORS.length)];
@@ -45,12 +46,13 @@ io.on('connection', (socket) => {
     };
     players[socket.id] = playerData;
 
-    // Send identity + existing players + current model (if any)
+    // ส่งข้อมูลทั้งหมดให้ผู้เล่นใหม่ — รวม workflow ที่แก้ไขไปแล้ว
     socket.emit('self_init', {
         self: playerData,
         others: Object.values(players).filter(p => p.id !== socket.id),
         modelUrl: currentModelUrl,
-        modelName: currentModelName
+        modelName: currentModelName,
+        workflowDatabase: workflowDatabase  // ← ส่ง workflow ทั้งหมดให้ด้วย
     });
 
     socket.broadcast.emit('player_joined', playerData);
@@ -68,18 +70,22 @@ io.on('connection', (socket) => {
         });
     });
 
-    // Workflow data update — broadcast to all
-    socket.on("workflow_update", (data) => {
-        socket.broadcast.emit("workflow_updated", data);
-        console.log(`[WORKFLOW] Updated by ${socket.id}: ${data.name}`);
+    // Workflow update — เก็บไว้ใน server แล้ว broadcast
+    socket.on('workflow_update', (data) => {
+        workflowDatabase[data.meshUUID] = {
+            name: data.name,
+            desc: data.desc,
+            steps: data.steps,
+            colorClass: data.colorClass || 'tag-blue'
+        };
+        socket.broadcast.emit('workflow_updated', data);
+        console.log(`[WORKFLOW] Updated: ${data.name}`);
     });
 
-    // Someone uploaded a model — save URL and broadcast to all
     socket.on('model_shared', (data) => {
         currentModelUrl = data.url;
         currentModelName = data.fileName;
-        console.log(`[MODEL] Shared by ${socket.id}: ${data.fileName}`);
-        // Send to everyone including sender (so UI updates consistently)
+        console.log(`[MODEL] Shared: ${data.fileName}`);
         io.emit('load_model', { url: data.url, fileName: data.fileName });
     });
 
@@ -111,5 +117,4 @@ io.on('connection', (socket) => {
 
 server.listen(PORT, () => {
     console.log(`🚀 Biogas Twin Multiplayer Server running at http://localhost:${PORT}`);
-    console.log(`   Socket.IO + Supabase model sync enabled ✓`);
 });
