@@ -11,7 +11,6 @@ const io = new Server(server, {
 
 const PORT = process.env.PORT || 3000;
 
-// Serve static files
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
@@ -19,25 +18,23 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// --- MULTIPLAYER STATE ---
-// players: { socketId: { id, name, color, position, rotation, isJumping } }
 const players = {};
-
-// Random bright colors for player avatars
 const PLAYER_COLORS = [
     '#ff6b6b', '#ffd93d', '#6bcb77', '#4d96ff',
     '#c77dff', '#ff9f43', '#00d2d3', '#ff6b9d'
 ];
 
+// Track latest model URL so late-joiners get it too
+let currentModelUrl = null;
+let currentModelName = null;
+
 function getRandomColor() {
     return PLAYER_COLORS[Math.floor(Math.random() * PLAYER_COLORS.length)];
 }
 
-// --- SOCKET.IO HANDLERS ---
 io.on('connection', (socket) => {
     console.log(`[+] Player connected: ${socket.id}`);
 
-    // New player joins — assign identity
     const playerData = {
         id: socket.id,
         name: `Player_${socket.id.substring(0, 4).toUpperCase()}`,
@@ -48,22 +45,21 @@ io.on('connection', (socket) => {
     };
     players[socket.id] = playerData;
 
-    // Send this player their own identity + all existing players
+    // Send identity + existing players + current model (if any)
     socket.emit('self_init', {
         self: playerData,
-        others: Object.values(players).filter(p => p.id !== socket.id)
+        others: Object.values(players).filter(p => p.id !== socket.id),
+        modelUrl: currentModelUrl,
+        modelName: currentModelName
     });
 
-    // Broadcast new player to everyone else
     socket.broadcast.emit('player_joined', playerData);
 
-    // Receive movement updates from this player
     socket.on('player_move', (data) => {
         if (!players[socket.id]) return;
         players[socket.id].position = data.position;
         players[socket.id].rotation = data.rotation;
         players[socket.id].isJumping = data.isJumping || false;
-        // Relay to all other players
         socket.broadcast.emit('player_moved', {
             id: socket.id,
             position: data.position,
@@ -72,7 +68,15 @@ io.on('connection', (socket) => {
         });
     });
 
-    // Name change
+    // Someone uploaded a model — save URL and broadcast to all
+    socket.on('model_shared', (data) => {
+        currentModelUrl = data.url;
+        currentModelName = data.fileName;
+        console.log(`[MODEL] Shared by ${socket.id}: ${data.fileName}`);
+        // Send to everyone including sender (so UI updates consistently)
+        io.emit('load_model', { url: data.url, fileName: data.fileName });
+    });
+
     socket.on('set_name', (name) => {
         if (!players[socket.id]) return;
         const safeName = String(name).substring(0, 20).replace(/[<>]/g, '');
@@ -80,7 +84,6 @@ io.on('connection', (socket) => {
         io.emit('player_renamed', { id: socket.id, name: safeName });
     });
 
-    // Chat messages
     socket.on('chat_message', (text) => {
         if (!players[socket.id]) return;
         const msg = {
@@ -93,7 +96,6 @@ io.on('connection', (socket) => {
         io.emit('chat_message', msg);
     });
 
-    // Disconnect
     socket.on('disconnect', () => {
         console.log(`[-] Player disconnected: ${socket.id}`);
         delete players[socket.id];
@@ -103,5 +105,5 @@ io.on('connection', (socket) => {
 
 server.listen(PORT, () => {
     console.log(`🚀 Biogas Twin Multiplayer Server running at http://localhost:${PORT}`);
-    console.log(`   Socket.IO multiplayer enabled ✓`);
+    console.log(`   Socket.IO + Supabase model sync enabled ✓`);
 });
