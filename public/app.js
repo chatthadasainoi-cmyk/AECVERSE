@@ -870,6 +870,11 @@ function initMultiplayer() {
             addRemotePlayer(p);
         });
 
+        // โหลด workflow database จาก server (ข้อมูลที่แก้ไขไปแล้ว)
+        if (data.workflowDatabase) {
+            Object.assign(workflowDatabase, data.workflowDatabase);
+        }
+
         // โหลดโมเดลที่มีอยู่แล้วในห้อง (ถ้ามี)
         if (data.modelUrl) {
             appendChat({ id: 'system', name: 'ระบบ', color: '#64748b', text: `กำลังโหลดโมเดลที่มีอยู่ในห้อง...` });
