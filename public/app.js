@@ -234,7 +234,7 @@ window.addEventListener('keydown', (e) => {
     if (e.key === 'ArrowUp' || key === 'w' || key === 'ไ') moveStatus.forward = true;
     if (e.key === 'ArrowDown' || key === 's' || key === 'ห') moveStatus.backward = true;
     if (e.key === 'ArrowLeft' || key === 'a' || key === 'ฟ' || key === 'ภ') moveStatus.left = true; // รองรับแป้นพิมพ์ไทยทั้งพิมพ์เล็ก/ใหญ่
-    if (e.key === 'ArrowRight' || key === 'd' || key === 'ด') moveStatus.right = true;
+    if (e.key === 'ArrowRight' || key === 'd' || key === 'ก') moveStatus.right = true;
     if (e.key === ' ' && !jumpConfig.isJumping) triggerAvatarJump();
 
     // ปุ่มลัดเปิด/ปิดหน้าต่างเมนูต่าง ๆ (H=อ, M=ท, P=ย, T=ะ, R=พ)
@@ -252,7 +252,7 @@ window.addEventListener('keyup', (e) => {
     if (e.key === 'ArrowUp' || key === 'w' || key === 'ไ') moveStatus.forward = false;
     if (e.key === 'ArrowDown' || key === 's' || key === 'ห') moveStatus.backward = false;
     if (e.key === 'ArrowLeft' || key === 'a' || key === 'ฟ' || key === 'ภ') moveStatus.left = false;
-    if (e.key === 'ArrowRight' || key === 'd' || key === 'ด') moveStatus.right = false;
+    if (e.key === 'ArrowRight' || key === 'd' || key === 'ก') moveStatus.right = false;
 });
 // --- 5. IOT & DATA SIMULATION ---
 function loopIotSimulation() {
