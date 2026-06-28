@@ -36,8 +36,9 @@ let factoryColliders = [];
 const moveStatus = { forward: false, backward: false, left: false, right: false };
 const avatarConfig = { speed: 0.12, turnSpeed: 0.045, radius: 0.35 };
 const jumpConfig = { velocity: 0, gravity: -0.012, jumpForce: 0.24, isJumping: false, groundY: 0.9 };
-const defaultCameraOffset = new THREE.Vector3(0, 2.5, 5);
+const defaultCameraOffset = new THREE.Vector3(0, 2.5, 5); // Z+ = ด้านหลัง avatar
 let freeLookMode = false; // F = toggle free look
+const freeLookMove = { forward: false, backward: false, left: false, right: false };
 
 const workflowDatabase = {
     "default": { 
@@ -156,6 +157,7 @@ function animateEngineerWalk(g, isMoving) {
 function createProceduralAvatar() {
     const avatarGroup = createEngineerAvatar('#ff9900');
     avatarGroup.position.set(0, jumpConfig.groundY, 8);
+    avatarGroup.rotation.y = Math.PI; // หันหลังให้กล้อง
     scene.add(avatarGroup);
     avatarModel = avatarGroup;
     document.getElementById('transform-panel').style.display = 'block';
@@ -271,13 +273,21 @@ window.addEventListener('keydown', (e) => {
     if (e.key === 'ArrowDown'  || key === 's' || key === 'ห') moveStatus.backward = true;
     if (e.key === 'ArrowLeft'  || key === 'a' || key === 'ฟ' || key === 'ภ') moveStatus.left  = true;
     if (e.key === 'ArrowRight' || key === 'd' || key === 'ก') moveStatus.right = true;
+    // Free Look mode — WASD ขยับกล้อง
+    if (freeLookMode) {
+        if (key === 'w' || key === 'ไ') freeLookMove.forward  = true;
+        if (key === 's' || key === 'ห') freeLookMove.backward = true;
+        if (key === 'a' || key === 'ฟ' || key === 'ภ') freeLookMove.left  = true;
+        if (key === 'd' || key === 'ก') freeLookMove.right = true;
+        return;
+    }
     if (e.key === ' ' && !jumpConfig.isJumping) triggerAvatarJump();
     if (key === 'h' || key === '้') togglePanelElement('dashboard');
     if (key === 'm' || key === 'ท') togglePanelElement('details-panel');
     if (key === 'p' || key === 'ย') togglePanelElement('process-panel');
     if (key === 't' || key === 'ะ') togglePanelElement('transform-panel');
     if (key === 'r' || key === 'พ') resetCameraToAvatar();
-    if (key === 'f') {
+    if (key === 'f' || key === 'ด') {
         freeLookMode = !freeLookMode;
         controls.enabled = freeLookMode; // ปลดล็อค orbit ตอน free look
         const btn = document.getElementById('freelook-btn');
@@ -288,6 +298,13 @@ window.addEventListener('keydown', (e) => {
 
 window.addEventListener('keyup', (e) => {
     const key = e.key.toLowerCase();
+    if (freeLookMode) {
+        if (key === 'w' || key === 'ไ') freeLookMove.forward  = false;
+        if (key === 's' || key === 'ห') freeLookMove.backward = false;
+        if (key === 'a' || key === 'ฟ' || key === 'ภ') freeLookMove.left  = false;
+        if (key === 'd' || key === 'ก') freeLookMove.right = false;
+        return;
+    }
     if (e.key === 'ArrowUp'    || key === 'w' || key === 'ไ') moveStatus.forward  = false;
     if (e.key === 'ArrowDown'  || key === 's' || key === 'ห') moveStatus.backward = false;
     if (e.key === 'ArrowLeft'  || key === 'a' || key === 'ฟ' || key === 'ภ') moveStatus.left  = false;
@@ -527,6 +544,17 @@ function updateAvatarPhysics() {
         }
     }
 
+    // Free look camera pan
+    if (freeLookMode) {
+        const panSpeed = 0.15;
+        const forward = new THREE.Vector3();
+        camera.getWorldDirection(forward); forward.y = 0; forward.normalize();
+        const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0,1,0));
+        if (freeLookMove.forward)  { camera.position.addScaledVector(forward,  panSpeed); controls.target.addScaledVector(forward,  panSpeed); }
+        if (freeLookMove.backward) { camera.position.addScaledVector(forward, -panSpeed); controls.target.addScaledVector(forward, -panSpeed); }
+        if (freeLookMove.left)     { camera.position.addScaledVector(right,   -panSpeed); controls.target.addScaledVector(right,   -panSpeed); }
+        if (freeLookMove.right)    { camera.position.addScaledVector(right,    panSpeed); controls.target.addScaledVector(right,    panSpeed); }
+    }
     if (!freeLookMode) {
         const targetCamOffset = defaultCameraOffset.clone().applyMatrix4(avatarModel.matrixWorld);
         camera.position.lerp(targetCamOffset, 0.08);
