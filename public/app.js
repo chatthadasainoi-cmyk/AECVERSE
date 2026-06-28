@@ -959,9 +959,11 @@ const _origSaveLiveEdit = saveLiveEdit;
 window.saveLiveEdit = function() {
     if (!activeSelectedMeshUUID) return;
 
-    // ดึงชื่อและค่าทั้งหมดก่อน _origSaveLiveEdit รัน (เพราะมันจะซ่อน textarea และเปลี่ยน title)
+    // ดึงชื่อจาก workflowDatabase โดยใช้ activeSelectedMeshUUID
+    const currentData = workflowDatabase[activeSelectedMeshUUID] || workflowDatabase[activeSelectedKeyKey] || {};
     const titleEl = document.getElementById('process-title');
-    const newTitle = titleEl ? titleEl.innerText.replace('⚙️ โซน: ', '').replace('⚙️ ชิ้นส่วน: ', '').trim() : '';
+    const titleFromEl = titleEl ? titleEl.innerText.replace('⚙️ โซน: ', '').replace('⚙️ ชิ้นส่วน: ', '').trim() : '';
+    const newTitle = currentData.name || titleFromEl || activeSelectedMeshUUID;
     const descEl = document.getElementById('input-edit-desc');
     const stepsEl = document.getElementById('input-edit-steps');
     const newDesc = descEl ? descEl.value.trim() : '';
