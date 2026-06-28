@@ -37,6 +37,7 @@ const moveStatus = { forward: false, backward: false, left: false, right: false 
 const avatarConfig = { speed: 0.12, turnSpeed: 0.045, radius: 0.35 };
 const jumpConfig = { velocity: 0, gravity: -0.012, jumpForce: 0.24, isJumping: false, groundY: 0.9 };
 const defaultCameraOffset = new THREE.Vector3(0, 2.5, 5);
+let freeLookMode = false; // F = toggle free look
 
 const workflowDatabase = {
     "default": { 
@@ -276,6 +277,13 @@ window.addEventListener('keydown', (e) => {
     if (key === 'p' || key === 'ย') togglePanelElement('process-panel');
     if (key === 't' || key === 'ะ') togglePanelElement('transform-panel');
     if (key === 'r' || key === 'พ') resetCameraToAvatar();
+    if (key === 'f') {
+        freeLookMode = !freeLookMode;
+        controls.enabled = freeLookMode; // ปลดล็อค orbit ตอน free look
+        const btn = document.getElementById('freelook-btn');
+        if (btn) btn.style.color = freeLookMode ? '#00ffff' : '#b0c4de';
+        if (!freeLookMode) resetCameraToAvatar();
+    }
 });
 
 window.addEventListener('keyup', (e) => {
@@ -519,9 +527,14 @@ function updateAvatarPhysics() {
         }
     }
 
-    const targetCamOffset = defaultCameraOffset.clone().applyMatrix4(avatarModel.matrixWorld);
-    camera.position.lerp(targetCamOffset, 0.08);
-    controls.target.set(avatarModel.position.x, avatarModel.position.y + 0.3, avatarModel.position.z);
+    if (!freeLookMode) {
+        const targetCamOffset = defaultCameraOffset.clone().applyMatrix4(avatarModel.matrixWorld);
+        camera.position.lerp(targetCamOffset, 0.08);
+        controls.target.lerp(new THREE.Vector3(avatarModel.position.x, avatarModel.position.y + 0.8, avatarModel.position.z), 0.1);
+        controls.enabled = false; // ล็อคกล้องตาม avatar
+    } else {
+        controls.enabled = true; // free look
+    }
 
     if (factoryModel && isMoving) {
         let closestMesh = null; let minDistance = 2.5;
