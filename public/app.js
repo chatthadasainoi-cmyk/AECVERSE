@@ -265,52 +265,51 @@ function resetCameraToAvatar() {
     controls.update();
 }
 
-// --- 4. KEYBOARD CONTROL ---
+// --- 4. KEYBOARD CONTROL CONTROL ---
 window.addEventListener('keydown', (e) => {
     if(document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
     const key = e.key.toLowerCase();
-    if (e.key === 'ArrowUp'    || key === 'w' || key === 'ไ') moveStatus.forward  = true;
-    if (e.key === 'ArrowDown'  || key === 's' || key === 'ห') moveStatus.backward = true;
-    if (e.key === 'ArrowLeft'  || key === 'a' || key === 'ฟ' || key === 'ภ') moveStatus.left  = true;
-    if (e.key === 'ArrowRight' || key === 'd' || key === 'ก') moveStatus.right = true;
-    // Free Look mode — WASD ขยับกล้อง
-    if (freeLookMode) {
-        if (key === 'w' || key === 'ไ') freeLookMove.forward  = true;
-        if (key === 's' || key === 'ห') freeLookMove.backward = true;
-        if (key === 'a' || key === 'ฟ' || key === 'ภ') freeLookMove.left  = true;
-        if (key === 'd' || key === 'ก') freeLookMove.right = true;
+    
+    // 💡 กดปุ่ม F หรือ ด เพื่อสลับโหมด Free Look
+    if (key === 'f' || key === 'ด') {
+        isFreeLook = !isFreeLook;
+        if (!isFreeLook) {
+            // ถ้าปิดโหมด Free Look ให้รีเซ็ตมุมกล้องกลับมาล็อกที่ตัวละครทันที
+            resetCameraToAvatar();
+        }
+        // แสดงข้อความแจ้งเตือนในระบบแชทซิมูเลเตอร์
+        mpAppendChat({
+            name: 'ระบบกล้อง', 
+            color: '#00ffff', 
+            text: isFreeLook ? '🎥 เข้าสู่โหมด Free Look (ใช้ W A S D / ไ ฟ ห ก บินกล้อง)' : '👤 กลับสู่โหมดติดตามตัวละคร'
+        });
         return;
     }
-    if (e.key === ' ' && !jumpConfig.isJumping) triggerAvatarJump();
-    if (key === 'h' || key === '้') togglePanelElement('dashboard');
+
+    // การควบคุมทิศทาง (รองรับคีย์บอร์ดภาษาอังกฤษ และ ภาษาไทย ไ-ฟ-ห-ก-ด)
+    if (e.key === 'ArrowUp' || key === 'w' || key === 'ฟ' || key === 'ไ') moveStatus.forward = true;
+    if (e.key === 'ArrowDown' || key === 's' || key === 'ห') moveStatus.backward = true;
+    if (e.key === 'ArrowLeft' || key === 'a' || key === 'ฟ' || key === 'ภ' || key === 'ไ') moveStatus.left = true;
+    if (e.key === 'ArrowRight' || key === 'd' || key === 'ด' || key === 'ก') moveStatus.right = true;
+    
+    // ตัวละครกระโดด (ทำงานเฉพาะตอนไม่ได้เปิดโหมด Free Look)
+    if (e.key === ' ' && !jumpConfig.isJumping && !isFreeLook) triggerAvatarJump();
+
+    // ปุ่มลัด UI อื่นๆ ยังสามารถกดได้ปกติแม้จะอยู่โหมด Free Look
+    if (key === 'h' || key === 'อ') togglePanelElement('dashboard');
     if (key === 'm' || key === 'ท') togglePanelElement('details-panel');
     if (key === 'p' || key === 'ย') togglePanelElement('process-panel');
     if (key === 't' || key === 'ะ') togglePanelElement('transform-panel');
     if (key === 'r' || key === 'พ') resetCameraToAvatar();
-    if (key === 'f' || key === 'ด') {
-        freeLookMode = !freeLookMode;
-        controls.enabled = freeLookMode; // ปลดล็อค orbit ตอน free look
-        const btn = document.getElementById('freelook-btn');
-        if (btn) btn.style.color = freeLookMode ? '#00ffff' : '#b0c4de';
-        if (!freeLookMode) resetCameraToAvatar();
-    }
 });
 
 window.addEventListener('keyup', (e) => {
     const key = e.key.toLowerCase();
-    if (freeLookMode) {
-        if (key === 'w' || key === 'ไ') freeLookMove.forward  = false;
-        if (key === 's' || key === 'ห') freeLookMove.backward = false;
-        if (key === 'a' || key === 'ฟ' || key === 'ภ') freeLookMove.left  = false;
-        if (key === 'd' || key === 'ก') freeLookMove.right = false;
-        return;
-    }
-    if (e.key === 'ArrowUp'    || key === 'w' || key === 'ไ') moveStatus.forward  = false;
-    if (e.key === 'ArrowDown'  || key === 's' || key === 'ห') moveStatus.backward = false;
-    if (e.key === 'ArrowLeft'  || key === 'a' || key === 'ฟ' || key === 'ภ') moveStatus.left  = false;
-    if (e.key === 'ArrowRight' || key === 'd' || key === 'ก') moveStatus.right = false;
+    if (e.key === 'ArrowUp' || key === 'w' || key === 'ฟ' || key === 'ไ') moveStatus.forward = false;
+    if (e.key === 'ArrowDown' || key === 's' || key === 'ห') moveStatus.backward = false;
+    if (e.key === 'ArrowLeft' || key === 'a' || key === 'ฟ' || key === 'ภ' || key === 'ไ') moveStatus.left = false;
+    if (e.key === 'ArrowRight' || key === 'd' || key === 'ด' || key === 'ก') moveStatus.right = false;
 });
-
 // --- 5. IOT & DATA SIMULATION ---
 function loopIotSimulation() {
     if(!activeSelectedMeshUUID) return;
