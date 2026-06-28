@@ -916,6 +916,11 @@ function initMultiplayer() {
         loadModelFromUrl(data.url, data.fileName);
     });
 
+    // รับ workflow update จากคนอื่น
+    socket.on('workflow_updated', (data) => {
+        applyRemoteWorkflowUpdate(data);
+    });
+
     socket.on('chat_message', (msg) => {
         appendChat(msg);
     });
