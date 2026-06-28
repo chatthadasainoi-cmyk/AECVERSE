@@ -643,7 +643,8 @@ window.saveLiveEdit = function() {
     const newTitle = titleEl ? titleEl.value.trim() : '';
     const newDesc = descEl ? descEl.value.trim() : '';
     const newSteps = stepsEl ? stepsEl.value.split(',').map(s=>s.trim()).filter(Boolean) : [];
-    const syncKey = activeSelectedKeyKey || activeSelectedMeshUUID;
+    // ใช้ชื่อ mesh เป็น sync key — ใช้ได้ข้าม browser
+    const syncKey = newTitle || activeSelectedKeyKey;
     _origSaveLiveEdit();
     if (mpSocket && mpSocket.connected && syncKey) {
         mpSocket.emit('workflow_update', { key: syncKey, name: newTitle, desc: newDesc, steps: newSteps, colorClass: 'tag-blue' });
@@ -828,14 +829,34 @@ function initMultiplayer() {
         loadModelFromUrl(data.url, data.fileName);
     });
 
-    // workflow อัปเดต — ใช้ key ตรงๆ จาก server
+    // workflow อัปเดต — บันทึกและ sync UI
     mpSocket.on('workflow_updated', data => {
-        // บันทึกลง database
+        // บันทึกลง database ด้วยทั้ง key (ชื่อ) และ UUID ของแต่ละฝั่ง (ถ้ามี)
         workflowDatabase[data.key] = { name: data.name, desc: data.desc, steps: data.steps, colorClass: data.colorClass||'tag-blue' };
-        // ถ้า panel เปิดอยู่และดู key เดียวกัน — อัปเดต UI ทันที
+
+        // หา mesh ที่ชื่อตรงกัน แล้วเก็บ UUID ของฝั่งนี้ด้วย
+        if (factoryModel) {
+            factoryModel.traverse(child => {
+                if (child.isMesh && (child.name === data.key || child.name === data.name)) {
+                    workflowDatabase[child.uuid] = workflowDatabase[data.key];
+                    // อัปเดตชื่อใน mesh list
+                    const item = document.getElementById(`mesh-item-${child.uuid}`);
+                    if (item) item.innerText = `🏭 ${data.name}`;
+                    child.name = data.name;
+                }
+            });
+        }
+
+        // อัปเดต UI ถ้า panel เปิดอยู่
         const panel = document.getElementById('process-panel');
-        if (panel && panel.style.display !== 'none' && activeSelectedKeyKey === data.key) {
-            renderWorkflowUI(data.name, data.desc, data.steps, '✏️ อัปเดตโดยผู้เล่นอื่น', data.colorClass||'tag-blue');
+        if (panel && panel.style.display !== 'none') {
+            const titleEl = document.getElementById('process-title');
+            const currentName = titleEl ? titleEl.innerText.replace('⚙️ โซน: ','').trim() : '';
+            // match ด้วยชื่อหรือ key
+            if (currentName === data.key || currentName === data.name ||
+                activeSelectedKeyKey === data.key) {
+                renderWorkflowUI(data.name, data.desc, data.steps, '✏️ อัปเดตโดยผู้เล่นอื่น', data.colorClass||'tag-blue');
+            }
         }
         mpAppendChat({name:'ระบบ', color:'#ffaa00', text:`✏️ "${data.name}" ถูกแก้ไขแล้ว`});
     });
