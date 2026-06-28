@@ -77,7 +77,6 @@ const workflowDatabase = {
 
 // --- 2. 🛡️ สร้าง AVATAR แบบแท่งกระบอกแคปซูลอัตโนมัติ (ไม่ต้องโหลดไฟล์แล้ว) ---
 function createProceduralAvatar() {
-    // ผสานรูปทรงทรงกระบอกและทรงกลมหัวท้ายขึ้นรูปเป็น Capsule เรืองแสงสีทองส้มไฮเทค
     const avatarGroup = new THREE.Group();
 
     // ตัวตน (Body Cylinder)
@@ -110,10 +109,9 @@ function createProceduralAvatar() {
     scene.add(avatarGroup);
     
     avatarModel = avatarGroup;
-    document.getElementById('transform-panel').style.display = 'block'; // เปิดตัวจัดการวัตถุ
+    document.getElementById('transform-panel').style.display = 'block'; 
 }
 
-// เรียกสร้างทันทีเปิดเว็บ
 createProceduralAvatar();
 
 function getLoaderForFile(fileName) {
@@ -174,9 +172,12 @@ document.getElementById('factory-input').addEventListener('change', function (ev
                 originalMaterials.set(child.uuid, child.material.clone());
                 if (uploadedTexture) { child.material.map = uploadedTexture; child.material.needsUpdate = true; }
 
+                // เก็บชื่อออริจินัลจากไฟล์ป้องกันการสูญหายเมื่อมีการแก้ไขชื่อเรียลไทม์
+                if (!child._original3DName) { child._original3DName = child.name || `Object_${meshCount}`; }
+
                 const item = document.createElement('div');
                 item.className = 'mesh-item';
-                const mName = child.name || `ชิ้นส่วนที่_${meshCount}`;
+                const mName = child.name || child._original3DName;
                 item.innerText = `🏭 ${mName}`;
                 item.id = `mesh-item-${child.uuid}`; 
                 item.addEventListener('click', () => { highlightAndShowWorkflow(child, mName, "คลิกเลือกโมเดล"); });
@@ -344,17 +345,22 @@ function highlightAndShowWorkflow(targetMesh, meshName, method) {
         });
     }
 
-    const nameLower = meshName.toLowerCase();
+    // 💡 [จุดแก้ไขข้อที่ 1] ค้นหาคีย์ที่ถูกต้องที่สุดแบบย้อนกลับ: ตรวจสอบจากชื่อดั้งเดิมหรือรหัส UUID เครือข่ายก่อนหล่นไปหาค่า Default
+    const origName = targetMesh._original3DName || targetMesh.name || meshName;
     let databaseKey = "default";
-    
-    if (nameLower.includes("tank") || nameLower.includes("ถัง") || nameLower.includes("หมัก") || nameLower.includes("digester")) databaseKey = "tank";
-    else if (nameLower.includes("pipe") || nameLower.includes("ท่อ") || nameLower.includes("line")) databaseKey = "pipe";
-    else if (nameLower.includes("engine") || nameLower.includes("อาคาร") || nameLower.includes("generator") || nameLower.includes("utilization") || nameLower.includes("genset")) databaseKey = "utilization";
-    else if (nameLower.includes("flare") || nameLower.includes("เผา")) databaseKey = "flare";
-    
-    // 💡 ปรับปรุงเพื่อให้ระบบจับคู่คีย์ชิ้นส่วนที่เกิดจากการแก้ไขแบบเรียลไทม์ได้แม่นยำขึ้น
-    if (workflowDatabase[targetMesh.name]) databaseKey = targetMesh.name;
+
+    if (workflowDatabase[origName]) databaseKey = origName;
+    else if (workflowDatabase[targetMesh.name]) databaseKey = targetMesh.name;
     else if (workflowDatabase[targetMesh.uuid]) databaseKey = targetMesh.uuid;
+    else {
+        // หากไม่มีในฐานข้อมูลแก้ไขสด ให้วิ่งเข้าลูปเช็กประเภทคำดั้งเดิมของตัวโรงงาน
+        const nameLower = origName.toLowerCase();
+        if (nameLower.includes("tank") || nameLower.includes("ถัง") || nameLower.includes("หมัก") || nameLower.includes("digester")) databaseKey = "tank";
+        else if (nameLower.includes("pipe") || nameLower.includes("ท่อ") || nameLower.includes("line")) databaseKey = "pipe";
+        else if (nameLower.includes("engine") || nameLower.includes("อาคาร") || nameLower.includes("generator") || nameLower.includes("utilization") || nameLower.includes("genset")) databaseKey = "utilization";
+        else if (nameLower.includes("flare") || nameLower.includes("เผา")) databaseKey = "flare";
+    }
+
     activeSelectedKeyKey = databaseKey;
 
     const matchedData = workflowDatabase[databaseKey] || workflowDatabase["default"];
@@ -444,7 +450,6 @@ function updateAvatarPhysics() {
     if (!avatarModel) return;
     if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
 
-    // ระบบกระโดดและแรงโน้มถ่วง
     if (jumpConfig.isJumping) {
         avatarModel.position.y += jumpConfig.velocity;
         jumpConfig.velocity += jumpConfig.gravity;
@@ -459,11 +464,9 @@ function updateAvatarPhysics() {
         }
     }
 
-    // เลี้ยวซ้ายขวา
     if (moveStatus.left) avatarModel.rotation.y += avatarConfig.turnSpeed;
     if (moveStatus.right) avatarModel.rotation.y -= avatarConfig.turnSpeed;
 
-    // คำนวณทิศทางการเคลื่อนที่ตามหน้าเวกเตอร์ของแคปซูล
     let moveVector = new THREE.Vector3(0, 0, 0);
     if (moveStatus.forward) moveVector.z = -avatarConfig.speed;
     if (moveStatus.backward) moveVector.z = avatarConfig.speed;
@@ -474,12 +477,11 @@ function updateAvatarPhysics() {
     if (isMoving) {
         let nextX = avatarModel.position.x + moveVector.x;
         let nextZ = avatarModel.position.z + moveVector.z;
-        let currentY = avatarModel.position.y - jumpConfig.groundY; // หาค่าระนาบเท้าที่แท้จริง
+        let currentY = avatarModel.position.y - jumpConfig.groundY; 
 
         let collisionDetected = false;
         let targetStepY = jumpConfig.groundY; 
 
-        // คำนวณการตรวจชนกับกล่องรอบวัตถุในโรงงาน (Bounding Box Collision)
         for (let i = 0; i < factoryColliders.length; i++) {
             const col = factoryColliders[i];
             const box = col.box; 
@@ -489,7 +491,7 @@ function updateAvatarPhysics() {
                 currentY < box.max.y && currentY + 1.6 > box.min.y) {
                 
                 const stepHeight = box.max.y - currentY;
-                if (stepHeight > 0 && stepHeight <= 0.4) { // ระบบ Step-up อัตโนมัติเมื่อเจอทางต่างระดับขนาดเล็ก
+                if (stepHeight > 0 && stepHeight <= 0.4) { 
                     if ((box.max.y + jumpConfig.groundY) > targetStepY) {
                         targetStepY = box.max.y + jumpConfig.groundY;
                     }
@@ -506,12 +508,10 @@ function updateAvatarPhysics() {
         }
     }
 
-    // ให้กล้องเคลื่อนที่ติดตามหลวมๆ (Smooth Lerp Camera Following)
     const targetCamOffset = defaultCameraOffset.clone().applyMatrix4(avatarModel.matrixWorld);
     camera.position.lerp(targetCamOffset, 0.08);
     controls.target.set(avatarModel.position.x, avatarModel.position.y + 0.3, avatarModel.position.z);
 
-    // ระบบ Proximity Trigger ตรวจสอบจุดปลอดภัยเมื่อเดินเข้าใกล้โมเดล
     if (factoryModel && isMoving) {
         let closestMesh = null; let minDistance = 2.5; 
         factoryModel.traverse(function (child) {
@@ -552,7 +552,6 @@ const SUPABASE_URL = 'https://hzlokmixfkfrmkuucfhg.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh6bG9rbWl4Zmtmcm1rdXVjZmhnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1NzA5NTUsImV4cCI6MjA5ODE0Njk1NX0.DSj0c7XN979948Iq5rGmWqI9ddcbg56OmfKFin--Luo';
 const SUPABASE_BUCKET = 'models';
 
-// --- Supabase Upload ---
 async function uploadToSupabase(file) {
     const fileName = `model_${Date.now()}_${file.name.replace(/\s+/g, '_')}`;
     const uploadUrl = `${SUPABASE_URL}/storage/v1/object/${SUPABASE_BUCKET}/${fileName}`;
@@ -566,7 +565,6 @@ async function uploadToSupabase(file) {
     return `${SUPABASE_URL}/storage/v1/object/public/${SUPABASE_BUCKET}/${fileName}`;
 }
 
-// --- Load model from URL ---
 function loadModelFromUrl(url, fileName) {
     if (factoryModel) { scene.remove(factoryModel); originalMaterials.clear(); factoryColliders = []; }
     document.getElementById('factory-status').innerText = `⬇️ กำลังโหลดโมเดลจาก Cloud...`;
@@ -580,9 +578,13 @@ function loadModelFromUrl(url, fileName) {
             if (child.isMesh) {
                 meshCount++;
                 originalMaterials.set(child.uuid, child.material.clone());
+                
+                // ฝังคีย์ชื่อดั้งเดิมเอาไว้แมตช์กรณีแชร์ไฟล์ผ่าน Supabase
+                if (!child._original3DName) { child._original3DName = child.name || `Object_${meshCount}`; }
+
                 const item = document.createElement('div');
                 item.className = 'mesh-item';
-                const mName = child.name || `ชิ้นส่วนที่_${meshCount}`;
+                const mName = child.name || child._original3DName;
                 item.innerText = `🏭 ${mName}`;
                 item.id = `mesh-item-${child.uuid}`;
                 item.addEventListener('click', () => highlightAndShowWorkflow(child, mName, 'คลิกเลือกโมเดล'));
@@ -608,7 +610,6 @@ function loadModelFromUrl(url, fileName) {
     });
 }
 
-// --- Override factory-input: upload to Supabase then broadcast ---
 const _origInput = document.getElementById('factory-input');
 const _newInput = _origInput.cloneNode(true);
 _origInput.parentNode.replaceChild(_newInput, _origInput);
@@ -638,7 +639,6 @@ _newInput.addEventListener('change', async function(event) {
 const _origSaveLiveEdit = saveLiveEdit;
 window.saveLiveEdit = function() {
     if (!activeSelectedMeshUUID) return;
-    // ดึงข้อมูลก่อน _origSaveLiveEdit ซ่อน input
     const titleEl = document.getElementById('input-edit-title');
     const descEl = document.getElementById('input-edit-desc');
     const stepsEl = document.getElementById('input-edit-steps');
@@ -646,12 +646,10 @@ window.saveLiveEdit = function() {
     const newDesc = descEl ? descEl.value.trim() : '';
     const newSteps = stepsEl ? stepsEl.value.split(',').map(s=>s.trim()).filter(Boolean) : [];
     
-    // 💡 [แก้ไขจุดสำคัญสำหรับส่งเครือข่าย]: ค้นหาชื่อชิ้นส่วนดั้งเดิม (child.name) เพื่อใช้เป็น Key หลักร่วมกันระหว่างผู้เล่น
     let originalNameKey = activeSelectedMeshUUID;
     if (factoryModel) {
         factoryModel.traverse(function(child) {
             if (child.isMesh && child.uuid === activeSelectedMeshUUID) {
-                // เก็บค่าชื่อชิ้นส่วนดั้งเดิมในโครงสร้าง 3D ก่อนโดนแก้ไขชื่อใหม่ เพื่อนำไปแมตช์ให้ตรงกับฉากของเพื่อน
                 originalNameKey = child._original3DName || child.name || child.uuid;
                 if (!child._original3DName) { child._original3DName = originalNameKey; }
             }
@@ -660,7 +658,11 @@ window.saveLiveEdit = function() {
 
     _origSaveLiveEdit();
 
-    // 💡 ส่งแพ็กเกจข้อมูลอัปเดตกระจายหาทุกคนผ่าน Key ชื่อดั้งเดิม ทำให้เบราว์เซอร์ของเพื่อนแมตช์เจอวัตถุชิ้นเดียวกันทันที
+    // 💡 [จุดแก้ไขข้อที่ 2] บันทึกลง Local Database ด้วยคีย์ชื่อดั้งเดิมเพื่อซิงค์ลอจิกภายในเครื่องตัวเองด้วย
+    if (originalNameKey) {
+        workflowDatabase[originalNameKey] = { "name": newTitle, "desc": newDesc, "steps": newSteps, "colorClass": "tag-blue" };
+    }
+
     if (mpSocket && mpSocket.connected && originalNameKey) {
         mpSocket.emit('workflow_update', { 
             key: originalNameKey, 
@@ -668,12 +670,11 @@ window.saveLiveEdit = function() {
             desc: newDesc, 
             steps: newSteps, 
             colorClass: 'tag-blue',
-            targetUuid: activeSelectedMeshUUID // ส่ง UUID ไปเป็นโครงสร้างสำรอง
+            targetUuid: activeSelectedMeshUUID 
         });
     }
 };
 
-// --- Remote avatars ---
 const remoteAvatars = {};
 const remoteTargets = {};
 const mpPlayerNames = {};
@@ -722,7 +723,6 @@ function removeRemote(id) {
     updateMpUI();
 }
 
-// Lerp remote avatars — hook into animate loop via renderer.render patch
 const _origRender = renderer.render.bind(renderer);
 renderer.render = function(sc, cam) {
     for (const id in remoteAvatars) {
@@ -745,7 +745,6 @@ renderer.render = function(sc, cam) {
 };
 let _lastSend = 0;
 
-// --- UI ---
 function updateMpUI() {
     const list = document.getElementById('mp-player-list');
     if (!list) return;
@@ -793,7 +792,6 @@ window.addEventListener('keydown', e => {
     if (e.key.toLowerCase()==='u') togglePanelElement('multiplayer-panel');
 }, true);
 
-// --- Socket.IO ---
 let mpSocket;
 function initMultiplayer() {
     const dot = document.getElementById('mp-dot');
@@ -814,9 +812,7 @@ function initMultiplayer() {
         document.getElementById('mp-name-input').value = data.self.name;
         if (avatarModel) avatarModel.position.set(data.self.position.x, data.self.position.y, data.self.position.z);
         data.others.forEach(p => addRemote(p));
-        // โหลดโมเดลที่มีในห้อง
         if (data.modelUrl) loadModelFromUrl(data.modelUrl, data.modelName);
-        // โหลด workflow ที่แก้ไขไว้
         if (data.workflowDb) Object.assign(workflowDatabase, data.workflowDb);
         updateMpUI();
     });
@@ -845,45 +841,36 @@ function initMultiplayer() {
         updateMpUI();
     });
 
-    // โมเดลใหม่ — โหลดทันที
     mpSocket.on('load_model', data => {
         mpAppendChat({name:'ระบบ', color:'#00ffff', text:`📦 โมเดลใหม่: ${data.fileName}`});
         loadModelFromUrl(data.url, data.fileName);
     });
 
-    // 💡 [แก้ไขจุดรับสัญญาณจุดสำคัญที่สุดสำหรับหน้าจอเพื่อน]
-    // สัญญาณความปลอดภัยส่งมาจากเซิร์ฟเวอร์ — ให้ทำการบันทึกและแก้ไขข้อมูลชิ้นส่วนบนโมเดลแบบเรียลไทม์ทันที
+    // 💡 [จุดแก้ไขข้อที่ 3] ซิงค์คีย์ข้อความลงในฐานข้อมูลความปลอดภัยด้วยคีย์ชื่อดั้งเดิม (data.key) ให้ครอบคลุมทุกอุปกรณ์ในระบบเครือข่าย
     mpSocket.on('workflow_updated', data => {
-        // บันทึกข้อความลงใน Local Database ของเครื่องเราโดยตรง
         workflowDatabase[data.key] = { name: data.name, desc: data.desc, steps: data.steps, colorClass: data.colorClass||'tag-blue' };
         
-        // บันทึกข้อมูลคีย์เสริมข้ามเน็ตเวิร์ก
         if (data.targetUuid) {
             workflowDatabase[data.targetUuid] = { name: data.name, desc: data.desc, steps: data.steps, colorClass: data.colorClass||'tag-blue' };
         }
 
-        // วิ่งไปค้นหาวัตถุ 3D ในโมเดลเพื่อเปลี่ยนชื่อชิ้นส่วน และชื่อเมนูด้านข้างของทุกคนให้เปลี่ยนตามกันทันที
         if (factoryModel) {
             factoryModel.traverse(function(child) {
-                // เก็บชื่อดั้งเดิมก่อนโดนเปลี่ยน
                 if (child.isMesh && !child._original3DName) {
                     child._original3DName = child.name;
                 }
                 
-                // ตรวจสอบความถูกต้องว่าคีย์ชิ้นส่วนนี้ตรงกับชื่อโมเดล 3D ดั้งเดิมชิ้นนั้นหรือไม่
                 if (child.isMesh && (child._original3DName === data.key || child.name === data.key || child.uuid === data.key || child.uuid === data.targetUuid)) {
-                    child.name = data.name; // เปลี่ยนชื่อโมเดลจริงใน 3D Scene
+                    child.name = data.name; 
                     
-                    // เปลี่ยนชื่อปุ่มในแผงเมนู "รายชื่อชิ้นส่วน" ด้านข้างให้สวยงามตามผู้ส่ง
                     const sideListItem = document.getElementById(`mesh-item-${child.uuid}`);
                     if (sideListItem) sideListItem.innerText = `🏭 ${data.name}`;
                 }
             });
         }
 
-        // ถ้าเราเปิดแผงรายละเอียดชิ้นส่วนนี้ดูอยู่พอดี — ให้ระบบรีเรนเดอร์เนื้อหาไทม์ไลน์ใหม่ทันทีแบบเรียลไทม์
         const panel = document.getElementById('process-panel');
-        if (panel && panel.style.display !== 'none' && (activeSelectedKeyKey === data.key || activeSelectedMeshUUID === data.targetUuid)) {
+        if (panel && panel.style.display !== 'none' && (activeSelectedKeyKey === data.key || activeSelectedKeyKey === data.targetUuid || activeSelectedMeshUUID === data.targetUuid)) {
             renderWorkflowUI(data.name, data.desc, data.steps, '✏️ อัปเดตโดยผู้เล่นอื่น', data.colorClass||'tag-blue');
         }
         mpAppendChat({name:'ระบบ', color:'#ffaa00', text:`✏️ "${data.name}" ถูกแก้ไขแล้ว`});
