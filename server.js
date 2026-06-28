@@ -72,7 +72,8 @@ io.on('connection', (socket) => {
 
     // Workflow update — เก็บไว้ใน server แล้ว broadcast
     socket.on('workflow_update', (data) => {
-        workflowDatabase[data.meshUUID] = {
+        // เก็บด้วยชื่อ mesh เป็น key เพราะ UUID ต่างกันในแต่ละ browser
+        workflowDatabase[data.meshName] = {
             name: data.name,
             desc: data.desc,
             steps: data.steps,
