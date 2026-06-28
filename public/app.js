@@ -231,14 +231,14 @@ window.addEventListener('keydown', (e) => {
     const key = e.key.toLowerCase();
     
     // 💡 เพิ่มการเช็กคีย์ภาษาไทยเข้าไปคู่กับอังกฤษ (W=ฟ, S=ห, A=ฟ/ห สลับตามเลย์เอาต์)
-    if (e.key === 'ArrowUp' || key === 'w' || key === 'ฟ') moveStatus.forward = true;
+    if (e.key === 'ArrowUp' || key === 'w' || key === 'ไ') moveStatus.forward = true;
     if (e.key === 'ArrowDown' || key === 's' || key === 'ห') moveStatus.backward = true;
     if (e.key === 'ArrowLeft' || key === 'a' || key === 'ฟ' || key === 'ภ') moveStatus.left = true; // รองรับแป้นพิมพ์ไทยทั้งพิมพ์เล็ก/ใหญ่
     if (e.key === 'ArrowRight' || key === 'd' || key === 'ด') moveStatus.right = true;
     if (e.key === ' ' && !jumpConfig.isJumping) triggerAvatarJump();
 
     // ปุ่มลัดเปิด/ปิดหน้าต่างเมนูต่าง ๆ (H=อ, M=ท, P=ย, T=ะ, R=พ)
-    if (key === 'h' || key === 'อ') togglePanelElement('dashboard');
+    if (key === 'h' || key === '้') togglePanelElement('dashboard');
     if (key === 'm' || key === 'ท') togglePanelElement('details-panel');
     if (key === 'p' || key === 'ย') togglePanelElement('process-panel');
     if (key === 't' || key === 'ะ') togglePanelElement('transform-panel');
@@ -249,7 +249,7 @@ window.addEventListener('keyup', (e) => {
     const key = e.key.toLowerCase();
     
     // 💡 อย่าลืมเคลียร์สถานะตอนปล่อยนิ้วจากปุ่มภาษาไทยด้วย ไม่งั้นตัวละครจะวิ่งไม่หยุด
-    if (e.key === 'ArrowUp' || key === 'w' || key === 'ฟ') moveStatus.forward = false;
+    if (e.key === 'ArrowUp' || key === 'w' || key === 'ไ') moveStatus.forward = false;
     if (e.key === 'ArrowDown' || key === 's' || key === 'ห') moveStatus.backward = false;
     if (e.key === 'ArrowLeft' || key === 'a' || key === 'ฟ' || key === 'ภ') moveStatus.left = false;
     if (e.key === 'ArrowRight' || key === 'd' || key === 'ด') moveStatus.right = false;
