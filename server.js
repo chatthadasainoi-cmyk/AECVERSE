@@ -9,7 +9,7 @@ const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*", methods: ["GET","POST"] } });
 const PORT = process.env.PORT || 3000;
 
-// เชื่อมต่อ Supabase ผ่าน Environment Variables บน Railway
+// เชื่อมต่อ Supabase
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
@@ -21,11 +21,9 @@ const players = {};
 const COLORS = ['#ff6b6b','#ffd93d','#6bcb77','#4d96ff','#c77dff','#ff9f43','#00d2d3','#ff6b9d'];
 let currentModelUrl = null;
 let currentModelName = null;
+const workflowDb = {}; // คลังข้อมูลเดิมสำหรับเก็บ Object
 
-// ประกาศตัวแปรคลังข้อมูลเดิมกลับมา เพื่อให้หน้าบ้านดึงไปใช้งานได้และไม่ระเบิด
-const workflowDb = {}; 
-
-// ซิงค์ข้อมูลจาก Supabase เข้าสู่ตัวแปรหลักตอนเปิดเซิร์ฟเวอร์
+// ดึงข้อมูลจาก Supabase มาจัดเก็บลงหน่วยความจำเซิร์ฟเวอร์ตอนเริ่มต้น
 async function syncFromSupabase() {
     try {
         if (!supabaseUrl || !supabaseKey) return;
@@ -35,11 +33,11 @@ async function syncFromSupabase() {
             workflowDb[row.key] = { 
                 name: row.name, 
                 desc: row.description, 
-                steps: row.steps, 
+                steps: row.steps || [], 
                 colorClass: row.color_class || 'tag-blue' 
             };
         });
-        console.log('[SUPABASE] Synced initial data into workflowDb');
+        console.log('[SUPABASE] Synced data successfully.');
     } catch (err) {
         console.error('[SUPABASE FETCH ERROR]:', err.message);
     }
@@ -62,7 +60,7 @@ io.on('connection', socket => {
         others: Object.values(players).filter(p=>p.id!==socket.id),
         modelUrl: currentModelUrl,
         modelName: currentModelName,
-        workflowDb: workflowDb // ส่งคลังข้อมูลเดิมให้คนที่เข้าใหม่เห็นชิ้นส่วนครบถ้วน
+        workflowDb: workflowDb
     });
     socket.broadcast.emit('player_joined', player);
 
@@ -75,19 +73,13 @@ io.on('connection', socket => {
     socket.on('model_shared', data => {
         currentModelUrl = data.url; currentModelName = data.fileName;
         io.emit('load_model', { url: data.url, fileName: data.fileName });
-        console.log(`[MODEL] ${data.fileName}`);
     });
 
-    // จุดรับคำสั่งแก้ไขจากผู้เล่น ยิงเข้าคลังชิ้นส่วน และบันทึกถาวรลง Supabase
+    // จุดแก้ไข: เปลี่ยนเป็น io.emit ส่งกระจายหาทุกคนให้เปลี่ยนหน้าจอตามถาวร
     socket.on('workflow_update', async (data) => {
-        // 1. เก็บในระบบชั่วคราวเผื่อสแตนด์บายซิงค์ทันที
-        workflowDb[data.key] = { name: data.name, desc: data.desc, steps: data.steps, colorClass: data.colorClass || 'tag-blue' };
-        
-        // 2. ส่งกระจายสัญญาณบอกทุกคนให้เกิดการอัปเดตแบบเรียลไทม์ (เปลี่ยนจาก broadcast เป็น io.emit เพื่ออัปเดตให้ครบทุกคนรวมถึงคนแก้)
+        workflowDb[data.key] = { name:data.name, desc:data.desc, steps:data.steps, colorClass:data.colorClass||'tag-blue' };
         io.emit('workflow_updated', data);
-        console.log(`[WORKFLOW UPDATED] key:${data.key} name:${data.name}`);
 
-        // 3. ยิงเก็บเข้าฐานข้อมูล Supabase แบบถาวร
         try {
             if (supabaseUrl && supabaseKey) {
                 await supabase
@@ -120,7 +112,6 @@ io.on('connection', socket => {
     socket.on('disconnect', () => {
         delete players[socket.id];
         io.emit('player_left', { id:socket.id });
-        console.log(`[-] ${socket.id}`);
     });
 });
 
