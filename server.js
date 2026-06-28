@@ -34,7 +34,7 @@ function getRandomColor() {
 }
 
 io.on('connection', (socket) => {
-    console.log(`[+] Player connected: ${socket.id}`);
+    console.log(`[+] Player connected: ${socket.id} - server.js:37`);
 
     const playerData = {
         id: socket.id,
@@ -80,13 +80,13 @@ io.on('connection', (socket) => {
             colorClass: data.colorClass || 'tag-blue'
         };
         socket.broadcast.emit('workflow_updated', data);
-        console.log(`[WORKFLOW] Updated: ${data.name}`);
+        console.log(`[WORKFLOW] Updated: ${data.name} - server.js:83`);
     });
 
     socket.on('model_shared', (data) => {
         currentModelUrl = data.url;
         currentModelName = data.fileName;
-        console.log(`[MODEL] Shared: ${data.fileName}`);
+        console.log(`[MODEL] Shared: ${data.fileName} - server.js:89`);
         io.emit('load_model', { url: data.url, fileName: data.fileName });
     });
 
@@ -110,12 +110,12 @@ io.on('connection', (socket) => {
     });
 
     socket.on('disconnect', () => {
-        console.log(`[-] Player disconnected: ${socket.id}`);
+        console.log(`[] Player disconnected: ${socket.id} - server.js:113`);
         delete players[socket.id];
         io.emit('player_left', { id: socket.id });
     });
 });
 
 server.listen(PORT, () => {
-    console.log(`🚀 Biogas Twin Multiplayer Server running at http://localhost:${PORT}`);
+    console.log(`🚀 Biogas Twin Multiplayer Server running at http://localhost:${PORT} - server.js:120`);
 });
