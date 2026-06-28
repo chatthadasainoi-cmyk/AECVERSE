@@ -940,9 +940,16 @@ initMultiplayer();
 const _origSaveLiveEdit = saveLiveEdit;
 window.saveLiveEdit = function() {
     if (!activeSelectedMeshUUID) return;
-    const newTitle = document.getElementById('input-edit-title').value.trim();
-    const newDesc = document.getElementById('input-edit-desc').value.trim();
-    const newStepsArray = document.getElementById('input-edit-steps').value.split(',').map(s => s.trim()).filter(s => s.length > 0);
+
+    // ดึงค่าก่อน save (เพราะ _origSaveLiveEdit จะซ่อน textarea)
+    const descEl = document.getElementById('input-edit-desc');
+    const stepsEl = document.getElementById('input-edit-steps');
+    const newDesc = descEl ? descEl.value.trim() : '';
+    const newStepsArray = stepsEl ? stepsEl.value.split(',').map(s => s.trim()).filter(s => s.length > 0) : [];
+
+    // ดึงชื่อจาก title ที่แสดงอยู่
+    const titleEl = document.getElementById('process-title');
+    const newTitle = titleEl ? titleEl.innerText.replace('⚙️ ชิ้นส่วน: ', '').trim() : '';
 
     // บันทึกในเครื่องตัวเอง
     _origSaveLiveEdit();
