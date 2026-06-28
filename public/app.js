@@ -918,23 +918,34 @@ function initMultiplayer() {
         loadModelFromUrl(data.url, data.fileName);
     });
 
-    // รับ workflow update จากคนอื่น — inline ไม่พึ่ง function ภายนอก
+    // รับ workflow update จากคนอื่น
     socket.on('workflow_updated', (data) => {
-        console.log('[WORKFLOW] received:', data);
-        // บันทึกลง database
-        if (data.meshName) workflowDatabase[data.meshName] = {
-            name: data.name, desc: data.desc, steps: data.steps, colorClass: data.colorClass || 'tag-blue'
-        };
-        // อัปเดต UI ถ้ากำลังดูโซนนั้นอยู่
-        const titleEl = document.getElementById('process-title');
-        const currentName = titleEl ? titleEl.innerText.replace('⚙️ โซน: ','').replace('⚙️ ชิ้นส่วน: ','').trim() : '';
-        if (currentName === data.meshName || currentName === data.name) {
-            document.getElementById('desc-view-area').innerText = data.desc || '';
-            const stepsEl = document.getElementById('steps-view-area');
-            if (stepsEl) stepsEl.innerHTML = (data.steps || []).map(s =>
-                `<div class="step-box tag-blue"><span class="badge">REGULATION</span>${s}</div>`
-            ).join('');
+        // บันทึกลง database ทั้ง key ชื่อและ UUID
+        if (data.meshName) {
+            workflowDatabase[data.meshName] = {
+                name: data.name, desc: data.desc, steps: data.steps, colorClass: data.colorClass || 'tag-blue'
+            };
         }
+
+        // อัปเดต UI เสมอถ้า process-panel กำลังแสดงอยู่
+        const processPanel = document.getElementById('process-panel');
+        const isPanelVisible = processPanel && processPanel.style.display !== 'none';
+        if (isPanelVisible) {
+            const descViewEl = document.getElementById('desc-view-area');
+            const stepsViewEl = document.getElementById('steps-view-area');
+            const titleEl = document.getElementById('process-title');
+            const currentName = titleEl ? titleEl.innerText.replace('⚙️ โซน: ','').replace('⚙️ ชิ้นส่วน: ','').trim() : '';
+
+            // อัปเดตถ้าดู object เดียวกัน หรือถ้าไม่มีชื่อก็อัปเดตเลย
+            if (!data.meshName || currentName === data.meshName || currentName === data.name) {
+                if (descViewEl) descViewEl.innerText = data.desc || '';
+                if (stepsViewEl) stepsViewEl.innerHTML = (data.steps || []).map(s =>
+                    `<div class="step-box tag-blue"><span class="badge">REGULATION</span>${s}</div>`
+                ).join('');
+                if (titleEl && data.name) titleEl.innerText = '⚙️ โซน: ' + data.name;
+            }
+        }
+
         // แจ้งแชท
         appendChat({ id:'system', name:'ระบบ', color:'#ffaa00', text:`✏️ ข้อมูล "${data.name}" ถูกแก้ไขแล้ว` });
     });
