@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Biogas Twin - Interactive Safety Metaverse</title>
     
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="./styles.css">
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
@@ -14,7 +14,6 @@
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/FBXLoader.js"></script>
 
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-    
     <script>window.RAILWAY_SERVER_URL = "https://aecmultiplayertest-production.up.railway.app";</script>
 </head>
 <body>
@@ -94,9 +93,9 @@
                 </div>
                 <div style="margin-bottom:8px;">
                     <label style="font-size:11px; color:#ffaa00; font-weight:bold; display:block; margin-bottom:4px;">รายละเอียดข้อมูลการทำงาน</label>
-                    <textarea id="edit-zone-desc" class="ui-edit-input" rows="3" placeholder="พิมพ์รายละเอียดความปลอดภัยหรือชิ้นส่วนที่นี่..."></textarea>
+                    <textarea id="edit-zone-desc" class="ui-edit-input" rows="3" placeholder="พิมพ์รายละเอียดความปลอดภัยที่นี่..."></textarea>
                 </div>
-                <button class="panel-action-btn btn-save" onclick="submitWorkflowUpdate()" style="width:100%; padding:8px;">💾 บันทึกการแก้ไขข้อมูลชิ้นส่วน</button>
+                <button class="panel-action-btn btn-save" onclick="submitWorkflowUpdate()" style="width:100%; padding:8px;">💾 บันทึกข้อมูลไปยังทุกคน</button>
             </div>
 
             <div id="process-desc" class="process-desc-text" style="margin-top:10px;">กรุณาคลิกเลือกวัตถุ 3D ในโรงงาน เพื่อเรียกดูข้อมูลความปลอดภัยหรือร่วมกันแก้ไขรายละเอียดชิ้นส่วนชิ้นนั้น ๆ</div>
@@ -132,6 +131,6 @@
         <div class="key-btn-item" onclick="resetCameraToAvatar()"><span class="key-badge">R</span> รีเซ็ตมุมกล้อง</div>
     </div>
 
-    <script src="app.js"></script>
+    <script src="./app.js"></script>
 </body>
 </html>
