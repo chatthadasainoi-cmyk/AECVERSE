@@ -3,192 +3,151 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Biogas Twin - Interactive Safety Metaverse</title>
-    <link rel="stylesheet" href="styles.css">
-
-    <!-- Three.js Libraries -->
+    <title>Biogas Twin Multiplayer</title>
+    <style>
+        body { margin: 0; padding: 0; overflow: hidden; font-family: sans-serif; }
+        #canvas-container { width: 100vw; height: 100vh; position: absolute; z-index: 1; }
+        #workflow-panel {
+            position: absolute; top: 20px; right: 20px; width: 320px;
+            background: rgba(255, 255, 255, 0.95); padding: 20px; border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.15); z-index: 10; display: none;
+        }
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; font-weight: bold; margin-bottom: 5px; font-size: 14px; }
+        .form-group input, .form-group textarea { width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 6px; }
+        .btn-save { background: #4d96ff; color: white; border: none; padding: 10px 15px; border-radius: 6px; cursor: pointer; width: 100%; font-weight: bold; }
+        #presenting-status {
+            position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.7); color: #fff; padding: 8px 16px; border-radius: 20px; font-size: 14px; z-index: 10; display: none;
+        }
+        #meta-container { position: absolute; bottom: 20px; left: 20px; z-index: 10; background: rgba(255,255,255,0.8); padding: 10px; border-radius: 8px; max-width: 300px; }
+        #chat-logs { height: 150px; overflow-y: auto; font-size: 12px; margin-bottom: 5px; border-bottom: 1px solid #ddd; }
+    </style>
+    <script src="/socket.io/socket.io.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/fflate.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/FBXLoader.js"></script>
-
-    <!-- Socket.IO Client — CDN first, fallback to local server -->
-    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-    <!-- ✏️ ใส่ Railway URL ของคุณตรงนี้ -->
-    <script>window.RAILWAY_SERVER_URL = "https://aecmultiplayertest-production.up.railway.app";</script>
 </head>
 <body>
 
-    <!-- Canvas สำหรับแสดงผล 3D -->
+    <div id="presenting-status">กำลังดูการนำเสนอชิ้นส่วน...</div>
     <div id="canvas-container"></div>
 
-    <!-- แผงซ้าย: อัปโหลดโมเดลโรงงานหลัก -->
-    <div id="dashboard" class="panel">
-        <h3>⚡ Biogas Digital Twin</h3>
-        <div class="upload-section">
-            <label class="section-label">โมเดลโรงงานจำลอง (Factory Plant)</label>
-            <div class="upload-btn-wrapper">
-                <button class="btn">🏭 อัปโหลดไฟล์โมเดล (.gltf / .glb / .fbx)</button>
-                <input type="file" id="factory-input" class="file-input" multiple accept=".gltf,.glb,.fbx,.jpg,.png" />
-            </div>
-            <div id="factory-status" class="status-msg">สถานะ: รอการอัปโหลดโมเดล...</div>
+    <div id="workflow-panel">
+        <h3 id="panel-title">รายละเอียดชิ้นส่วน</h3>
+        <input type="hidden" id="component-key">
+        <div class="form-group">
+            <label>ชื่อชิ้นส่วน / ขั้นตอน</label>
+            <input type="text" id="component-name">
         </div>
-
-        <div style="margin-top: 15px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 12px;">
-            <button class="panel-action-btn btn-save" style="width: 100%; padding: 10px;" onclick="exportWorkflowDatabase()">💾 ส่งออกฐานข้อมูลระบบ (.json)</button>
+        <div class="form-group">
+            <label>คำอธิบายรายละเอียด</label>
+            <textarea id="component-desc" rows="4"></textarea>
         </div>
+        <button class="btn-save" onclick="saveWorkflow()">บันทึกและแชร์ข้อมูล</button>
+        <button style="margin-top:5px; background:#aaa; width:100%; border:none; color:white; padding:5px; border-radius:6px; cursor:pointer;" onclick="closePanel()">ปิด</button>
     </div>
 
-    <!-- แผงปรับตำแหน่งโมเดลโรงงาน -->
-    <div id="transform-panel" class="panel" style="display: none;">
-        <h4 style="color: #ffaa00; margin-bottom: 12px;">🛠️ เครื่องมือปรับตำแหน่งวัตถุ</h4>
-        
-        <div class="control-group">
-            <label>ตำแหน่งแกน X (ซ้าย - ขวา)</label>
-            <div class="slider-row">
-                <input type="range" id="param-posX" min="-50" max="50" step="0.1" value="0">
-                <span id="val-posX" class="slider-val">0.0</span>
-            </div>
-        </div>
-        <div class="control-group">
-            <label>ตำแหน่งแกน Y (ขึ้น - ลง)</label>
-            <div class="slider-row">
-                <input type="range" id="param-posY" min="-10" max="20" step="0.05" value="0">
-                <span id="val-posY" class="slider-val">0.0</span>
-            </div>
-        </div>
-        <div class="control-group">
-            <label>ตำแหน่งแกน Z (หน้า - หลัง)</label>
-            <div class="slider-row">
-                <input type="range" id="param-posZ" min="-50" max="50" step="0.1" value="0">
-                <span id="val-posZ" class="slider-val">0.0</span>
-            </div>
-        </div>
-        
-        <div class="control-group">
-            <label>หมุนโมเดล (แนวราบ Y)</label>
-            <div class="slider-row">
-                <input type="range" id="param-rotY" min="-180" max="180" step="1" value="0">
-                <span id="val-rotY" class="slider-val">0°</span>
-            </div>
-        </div>
-
-        <div class="control-group">
-            <label>ขนาดโมเดล (Scale)</label>
-            <div class="slider-row">
-                <input type="range" id="param-scale" min="0.1" max="5" step="0.05" value="1">
-                <span id="val-scale" class="slider-val">1.0x</span>
-            </div>
-        </div>
-
-        <div class="control-group" style="margin-top: 15px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 10px;">
-            <label style="color:#00ffff; font-weight: bold; margin-bottom: 8px;">👁️ โหมดโครงสร้างพื้นผิว</label>
-            <div class="mode-container">
-                <button id="mode-solid" class="mode-btn active" onclick="setFactoryMaterialMode('solid')">Solid</button>
-                <button id="mode-wireframe" class="mode-btn" onclick="setFactoryMaterialMode('wireframe')">Wireframe</button>
-                <button id="mode-xray" class="mode-btn" onclick="setFactoryMaterialMode('xray')">X-Ray</button>
-            </div>
-        </div>
+    <div id="meta-container">
+        <div id="player-name-tag">คุณคือ: กำลังเชื่อมต่อ...</div>
+        <div id="chat-logs"></div>
+        <input type="text" id="chat-input" placeholder="พิมพ์ข้อความแชท..." onkeydown="if(event.key==='Enter') sendChat()">
     </div>
 
-    <!-- แผงขวาบน: โครงสร้างชิ้นส่วนวัตถุ -->
-    <div id="details-panel" class="panel" style="display: none;">
-        <h4>📦 รายการชิ้นส่วนโครงสร้าง</h4>
-        <div id="model-meta"></div>
-        <div id="mesh-container"></div>
-    </div>
+    <script>
+        const socket = io();
+        let localWorkflowDb = {};
+        let myId = null;
 
-    <!-- แผงล่างขวา: ข้อมูลกระบวนการและความปลอดภัย -->
-    <div id="process-panel" class="panel" style="display: none;">
-        <div class="process-header">
-            <div id="title-container" style="display: flex; align-items: center; gap: 8px;">
-                <span id="process-title" style="font-weight: bold; font-size: 15px;">⚙️ ชิ้นส่วน: รอตรวจจับ...</span>
-            </div>
-            <div style="display: flex; align-items: center; gap: 8px;">
-                <span id="detection-method" class="method-tag">ระบบตรวจจับ</span>
-                <button id="btn-edit-mode" class="panel-action-btn btn-edit-trigger" onclick="enableLiveEdit()">✏️ แก้ไข</button>
-                <div id="edit-actions-group" style="display: none; gap: 5px;">
-                    <button class="panel-action-btn btn-save" onclick="saveLiveEdit()">💾 บันทึก</button>
-                    <button class="panel-action-btn" onclick="cancelLiveEdit()">❌ ยกเลิก</button>
-                </div>
-            </div>
-        </div>
+        // พื้นฐาน Three.js (เปลี่ยนเป็นตัวโหลดโมเดลจริงของคุณได้เลย)
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene(); scene.background = new THREE.Color('#f0f0f0');
+        const camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        container.appendChild(renderer.domElement);
 
-        <div class="process-grid">
-            <div>
-                <p style="margin-top:0;"><strong>📝 มาตรฐานความปลอดภัย:</strong></p>
-                <div id="desc-view-area" style="color: #e0e0e0; font-size: 13px; min-height: 40px;">คำอธิบาย...</div>
-                <div id="desc-edit-area" style="display: none;">
-                    <textarea id="input-edit-desc" class="ui-edit-textarea"></textarea>
-                </div>
+        scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+        camera.position.set(0, 3, 10);
 
-                <div class="telemetry-box">
-                    <div class="telemetry-title">📊 สัญญาณเซนเซอร์จำลอง (IoT Telemetry)</div>
-                    <div class="telemetry-row"><span>สถานะอุปกรณ์:</span><span class="telemetry-val" style="color:#00ff66;">ONLINE</span></div>
-                    <div class="telemetry-row"><span>แรงดันก๊าซ (Pressure):</span><span id="iot-pressure" class="telemetry-val">0.00 bar</span></div>
-                    <div class="telemetry-row"><span>อุณหภูมิ (Temperature):</span><span id="iot-temp" class="telemetry-val">0.0 °C</span></div>
-                </div>
-            </div>
-            <div>
-                <p style="margin-top:0;"><strong>🛡️ ข้อกำหนดวิศวกรรม & PPE:</strong></p>
-                <div id="steps-view-area"></div>
-                <div id="steps-edit-area" style="display: none;">
-                    <textarea id="input-edit-steps" class="ui-edit-textarea" style="height: 120px;" placeholder="แยกขั้นตอนด้วยเครื่องหมายจุลภาค (,)"></textarea>
-                </div>
-            </div>
-        </div>
-    </div>
+        const parts = [];
+        function createPart(name, color, x, key) {
+            const mesh = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.5, 1.5), new THREE.MeshStandardMaterial({ color }));
+            mesh.position.set(x, 1, 0); mesh.userData = { key, defaultColor: color };
+            scene.add(mesh); parts.push(mesh);
+        }
+        createPart("Digester", "#6bcb77", -2, "part_digester");
+        createPart("Gas Holder", "#4d96ff", 2, "part_gasholder");
 
-    <!-- ========================== -->
-    <!-- MULTIPLAYER PANEL (NEW)    -->
-    <!-- ========================== -->
-    <div id="multiplayer-panel" class="panel">
-        <h3 style="margin-bottom: 10px;">🌐 Multiplayer</h3>
+        function animate() { requestAnimationFrame(animate); renderer.render(scene, camera); }
+        animate();
 
-        <!-- Connection status -->
-        <div id="mp-status" style="display:flex; align-items:center; gap:6px; margin-bottom:10px; font-size:12px; color:#64748b;">
-            <span id="mp-dot" style="width:8px;height:8px;border-radius:50%;background:#64748b;display:inline-block;"></span>
-            <span id="mp-status-text">กำลังเชื่อมต่อ...</span>
-        </div>
+        // ตรวจจับการคลิกพรีเซนต์
+        const raycaster = new THREE.Raycaster(); const mouse = new THREE.Vector2();
+        window.addEventListener('click', (e) => {
+            if(e.target.closest('#workflow-panel') || e.target.closest('#meta-container')) return;
+            mouse.x = (e.clientX / window.innerWidth) * 2 - 1; mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(parts);
+            if(intersects.length > 0) {
+                const key = intersects[0].object.userData.key;
+                openWorkflowPanel(key);
+                socket.emit('component_select', { key, playerId: myId });
+            }
+        });
 
-        <!-- My name -->
-        <div style="margin-bottom:10px;">
-            <label class="section-label">ชื่อผู้เล่น</label>
-            <div style="display:flex;gap:6px;">
-                <input type="text" id="mp-name-input" class="ui-edit-input" placeholder="ตั้งชื่อของคุณ" style="flex:1;" maxlength="20">
-                <button class="panel-action-btn btn-save" onclick="setMyName()" style="white-space:nowrap;">ตั้งชื่อ</button>
-            </div>
-        </div>
+        function openWorkflowPanel(key) {
+            document.getElementById('workflow-panel').style.display = 'block';
+            document.getElementById('component-key').value = key;
+            if(localWorkflowDb[key]) {
+                document.getElementById('component-name').value = localWorkflowDb[key].name || '';
+                document.getElementById('component-desc').value = localWorkflowDb[key].desc || '';
+                document.getElementById('panel-title').innerText = `ชิ้นส่วน: ${localWorkflowDb[key].name}`;
+            } else {
+                document.getElementById('component-name').value = '';
+                document.getElementById('component-desc').value = '';
+                document.getElementById('panel-title').innerText = `แก้ไขชิ้นส่วน (${key})`;
+            }
+        }
 
-        <!-- Player list -->
-        <div>
-            <label class="section-label">ผู้เล่นออนไลน์ (<span id="mp-player-count">1</span>)</label>
-            <div id="mp-player-list" style="max-height:100px;overflow-y:auto;"></div>
-        </div>
+        function closePanel() { document.getElementById('workflow-panel').style.display = 'none'; }
 
-        <!-- Chat -->
-        <div style="margin-top:10px;">
-            <label class="section-label">แชท</label>
-            <div id="mp-chat-log" style="max-height:100px;overflow-y:auto;background:rgba(0,0,0,0.25);border-radius:6px;padding:6px;margin-bottom:6px;font-size:11px;font-family:monospace;"></div>
-            <div style="display:flex;gap:6px;">
-                <input type="text" id="mp-chat-input" class="ui-edit-input" placeholder="พิมพ์ข้อความ..." style="flex:1;" maxlength="200">
-                <button class="panel-action-btn" onclick="sendChat()" style="white-space:nowrap;">ส่ง</button>
-            </div>
-        </div>
-    </div>
+        function saveWorkflow() {
+            const key = document.getElementById('component-key').value;
+            const name = document.getElementById('component-name').value;
+            const desc = document.getElementById('component-desc').value;
+            if(!name) return alert('กรุณากรอกชื่อ');
+            socket.emit('workflow_update', { key, name, desc, steps: [], colorClass: 'tag-blue' });
+        }
 
-    <!-- แผงควบคุมด่วน HUD ด้านล่าง -->
-    <div id="keybind-hud">
-        <div class="key-btn-item" onclick="togglePanelElement('dashboard')"><span class="key-badge">H</span> เมนูหลัก</div>
-        <div class="key-btn-item" onclick="togglePanelElement('transform-panel')"><span class="key-badge">T</span> ปรับตำแหน่ง</div>
-        <div class="key-btn-item" onclick="togglePanelElement('details-panel')"><span class="key-badge">M</span> รายชื่อชิ้นส่วน</div>
-        <div class="key-btn-item" onclick="togglePanelElement('process-panel')"><span class="key-badge">P</span> บอร์ดความปลอดภัย</div>
-        <div class="key-btn-item" onclick="togglePanelElement('multiplayer-panel')"><span class="key-badge">U</span> Multiplayer</div>
-        <div class="key-btn-item" onclick="resetCameraToAvatar()"><span class="key-badge">R</span> รีเซ็ตมุมกล้อง</div>
-        <div class="key-btn-item" onclick="triggerAvatarJump()"><span class="key-badge">Space</span> กระโดด</div>
-    </div>
+        // ฟังคำสั่ง Real-time จากเซิร์ฟเวอร์
+        socket.on('self_init', (data) => {
+            myId = data.self.id;
+            document.getElementById('player-name-tag').innerText = `คุณคือ: ${data.self.name}`;
+            document.getElementById('player-name-tag').style.color = data.self.color;
+            localWorkflowDb = data.workflowDb || {};
+        });
 
-    <script src="app.js"></script>
+        socket.on('workflow_updated', (data) => {
+            localWorkflowDb[data.key] = { name: data.name, desc: data.desc, steps: data.steps, colorClass: data.colorClass };
+            if(document.getElementById('component-key').value === data.key && document.getElementById('workflow-panel').style.display === 'block') {
+                openWorkflowPanel(data.key);
+            }
+        });
+
+        socket.on('component_selected', (data) => {
+            const statusTag = document.getElementById('presenting-status');
+            statusTag.style.display = 'block';
+            statusTag.innerText = `เพื่อนกำลังพรีเซนต์ชิ้นส่วน: ${data.key}`;
+            openWorkflowPanel(data.key);
+            setTimeout(() => { statusTag.style.display = 'none'; }, 4000);
+        });
+
+        function sendChat() {
+            const input = document.getElementById('chat-input'); if(!input.value.trim()) return;
+            socket.emit('chat_message', input.value); input.value = '';
+        }
+        socket.on('chat_message', (data) => {
+            document.getElementById('chat-logs').innerHTML += `<div><strong style="color:${data.color}">${data.name}:</strong> ${data.text}</div>`;
+        });
+    </script>
 </body>
 </html>
