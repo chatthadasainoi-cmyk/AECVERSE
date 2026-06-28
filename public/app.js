@@ -871,8 +871,10 @@ function initMultiplayer() {
         });
 
         // โหลด workflow database จาก server (ข้อมูลที่แก้ไขไปแล้ว)
+        // key เป็นชื่อ mesh ใช้ได้ข้าม browser
         if (data.workflowDatabase) {
             Object.assign(workflowDatabase, data.workflowDatabase);
+            console.log('[WORKFLOW] Loaded from server:', Object.keys(data.workflowDatabase));
         }
 
         // โหลดโมเดลที่มีอยู่แล้วในห้อง (ถ้ามี)
@@ -954,10 +956,10 @@ window.saveLiveEdit = function() {
     // บันทึกในเครื่องตัวเอง
     _origSaveLiveEdit();
 
-    // Broadcast ให้ทุกคน
+    // Broadcast ให้ทุกคน — ใช้ชื่อเป็น key เพราะ UUID ต่างกันในแต่ละ browser
     if (socket && socket.connected) {
         socket.emit('workflow_update', {
-            meshUUID: activeSelectedMeshUUID,
+            meshName: newTitle,
             name: newTitle,
             desc: newDesc,
             steps: newStepsArray,
@@ -968,21 +970,19 @@ window.saveLiveEdit = function() {
 
 // รับ workflow_update จากคนอื่น
 function applyRemoteWorkflowUpdate(data) {
-    // บันทึกลง database ด้วยทั้ง UUID และชื่อ (เผื่อ UUID ต่างกันระหว่าง browser)
-    workflowDatabase[data.meshUUID] = {
+    // บันทึกลง database ด้วยชื่อ mesh เป็น key (ใช้ได้ข้าม browser)
+    workflowDatabase[data.meshName] = {
         name: data.name,
         desc: data.desc,
         steps: data.steps,
         colorClass: data.colorClass || 'tag-blue'
     };
-    // เก็บด้วย key ชื่อด้วย เพื่อให้ match ข้าม browser ได้
-    workflowDatabase[data.name] = workflowDatabase[data.meshUUID];
 
     // อัปเดต UI ถ้ากำลังดูโซนที่มีชื่อตรงกัน
     const currentTitle = document.getElementById('process-title');
     const currentName = currentTitle ? currentTitle.innerText.replace('⚙️ โซน: ', '').replace('⚙️ ชิ้นส่วน: ', '').trim() : '';
 
-    if (currentName === data.name || activeSelectedMeshUUID === data.meshUUID) {
+    if (currentName === data.meshName) {
         renderWorkflowUI(data.name, data.desc, data.steps, "✏️ อัปเดตโดยผู้เล่นอื่น", data.colorClass || 'tag-blue');
         cancelLiveEdit();
     }
