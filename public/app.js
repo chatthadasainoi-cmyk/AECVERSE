@@ -229,10 +229,10 @@ function resetCameraToAvatar() {
 window.addEventListener('keydown', (e) => {
     if(document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
     const key = e.key.toLowerCase();
-    if (e.key === 'ArrowUp' || key === 'w','ไ') moveStatus.forward = true;
-    if (e.key === 'ArrowDown' || key === 's','ห') moveStatus.backward = true;
-    if (e.key === 'ArrowLeft' || key === 'a','ฟ') moveStatus.left = true;
-    if (e.key === 'ArrowRight' || key === 'd','ก') moveStatus.right = true;
+    if (e.key === 'ArrowUp' || key === 'w') moveStatus.forward = true;
+    if (e.key === 'ArrowDown' || key === 's') moveStatus.backward = true;
+    if (e.key === 'ArrowLeft' || key === 'a') moveStatus.left = true;
+    if (e.key === 'ArrowRight' || key === 'd') moveStatus.right = true;
     if (e.key === ' ' && !jumpConfig.isJumping) triggerAvatarJump();
 
     if (key === 'h') togglePanelElement('dashboard');
