@@ -9,7 +9,7 @@ const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*", methods: ["GET","POST"] } });
 const PORT = process.env.PORT || 3000;
 
-// เชื่อมต่อระบบ Supabase
+// เชื่อมต่อ Supabase ผ่านตัวแปรระบบบน Railway
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
@@ -22,7 +22,7 @@ const COLORS = ['#ff6b6b','#ffd93d','#6bcb77','#4d96ff','#c77dff','#ff9f43','#00
 let currentModelUrl = null;
 let currentModelName = null;
 
-// ฟังก์ชันดึงชุดข้อมูลทั้งหมดจากฐานข้อมูล Supabase มาซิงค์ช่วงเริ่มต้น
+// ดึงข้อมูล Workflow ทั้งหมดจาก Supabase ตอนเซิร์ฟเวอร์สตาร์ท/คนแรกเข้าเกม
 async function getAllWorkflows() {
     try {
         if (!supabaseUrl || !supabaseKey) return {};
@@ -51,6 +51,7 @@ io.on('connection', async (socket) => {
     };
     players[socket.id] = player;
 
+    // ดึงข้อมูลจริงจาก Supabase ส่งให้คนที่เพิ่งโหลดหน้าเว็บเข้าเกม
     const currentWorkflowDb = await getAllWorkflows();
 
     socket.emit('self_init', {
@@ -58,7 +59,7 @@ io.on('connection', async (socket) => {
         others: Object.values(players).filter(p=>p.id!==socket.id),
         modelUrl: currentModelUrl,
         modelName: currentModelName,
-        workflowDb: currentWorkflowDb
+        workflowDb: currentWorkflowDb // ข้อมูลชิ้นส่วนจาก DB
     });
     socket.broadcast.emit('player_joined', player);
 
@@ -74,11 +75,12 @@ io.on('connection', async (socket) => {
         console.log(`[MODEL] ${data.fileName}`);
     });
 
-    // จุดบันทึกเรียลไทม์ และเก็บเข้าฐานข้อมูล Supabase
+    // จุดแก้ไขที่ทำให้ทุกคนเห็นรายละเอียดชิ้นส่วนและบันทึกลง Supabase
     socket.on('workflow_update', async (data) => {
         try {
             if (supabaseUrl && supabaseKey) {
-                const { error } = await supabase
+                // อัปเดตหรือเพิ่มข้อมูลใหม่ลงในตาราง workflows บน Supabase
+                await supabase
                     .from('workflows')
                     .upsert({
                         key: data.key,
@@ -88,15 +90,13 @@ io.on('connection', async (socket) => {
                         color_class: data.colorClass || 'tag-blue',
                         updated_at: new Date()
                     });
-
-                if (error) throw error;
             }
             
-            // ส่งข้อมูลกระจายให้ผู้เล่นทุกคนเห็นการเปลี่ยนแปลงเรียลไทม์ทันที
+            // ใช้ io.emit เพื่อกระจายข้อมูลกลับไปหา "ทุกคน" (รวมถึงตัวคนกดด้วย) แบบเรียลไทม์
             io.emit('workflow_updated', data);
-            console.log(`[WORKFLOW & SUPABASE] key:${data.key} name:${data.name}`);
+            console.log(`[REALTIME DB SYNC] key:${data.key} name:${data.name}`);
         } catch (err) {
-            console.error('Supabase update failed:', err.message);
+            console.error('Supabase save error:', err.message);
         }
     });
 
