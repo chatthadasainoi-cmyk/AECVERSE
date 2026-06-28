@@ -949,7 +949,7 @@ window.saveLiveEdit = function() {
 
     // ดึงชื่อจาก title ที่แสดงอยู่
     const titleEl = document.getElementById('process-title');
-    const newTitle = titleEl ? titleEl.innerText.replace('⚙️ ชิ้นส่วน: ', '').trim() : '';
+    const newTitle = titleEl ? titleEl.innerText.replace('⚙️ โซน: ', '').replace('⚙️ ชิ้นส่วน: ', '').trim() : '';
 
     // บันทึกในเครื่องตัวเอง
     _origSaveLiveEdit();
@@ -968,27 +968,21 @@ window.saveLiveEdit = function() {
 
 // รับ workflow_update จากคนอื่น
 function applyRemoteWorkflowUpdate(data) {
-    // บันทึกลง database
+    // บันทึกลง database ด้วยทั้ง UUID และชื่อ (เผื่อ UUID ต่างกันระหว่าง browser)
     workflowDatabase[data.meshUUID] = {
         name: data.name,
         desc: data.desc,
         steps: data.steps,
         colorClass: data.colorClass || 'tag-blue'
     };
+    // เก็บด้วย key ชื่อด้วย เพื่อให้ match ข้าม browser ได้
+    workflowDatabase[data.name] = workflowDatabase[data.meshUUID];
 
-    // อัปเดตชื่อใน mesh list
-    if (factoryModel) {
-        factoryModel.traverse(function(child) {
-            if (child.isMesh && child.uuid === data.meshUUID) {
-                child.name = data.name;
-                const sideListItem = document.getElementById(`mesh-item-${child.uuid}`);
-                if (sideListItem) sideListItem.innerText = `🏭 ${data.name}`;
-            }
-        });
-    }
+    // อัปเดต UI ถ้ากำลังดูโซนที่มีชื่อตรงกัน
+    const currentTitle = document.getElementById('process-title');
+    const currentName = currentTitle ? currentTitle.innerText.replace('⚙️ โซน: ', '').replace('⚙️ ชิ้นส่วน: ', '').trim() : '';
 
-    // ถ้าตอนนี้กำลังดู mesh นี้อยู่ ให้อัปเดต UI ทันที
-    if (activeSelectedMeshUUID === data.meshUUID) {
+    if (currentName === data.name || activeSelectedMeshUUID === data.meshUUID) {
         renderWorkflowUI(data.name, data.desc, data.steps, "✏️ อัปเดตโดยผู้เล่นอื่น", data.colorClass || 'tag-blue');
         cancelLiveEdit();
     }
