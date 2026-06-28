@@ -3,151 +3,135 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Biogas Twin Multiplayer</title>
-    <style>
-        body { margin: 0; padding: 0; overflow: hidden; font-family: sans-serif; }
-        #canvas-container { width: 100vw; height: 100vh; position: absolute; z-index: 1; }
-        #workflow-panel {
-            position: absolute; top: 20px; right: 20px; width: 320px;
-            background: rgba(255, 255, 255, 0.95); padding: 20px; border-radius: 12px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.15); z-index: 10; display: none;
-        }
-        .form-group { margin-bottom: 15px; }
-        .form-group label { display: block; font-weight: bold; margin-bottom: 5px; font-size: 14px; }
-        .form-group input, .form-group textarea { width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 6px; }
-        .btn-save { background: #4d96ff; color: white; border: none; padding: 10px 15px; border-radius: 6px; cursor: pointer; width: 100%; font-weight: bold; }
-        #presenting-status {
-            position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.7); color: #fff; padding: 8px 16px; border-radius: 20px; font-size: 14px; z-index: 10; display: none;
-        }
-        #meta-container { position: absolute; bottom: 20px; left: 20px; z-index: 10; background: rgba(255,255,255,0.8); padding: 10px; border-radius: 8px; max-width: 300px; }
-        #chat-logs { height: 150px; overflow-y: auto; font-size: 12px; margin-bottom: 5px; border-bottom: 1px solid #ddd; }
-    </style>
-    <script src="/socket.io/socket.io.js"></script>
+    <title>Biogas Twin - Interactive Safety Metaverse</title>
+    
+    <link rel="stylesheet" href="styles.css">
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/fflate.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/FBXLoader.js"></script>
+
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    
+    <script>window.RAILWAY_SERVER_URL = "https://aecmultiplayertest-production.up.railway.app";</script>
 </head>
 <body>
 
-    <div id="presenting-status">กำลังดูการนำเสนอชิ้นส่วน...</div>
     <div id="canvas-container"></div>
 
-    <div id="workflow-panel">
-        <h3 id="panel-title">รายละเอียดชิ้นส่วน</h3>
-        <input type="hidden" id="component-key">
-        <div class="form-group">
-            <label>ชื่อชิ้นส่วน / ขั้นตอน</label>
-            <input type="text" id="component-name">
+    <div id="ui-container">
+        <div id="dashboard" class="panel">
+            <div class="panel-header">
+                <span class="panel-icon">📊</span>
+                <div class="panel-title-group">
+                    <div class="panel-title">Biogas Metaverse Dashboard</div>
+                    <div class="panel-subtitle">ระบบจำลองสถานะโรงงานและผู้เล่นแบบ Real-time</div>
+                </div>
+            </div>
+            <div class="telemetry-box">
+                <div class="telemetry-title">📡 MULTIPLAYER NETWORK STATUS</div>
+                <div class="telemetry-row"><span>สถานะการเชื่อมต่อ:</span><span id="net-status" class="telemetry-val">Offline</span></div>
+                <div class="telemetry-row"><span>รหัสเซสชันของคุณ:</span><span id="net-id" class="telemetry-val" style="color:#a855f7;">-</span></div>
+                <div class="telemetry-row"><span>จำนวนผู้เล่นในห้อง:</span><span id="net-count" class="telemetry-val">1</span></div>
+            </div>
+            <div class="btn-group" style="margin-top: 12px;">
+                <button class="panel-btn btn-primary" onclick="togglePanelElement('multiplayer-panel')">👤 ตั้งค่าผู้เล่น</button>
+                <button class="panel-btn btn-save" onclick="togglePanelElement('process-panel')">⚙️ จัดการขั้นตอน</button>
+            </div>
         </div>
-        <div class="form-group">
-            <label>คำอธิบายรายละเอียด</label>
-            <textarea id="component-desc" rows="4"></textarea>
+
+        <div id="transform-panel" class="panel" style="display:none;">
+            <div class="panel-header">
+                <span class="panel-icon">🎮</span>
+                <div class="panel-title-group">
+                    <div class="panel-title">Avatar Controls</div>
+                    <div class="panel-subtitle">ควบคุมตำแหน่งตัวละครในระบบนิทรรศการ</div>
+                </div>
+            </div>
+            <div class="control-grid">
+                <button class="ctrl-btn" onclick="moveAvatarManual('up')">▲ หน้า</button>
+                <div style="display:flex; gap:6px;">
+                    <button class="ctrl-btn" onclick="moveAvatarManual('left')">◀ ซ้าย</button>
+                    <button class="ctrl-btn" onclick="moveAvatarManual('down')">▼ หลัง</button>
+                    <button class="ctrl-btn" onclick="moveAvatarManual('right')">▶ ขวา</button>
+                </div>
+            </div>
         </div>
-        <button class="btn-save" onclick="saveWorkflow()">บันทึกและแชร์ข้อมูล</button>
-        <button style="margin-top:5px; background:#aaa; width:100%; border:none; color:white; padding:5px; border-radius:6px; cursor:pointer;" onclick="closePanel()">ปิด</button>
+
+        <div id="details-panel" class="panel" style="display:none;">
+            <div class="panel-header">
+                <span class="panel-icon">🏭</span>
+                <div class="panel-title-group">
+                    <div class="panel-title">Model Components</div>
+                    <div class="panel-subtitle">คลิกเลือกชิ้นส่วน 3D ในโมเดลเพื่อตรวจสอบรายละเอียด</div>
+                </div>
+            </div>
+            <div id="mesh-list-container" class="scroll-area">
+                <p style="font-size:11px;color:#64748b;text-align:center;">ยังไม่ได้โหลดโมเดลโรงงาน หรือไม่มีชิ้นส่วนย่อย</p>
+            </div>
+        </div>
+
+        <div id="process-panel" class="panel" style="display:none;">
+            <div class="panel-header">
+                <span class="panel-icon">🛡️</span>
+                <div class="panel-title-group">
+                    <div class="panel-title" id="process-title">⚙️ โซน: ยังไม่ได้เลือก</div>
+                    <div class="panel-subtitle">บอร์ดบรรยายรายละเอียดชิ้นส่วนและขั้นตอนการทำงานความปลอดภัย</div>
+                </div>
+            </div>
+            
+            <div class="meta-tag-row">
+                <span id="info-status-badge" class="badge-tag tag-blue">พร้อมใช้งาน</span>
+                <span id="info-author" style="font-size:11px; color:#94a3b8;">ระบบดั้งเดิม</span>
+            </div>
+
+            <div class="ui-edit-section" style="margin-top:12px; background:rgba(255,255,255,0.03); padding:10px; border-radius:8px;">
+                <div style="margin-bottom:8px;">
+                    <label style="font-size:11px; color:#ffaa00; font-weight:bold; display:block; margin-bottom:4px;">ชื่อชิ้นส่วน / โซนนำเสนอ</label>
+                    <input type="text" id="edit-zone-name" class="ui-edit-input" placeholder="ระบุชื่อชิ้นส่วน...">
+                </div>
+                <div style="margin-bottom:8px;">
+                    <label style="font-size:11px; color:#ffaa00; font-weight:bold; display:block; margin-bottom:4px;">รายละเอียดข้อมูลการทำงาน</label>
+                    <textarea id="edit-zone-desc" class="ui-edit-input" rows="3" placeholder="พิมพ์รายละเอียดความปลอดภัยหรือชิ้นส่วนที่นี่..."></textarea>
+                </div>
+                <button class="panel-action-btn btn-save" onclick="submitWorkflowUpdate()" style="width:100%; padding:8px;">💾 บันทึกการแก้ไขข้อมูลชิ้นส่วน</button>
+            </div>
+
+            <div id="process-desc" class="process-desc-text" style="margin-top:10px;">กรุณาคลิกเลือกวัตถุ 3D ในโรงงาน เพื่อเรียกดูข้อมูลความปลอดภัยหรือร่วมกันแก้ไขรายละเอียดชิ้นส่วนชิ้นนั้น ๆ</div>
+            <div id="process-steps-container" class="steps-timeline"></div>
+        </div>
+
+        <div id="multiplayer-panel" class="panel" style="display:none;">
+            <div class="panel-header">
+                <span class="panel-icon">🌐</span>
+                <div class="panel-title-group">
+                    <div class="panel-title">Multiplayer & Chat</div>
+                    <div class="panel-subtitle">จัดการชื่อตัวละครและพูดคุยในระบบเมตาเวิร์ส</div>
+                </div>
+            </div>
+            <div style="display:flex;gap:6px;margin-bottom:12px;">
+                <input type="text" id="mp-name-input" class="ui-edit-input" placeholder="ตั้งชื่อของคุณ..." maxlength="20">
+                <button class="panel-action-btn btn-primary" onclick="updatePlayerName()">บันทึก</button>
+            </div>
+            <div id="mp-chat-box" style="height:140px;overflow-y:auto;background:rgba(0,0,0,0.25);border-radius:6px;padding:6px;margin-bottom:6px;font-size:11px;font-family:monospace;"></div>
+            <div style="display:flex;gap:6px;">
+                <input type="text" id="mp-chat-input" class="ui-edit-input" placeholder="พิมพ์ข้อความ..." style="flex:1;" maxlength="200" onkeydown="if(event.key==='Enter') sendChat()">
+                <button class="panel-action-btn" onclick="sendChat()" style="white-space:nowrap;">ส่ง</button>
+            </div>
+        </div>
     </div>
 
-    <div id="meta-container">
-        <div id="player-name-tag">คุณคือ: กำลังเชื่อมต่อ...</div>
-        <div id="chat-logs"></div>
-        <input type="text" id="chat-input" placeholder="พิมพ์ข้อความแชท..." onkeydown="if(event.key==='Enter') sendChat()">
+    <div id="keybind-hud">
+        <div class="key-btn-item" onclick="togglePanelElement('dashboard')"><span class="key-badge">H</span> เมนูหลัก</div>
+        <div class="key-btn-item" onclick="togglePanelElement('transform-panel')"><span class="key-badge">T</span> ปรับตำแหน่ง</div>
+        <div class="key-btn-item" onclick="togglePanelElement('details-panel')"><span class="key-badge">M</span> รายชื่อชิ้นส่วน</div>
+        <div class="key-btn-item" onclick="togglePanelElement('process-panel')"><span class="key-badge">P</span> บอร์ดความปลอดภัย</div>
+        <div class="key-btn-item" onclick="togglePanelElement('multiplayer-panel')"><span class="key-badge">U</span> Multiplayer</div>
+        <div class="key-btn-item" onclick="resetCameraToAvatar()"><span class="key-badge">R</span> รีเซ็ตมุมกล้อง</div>
     </div>
 
-    <script>
-        const socket = io();
-        let localWorkflowDb = {};
-        let myId = null;
-
-        // พื้นฐาน Three.js (เปลี่ยนเป็นตัวโหลดโมเดลจริงของคุณได้เลย)
-        const container = document.getElementById('canvas-container');
-        const scene = new THREE.Scene(); scene.background = new THREE.Color('#f0f0f0');
-        const camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 1000);
-        const renderer = new THREE.WebGLRenderer({ antialias: true });
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        container.appendChild(renderer.domElement);
-
-        scene.add(new THREE.AmbientLight(0xffffff, 0.7));
-        camera.position.set(0, 3, 10);
-
-        const parts = [];
-        function createPart(name, color, x, key) {
-            const mesh = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.5, 1.5), new THREE.MeshStandardMaterial({ color }));
-            mesh.position.set(x, 1, 0); mesh.userData = { key, defaultColor: color };
-            scene.add(mesh); parts.push(mesh);
-        }
-        createPart("Digester", "#6bcb77", -2, "part_digester");
-        createPart("Gas Holder", "#4d96ff", 2, "part_gasholder");
-
-        function animate() { requestAnimationFrame(animate); renderer.render(scene, camera); }
-        animate();
-
-        // ตรวจจับการคลิกพรีเซนต์
-        const raycaster = new THREE.Raycaster(); const mouse = new THREE.Vector2();
-        window.addEventListener('click', (e) => {
-            if(e.target.closest('#workflow-panel') || e.target.closest('#meta-container')) return;
-            mouse.x = (e.clientX / window.innerWidth) * 2 - 1; mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
-            raycaster.setFromCamera(mouse, camera);
-            const intersects = raycaster.intersectObjects(parts);
-            if(intersects.length > 0) {
-                const key = intersects[0].object.userData.key;
-                openWorkflowPanel(key);
-                socket.emit('component_select', { key, playerId: myId });
-            }
-        });
-
-        function openWorkflowPanel(key) {
-            document.getElementById('workflow-panel').style.display = 'block';
-            document.getElementById('component-key').value = key;
-            if(localWorkflowDb[key]) {
-                document.getElementById('component-name').value = localWorkflowDb[key].name || '';
-                document.getElementById('component-desc').value = localWorkflowDb[key].desc || '';
-                document.getElementById('panel-title').innerText = `ชิ้นส่วน: ${localWorkflowDb[key].name}`;
-            } else {
-                document.getElementById('component-name').value = '';
-                document.getElementById('component-desc').value = '';
-                document.getElementById('panel-title').innerText = `แก้ไขชิ้นส่วน (${key})`;
-            }
-        }
-
-        function closePanel() { document.getElementById('workflow-panel').style.display = 'none'; }
-
-        function saveWorkflow() {
-            const key = document.getElementById('component-key').value;
-            const name = document.getElementById('component-name').value;
-            const desc = document.getElementById('component-desc').value;
-            if(!name) return alert('กรุณากรอกชื่อ');
-            socket.emit('workflow_update', { key, name, desc, steps: [], colorClass: 'tag-blue' });
-        }
-
-        // ฟังคำสั่ง Real-time จากเซิร์ฟเวอร์
-        socket.on('self_init', (data) => {
-            myId = data.self.id;
-            document.getElementById('player-name-tag').innerText = `คุณคือ: ${data.self.name}`;
-            document.getElementById('player-name-tag').style.color = data.self.color;
-            localWorkflowDb = data.workflowDb || {};
-        });
-
-        socket.on('workflow_updated', (data) => {
-            localWorkflowDb[data.key] = { name: data.name, desc: data.desc, steps: data.steps, colorClass: data.colorClass };
-            if(document.getElementById('component-key').value === data.key && document.getElementById('workflow-panel').style.display === 'block') {
-                openWorkflowPanel(data.key);
-            }
-        });
-
-        socket.on('component_selected', (data) => {
-            const statusTag = document.getElementById('presenting-status');
-            statusTag.style.display = 'block';
-            statusTag.innerText = `เพื่อนกำลังพรีเซนต์ชิ้นส่วน: ${data.key}`;
-            openWorkflowPanel(data.key);
-            setTimeout(() => { statusTag.style.display = 'none'; }, 4000);
-        });
-
-        function sendChat() {
-            const input = document.getElementById('chat-input'); if(!input.value.trim()) return;
-            socket.emit('chat_message', input.value); input.value = '';
-        }
-        socket.on('chat_message', (data) => {
-            document.getElementById('chat-logs').innerHTML += `<div><strong style="color:${data.color}">${data.name}:</strong> ${data.text}</div>`;
-        });
-    </script>
+    <script src="app.js"></script>
 </body>
 </html>
