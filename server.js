@@ -49,9 +49,13 @@ io.on('connection', socket => {
         console.log(`[MODEL] ${data.fileName}`);
     });
 
+    /* ==========================================================================
+       🛠️ [จุดแก้ไข] เปลี่ยนจาก socket.broadcast.emit เป็น io.emit 
+       เพื่อให้ระบบส่งข้อมูลกระจายหา "ผู้เล่นทุกคนในเซิร์ฟเวอร์" ทั่วถึงพร้อมกันทันที
+       ========================================================================== */
     socket.on('workflow_update', data => {
         workflowDb[data.key] = { name:data.name, desc:data.desc, steps:data.steps, colorClass:data.colorClass||'tag-blue' };
-        socket.broadcast.emit('workflow_updated', data);
+        io.emit('workflow_updated', data); 
         console.log(`[WORKFLOW] key:${data.key} name:${data.name}`);
     });
 
