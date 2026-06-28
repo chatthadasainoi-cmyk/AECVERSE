@@ -6,121 +6,179 @@
     <title>Biogas Twin - Interactive Safety Metaverse</title>
     <link rel="stylesheet" href="styles.css">
 
+    <!-- Three.js Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/fflate.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/FBXLoader.js"></script>
 
+    <!-- Socket.IO Client — CDN first, fallback to local server -->
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <!-- ✏️ ใส่ Railway URL ของคุณตรงนี้ -->
     <script>window.RAILWAY_SERVER_URL = "https://aecmultiplayertest-production.up.railway.app";</script>
 </head>
 <body>
 
+    <!-- Canvas สำหรับแสดงผล 3D -->
     <div id="canvas-container"></div>
 
-    <div id="ui-container">
-        <div id="dashboard" class="panel">
-            <div class="panel-header">
-                <span class="panel-icon">📊</span>
-                <div class="panel-title-group">
-                    <div class="panel-title">Biogas Metaverse Dashboard</div>
-                    <div class="panel-subtitle">ระบบจำลองสถานะโรงงานและผู้เล่นแบบ Real-time</div>
-                </div>
+    <!-- แผงซ้าย: อัปโหลดโมเดลโรงงานหลัก -->
+    <div id="dashboard" class="panel">
+        <h3>⚡ Biogas Digital Twin</h3>
+        <div class="upload-section">
+            <label class="section-label">โมเดลโรงงานจำลอง (Factory Plant)</label>
+            <div class="upload-btn-wrapper">
+                <button class="btn">🏭 อัปโหลดไฟล์โมเดล (.gltf / .glb / .fbx)</button>
+                <input type="file" id="factory-input" class="file-input" multiple accept=".gltf,.glb,.fbx,.jpg,.png" />
             </div>
-            <div class="telemetry-box">
-                <div class="telemetry-title">📡 MULTIPLAYER NETWORK STATUS</div>
-                <div class="telemetry-row"><span>สถานะการเชื่อมต่อ:</span><span id="net-status" class="telemetry-val">Offline</span></div>
-                <div class="telemetry-row"><span>รหัสเซสชันของคุณ:</span><span id="net-id" class="telemetry-val" style="color:#a855f7;">-</span></div>
-                <div class="telemetry-row"><span>จำนวนผู้เล่นในห้อง:</span><span id="net-count" class="telemetry-val">1</span></div>
+            <div id="factory-status" class="status-msg">สถานะ: รอการอัปโหลดโมเดล...</div>
+        </div>
+
+        <div style="margin-top: 15px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 12px;">
+            <button class="panel-action-btn btn-save" style="width: 100%; padding: 10px;" onclick="exportWorkflowDatabase()">💾 ส่งออกฐานข้อมูลระบบ (.json)</button>
+        </div>
+    </div>
+
+    <!-- แผงปรับตำแหน่งโมเดลโรงงาน -->
+    <div id="transform-panel" class="panel" style="display: none;">
+        <h4 style="color: #ffaa00; margin-bottom: 12px;">🛠️ เครื่องมือปรับตำแหน่งวัตถุ</h4>
+        
+        <div class="control-group">
+            <label>ตำแหน่งแกน X (ซ้าย - ขวา)</label>
+            <div class="slider-row">
+                <input type="range" id="param-posX" min="-50" max="50" step="0.1" value="0">
+                <span id="val-posX" class="slider-val">0.0</span>
             </div>
-            <div class="btn-group" style="margin-top: 12px;">
-                <button class="panel-btn btn-primary" onclick="togglePanelElement('multiplayer-panel')">👤 ตั้งค่าผู้เล่น</button>
-                <button class="panel-btn btn-save" onclick="togglePanelElement('process-panel')">⚙️ จัดการขั้นตอน</button>
+        </div>
+        <div class="control-group">
+            <label>ตำแหน่งแกน Y (ขึ้น - ลง)</label>
+            <div class="slider-row">
+                <input type="range" id="param-posY" min="-10" max="20" step="0.05" value="0">
+                <span id="val-posY" class="slider-val">0.0</span>
+            </div>
+        </div>
+        <div class="control-group">
+            <label>ตำแหน่งแกน Z (หน้า - หลัง)</label>
+            <div class="slider-row">
+                <input type="range" id="param-posZ" min="-50" max="50" step="0.1" value="0">
+                <span id="val-posZ" class="slider-val">0.0</span>
+            </div>
+        </div>
+        
+        <div class="control-group">
+            <label>หมุนโมเดล (แนวราบ Y)</label>
+            <div class="slider-row">
+                <input type="range" id="param-rotY" min="-180" max="180" step="1" value="0">
+                <span id="val-rotY" class="slider-val">0°</span>
             </div>
         </div>
 
-        <div id="transform-panel" class="panel" style="display:none;">
-            <div class="panel-header">
-                <span class="panel-icon">🎮</span>
-                <div class="panel-title-group">
-                    <div class="panel-title">Avatar Controls</div>
-                    <div class="panel-subtitle">ควบคุมตำแหน่งตัวละครในระบบนิทรรศการ</div>
-                </div>
-            </div>
-            <div class="control-grid">
-                <button class="ctrl-btn" onclick="moveAvatarManual('up')">▲ หน้า</button>
-                <div style="display:flex; gap:6px;">
-                    <button class="ctrl-btn" onclick="moveAvatarManual('left')">◀ ซ้าย</button>
-                    <button class="ctrl-btn" onclick="moveAvatarManual('down')">▼ หลัง</button>
-                    <button class="ctrl-btn" onclick="moveAvatarManual('right')">▶ ขวา</button>
-                </div>
+        <div class="control-group">
+            <label>ขนาดโมเดล (Scale)</label>
+            <div class="slider-row">
+                <input type="range" id="param-scale" min="0.1" max="5" step="0.05" value="1">
+                <span id="val-scale" class="slider-val">1.0x</span>
             </div>
         </div>
 
-        <div id="details-panel" class="panel" style="display:none;">
-            <div class="panel-header">
-                <span class="panel-icon">🏭</span>
-                <div class="panel-title-group">
-                    <div class="panel-title">Model Components</div>
-                    <div class="panel-subtitle">คลิกเลือกชิ้นส่วน 3D ในโมเดลเพื่อตรวจสอบรายละเอียด</div>
-                </div>
-            </div>
-            <div id="mesh-list-container" class="scroll-area">
-                <p style="font-size:11px;color:#64748b;text-align:center;">ยังไม่ได้โหลดโมเดลโรงงาน หรือไม่มีชิ้นส่วนย่อย</p>
-            </div>
-        </div>
-
-        <div id="process-panel" class="panel" style="display:none;">
-            <div class="panel-header">
-                <span class="panel-icon">🛡️</span>
-                <div class="panel-title-group">
-                    <div class="panel-title" id="process-title">⚙️ โซน: ยังไม่ได้เลือก</div>
-                    <div class="panel-subtitle">บอร์ดบรรยายรายละเอียดชิ้นส่วนและขั้นตอนการทำงานความปลอดภัย</div>
-                </div>
-            </div>
-            
-            <div class="meta-tag-row">
-                <span id="info-status-badge" class="badge-tag tag-blue">พร้อมใช้งาน</span>
-                <span id="info-author" style="font-size:11px; color:#94a3b8;">ระบบดั้งเดิม</span>
-            </div>
-
-            <div class="ui-edit-section" style="margin-top:12px; background:rgba(0,0,0,0.3); padding:10px; border-radius:8px; border: 1px solid rgba(255,255,255,0.05);">
-                <div style="margin-bottom:8px;">
-                    <label style="font-size:11px; color:#ffaa00; font-weight:bold; display:block; margin-bottom:4px;">ชื่อชิ้นส่วน / โซนนำเสนอ</label>
-                    <input type="text" id="edit-zone-name" class="ui-edit-input" style="width:100%; background:#000; color:#fff; border:1px solid #334155; padding:6px; border-radius:4px;" placeholder="ระบุชื่อชิ้นส่วน...">
-                </div>
-                <div style="margin-bottom:8px;">
-                    <label style="font-size:11px; color:#ffaa00; font-weight:bold; display:block; margin-bottom:4px;">รายละเอียดข้อมูลการทำงาน</label>
-                    <textarea id="edit-zone-desc" class="ui-edit-input" rows="3" style="width:100%; background:#000; color:#fff; border:1px solid #334155; padding:6px; border-radius:4px; resize:none;" placeholder="พิมพ์รายละเอียดความปลอดภัยที่นี่..."></textarea>
-                </div>
-                <button class="panel-action-btn btn-save" onclick="submitWorkflowUpdate()" style="width:100%; padding:8px; border-radius:4px; cursor:pointer;">💾 บันทึกข้อมูลไปยังทุกคน</button>
-            </div>
-
-            <div id="process-desc" class="process-desc-text" style="margin-top:10px; font-size:12px; color:#94a3b8;">กรุณาคลิกเลือกวัตถุ 3D ในโรงงาน เพื่อเรียกดูข้อมูลความปลอดภัยหรือร่วมกันแก้ไขรายละเอียดชิ้นส่วนชิ้นนั้น ๆ</div>
-            <div id="process-steps-container" class="steps-timeline"></div>
-        </div>
-
-        <div id="multiplayer-panel" class="panel" style="display:none;">
-            <div class="panel-header">
-                <span class="panel-icon">🌐</span>
-                <div class="panel-title-group">
-                    <div class="panel-title">Multiplayer & Chat</div>
-                    <div class="panel-subtitle">จัดการชื่อตัวละครและพูดคุยในระบบเมตาเวิร์ส</div>
-                </div>
-            </div>
-            <div style="display:flex;gap:6px;margin-bottom:12px;">
-                <input type="text" id="mp-name-input" style="flex:1; background:#000; color:#fff; border:1px solid #334155; padding:6px; border-radius:4px;" placeholder="ตั้งชื่อของคุณ..." maxlength="20">
-                <button class="panel-action-btn btn-primary" onclick="updatePlayerName()" style="padding:6px 12px; border-radius:4px; cursor:pointer;">บันทึก</button>
-            </div>
-            <div id="mp-chat-box" style="height:140px;overflow-y:auto;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.05);border-radius:6px;padding:6px;margin-bottom:6px;font-size:11px;font-family:monospace;color:#fff;"></div>
-            <div style="display:flex;gap:6px;">
-                <input type="text" id="mp-chat-input" style="flex:1; background:#000; color:#fff; border:1px solid #334155; padding:6px; border-radius:4px;" placeholder="พิมพ์ข้อความ..." maxlength="200">
-                <button class="panel-action-btn" onclick="sendChat()" style="white-space:nowrap; padding:6px 12px; border-radius:4px; cursor:pointer; background:#1e293b; color:#fff; border:1px solid #475569;">ส่ง</button>
+        <div class="control-group" style="margin-top: 15px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 10px;">
+            <label style="color:#00ffff; font-weight: bold; margin-bottom: 8px;">👁️ โหมดโครงสร้างพื้นผิว</label>
+            <div class="mode-container">
+                <button id="mode-solid" class="mode-btn active" onclick="setFactoryMaterialMode('solid')">Solid</button>
+                <button id="mode-wireframe" class="mode-btn" onclick="setFactoryMaterialMode('wireframe')">Wireframe</button>
+                <button id="mode-xray" class="mode-btn" onclick="setFactoryMaterialMode('xray')">X-Ray</button>
             </div>
         </div>
     </div>
 
+    <!-- แผงขวาบน: โครงสร้างชิ้นส่วนวัตถุ -->
+    <div id="details-panel" class="panel" style="display: none;">
+        <h4>📦 รายการชิ้นส่วนโครงสร้าง</h4>
+        <div id="model-meta"></div>
+        <div id="mesh-container"></div>
+    </div>
+
+    <!-- แผงล่างขวา: ข้อมูลกระบวนการและความปลอดภัย -->
+    <div id="process-panel" class="panel" style="display: none;">
+        <div class="process-header">
+            <div id="title-container" style="display: flex; align-items: center; gap: 8px;">
+                <span id="process-title" style="font-weight: bold; font-size: 15px;">⚙️ ชิ้นส่วน: รอตรวจจับ...</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span id="detection-method" class="method-tag">ระบบตรวจจับ</span>
+                <button id="btn-edit-mode" class="panel-action-btn btn-edit-trigger" onclick="enableLiveEdit()">✏️ แก้ไข</button>
+                <div id="edit-actions-group" style="display: none; gap: 5px;">
+                    <button class="panel-action-btn btn-save" onclick="saveLiveEdit()">💾 บันทึก</button>
+                    <button class="panel-action-btn" onclick="cancelLiveEdit()">❌ ยกเลิก</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="process-grid">
+            <div>
+                <p style="margin-top:0;"><strong>📝 มาตรฐานความปลอดภัย:</strong></p>
+                <div id="desc-view-area" style="color: #e0e0e0; font-size: 13px; min-height: 40px;">คำอธิบาย...</div>
+                <div id="desc-edit-area" style="display: none;">
+                    <textarea id="input-edit-desc" class="ui-edit-textarea"></textarea>
+                </div>
+
+                <div class="telemetry-box">
+                    <div class="telemetry-title">📊 สัญญาณเซนเซอร์จำลอง (IoT Telemetry)</div>
+                    <div class="telemetry-row"><span>สถานะอุปกรณ์:</span><span class="telemetry-val" style="color:#00ff66;">ONLINE</span></div>
+                    <div class="telemetry-row"><span>แรงดันก๊าซ (Pressure):</span><span id="iot-pressure" class="telemetry-val">0.00 bar</span></div>
+                    <div class="telemetry-row"><span>อุณหภูมิ (Temperature):</span><span id="iot-temp" class="telemetry-val">0.0 °C</span></div>
+                </div>
+            </div>
+            <div>
+                <p style="margin-top:0;"><strong>🛡️ ข้อกำหนดวิศวกรรม & PPE:</strong></p>
+                <div id="steps-view-area"></div>
+                <div id="steps-edit-area" style="display: none;">
+                    <textarea id="input-edit-steps" class="ui-edit-textarea" style="height: 120px;" placeholder="แยกขั้นตอนด้วยเครื่องหมายจุลภาค (,)"></textarea>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================== -->
+    <!-- MULTIPLAYER PANEL (NEW)    -->
+    <!-- ========================== -->
+    <div id="multiplayer-panel" class="panel">
+        <h3 style="margin-bottom: 10px;">🌐 Multiplayer</h3>
+
+        <!-- Connection status -->
+        <div id="mp-status" style="display:flex; align-items:center; gap:6px; margin-bottom:10px; font-size:12px; color:#64748b;">
+            <span id="mp-dot" style="width:8px;height:8px;border-radius:50%;background:#64748b;display:inline-block;"></span>
+            <span id="mp-status-text">กำลังเชื่อมต่อ...</span>
+        </div>
+
+        <!-- My name -->
+        <div style="margin-bottom:10px;">
+            <label class="section-label">ชื่อผู้เล่น</label>
+            <div style="display:flex;gap:6px;">
+                <input type="text" id="mp-name-input" class="ui-edit-input" placeholder="ตั้งชื่อของคุณ" style="flex:1;" maxlength="20">
+                <button class="panel-action-btn btn-save" onclick="setMyName()" style="white-space:nowrap;">ตั้งชื่อ</button>
+            </div>
+        </div>
+
+        <!-- Player list -->
+        <div>
+            <label class="section-label">ผู้เล่นออนไลน์ (<span id="mp-player-count">1</span>)</label>
+            <div id="mp-player-list" style="max-height:100px;overflow-y:auto;"></div>
+        </div>
+
+        <!-- Chat -->
+        <div style="margin-top:10px;">
+            <label class="section-label">แชท</label>
+            <div id="mp-chat-log" style="max-height:100px;overflow-y:auto;background:rgba(0,0,0,0.25);border-radius:6px;padding:6px;margin-bottom:6px;font-size:11px;font-family:monospace;"></div>
+            <div style="display:flex;gap:6px;">
+                <input type="text" id="mp-chat-input" class="ui-edit-input" placeholder="พิมพ์ข้อความ..." style="flex:1;" maxlength="200">
+                <button class="panel-action-btn" onclick="sendChat()" style="white-space:nowrap;">ส่ง</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- แผงควบคุมด่วน HUD ด้านล่าง -->
     <div id="keybind-hud">
         <div class="key-btn-item" onclick="togglePanelElement('dashboard')"><span class="key-badge">H</span> เมนูหลัก</div>
         <div class="key-btn-item" onclick="togglePanelElement('transform-panel')"><span class="key-badge">T</span> ปรับตำแหน่ง</div>
@@ -128,6 +186,7 @@
         <div class="key-btn-item" onclick="togglePanelElement('process-panel')"><span class="key-badge">P</span> บอร์ดความปลอดภัย</div>
         <div class="key-btn-item" onclick="togglePanelElement('multiplayer-panel')"><span class="key-badge">U</span> Multiplayer</div>
         <div class="key-btn-item" onclick="resetCameraToAvatar()"><span class="key-badge">R</span> รีเซ็ตมุมกล้อง</div>
+        <div class="key-btn-item" onclick="triggerAvatarJump()"><span class="key-badge">Space</span> กระโดด</div>
     </div>
 
     <script src="app.js"></script>
