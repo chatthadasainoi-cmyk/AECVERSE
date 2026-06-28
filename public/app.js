@@ -959,15 +959,15 @@ const _origSaveLiveEdit = saveLiveEdit;
 window.saveLiveEdit = function() {
     if (!activeSelectedMeshUUID) return;
 
-    // ดึงค่าก่อน save (เพราะ _origSaveLiveEdit จะซ่อน textarea)
+    // ดึงชื่อและค่าทั้งหมดก่อน _origSaveLiveEdit รัน (เพราะมันจะซ่อน textarea และเปลี่ยน title)
+    const titleEl = document.getElementById('process-title');
+    const newTitle = titleEl ? titleEl.innerText.replace('⚙️ โซน: ', '').replace('⚙️ ชิ้นส่วน: ', '').trim() : '';
     const descEl = document.getElementById('input-edit-desc');
     const stepsEl = document.getElementById('input-edit-steps');
     const newDesc = descEl ? descEl.value.trim() : '';
     const newStepsArray = stepsEl ? stepsEl.value.split(',').map(s => s.trim()).filter(s => s.length > 0) : [];
 
-    // ดึงชื่อจาก title ที่แสดงอยู่
-    const titleEl = document.getElementById('process-title');
-    const newTitle = titleEl ? titleEl.innerText.replace('⚙️ โซน: ', '').replace('⚙️ ชิ้นส่วน: ', '').trim() : '';
+    console.log('[WORKFLOW] saving:', newTitle, newDesc);
 
     // บันทึกในเครื่องตัวเอง
     _origSaveLiveEdit();
