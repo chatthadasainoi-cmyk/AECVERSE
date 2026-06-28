@@ -85,19 +85,19 @@
                 <span id="info-author" style="font-size:11px; color:#94a3b8;">ระบบดั้งเดิม</span>
             </div>
 
-            <div class="ui-edit-section" style="margin-top:12px; background:rgba(255,255,255,0.03); padding:10px; border-radius:8px;">
+            <div class="ui-edit-section" style="margin-top:12px; background:rgba(0,0,0,0.3); padding:10px; border-radius:8px; border: 1px solid rgba(255,255,255,0.05);">
                 <div style="margin-bottom:8px;">
                     <label style="font-size:11px; color:#ffaa00; font-weight:bold; display:block; margin-bottom:4px;">ชื่อชิ้นส่วน / โซนนำเสนอ</label>
-                    <input type="text" id="edit-zone-name" class="ui-edit-input" placeholder="ระบุชื่อชิ้นส่วน...">
+                    <input type="text" id="edit-zone-name" class="ui-edit-input" style="width:100%; background:#000; color:#fff; border:1px solid #334155; padding:6px; border-radius:4px;" placeholder="ระบุชื่อชิ้นส่วน...">
                 </div>
                 <div style="margin-bottom:8px;">
                     <label style="font-size:11px; color:#ffaa00; font-weight:bold; display:block; margin-bottom:4px;">รายละเอียดข้อมูลการทำงาน</label>
-                    <textarea id="edit-zone-desc" class="ui-edit-input" rows="3" placeholder="พิมพ์รายละเอียดความปลอดภัยที่นี่..."></textarea>
+                    <textarea id="edit-zone-desc" class="ui-edit-input" rows="3" style="width:100%; background:#000; color:#fff; border:1px solid #334155; padding:6px; border-radius:4px; resize:none;" placeholder="พิมพ์รายละเอียดความปลอดภัยที่นี่..."></textarea>
                 </div>
-                <button class="panel-action-btn btn-save" onclick="submitWorkflowUpdate()" style="width:100%; padding:8px;">💾 บันทึกข้อมูลไปยังทุกคน</button>
+                <button class="panel-action-btn btn-save" onclick="submitWorkflowUpdate()" style="width:100%; padding:8px; border-radius:4px; cursor:pointer;">💾 บันทึกข้อมูลไปยังทุกคน</button>
             </div>
 
-            <div id="process-desc" class="process-desc-text" style="margin-top:10px;">กรุณาคลิกเลือกวัตถุ 3D ในโรงงาน เพื่อเรียกดูข้อมูลความปลอดภัยหรือร่วมกันแก้ไขรายละเอียดชิ้นส่วนชิ้นนั้น ๆ</div>
+            <div id="process-desc" class="process-desc-text" style="margin-top:10px; font-size:12px; color:#94a3b8;">กรุณาคลิกเลือกวัตถุ 3D ในโรงงาน เพื่อเรียกดูข้อมูลความปลอดภัยหรือร่วมกันแก้ไขรายละเอียดชิ้นส่วนชิ้นนั้น ๆ</div>
             <div id="process-steps-container" class="steps-timeline"></div>
         </div>
 
@@ -110,13 +110,13 @@
                 </div>
             </div>
             <div style="display:flex;gap:6px;margin-bottom:12px;">
-                <input type="text" id="mp-name-input" class="ui-edit-input" placeholder="ตั้งชื่อของคุณ..." maxlength="20">
-                <button class="panel-action-btn btn-primary" onclick="updatePlayerName()">บันทึก</button>
+                <input type="text" id="mp-name-input" style="flex:1; background:#000; color:#fff; border:1px solid #334155; padding:6px; border-radius:4px;" placeholder="ตั้งชื่อของคุณ..." maxlength="20">
+                <button class="panel-action-btn btn-primary" onclick="updatePlayerName()" style="padding:6px 12px; border-radius:4px; cursor:pointer;">บันทึก</button>
             </div>
-            <div id="mp-chat-box" style="height:140px;overflow-y:auto;background:rgba(0,0,0,0.25);border-radius:6px;padding:6px;margin-bottom:6px;font-size:11px;font-family:monospace;"></div>
+            <div id="mp-chat-box" style="height:140px;overflow-y:auto;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.05);border-radius:6px;padding:6px;margin-bottom:6px;font-size:11px;font-family:monospace;color:#fff;"></div>
             <div style="display:flex;gap:6px;">
-                <input type="text" id="mp-chat-input" class="ui-edit-input" placeholder="พิมพ์ข้อความ..." style="flex:1;" maxlength="200">
-                <button class="panel-action-btn" onclick="sendChat()" style="white-space:nowrap;">ส่ง</button>
+                <input type="text" id="mp-chat-input" style="flex:1; background:#000; color:#fff; border:1px solid #334155; padding:6px; border-radius:4px;" placeholder="พิมพ์ข้อความ..." maxlength="200">
+                <button class="panel-action-btn" onclick="sendChat()" style="white-space:nowrap; padding:6px 12px; border-radius:4px; cursor:pointer; background:#1e293b; color:#fff; border:1px solid #475569;">ส่ง</button>
             </div>
         </div>
     </div>
