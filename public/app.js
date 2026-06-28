@@ -229,27 +229,31 @@ function resetCameraToAvatar() {
 window.addEventListener('keydown', (e) => {
     if(document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
     const key = e.key.toLowerCase();
-    if (e.key === 'ArrowUp' || key === 'w') moveStatus.forward = true;
-    if (e.key === 'ArrowDown' || key === 's') moveStatus.backward = true;
-    if (e.key === 'ArrowLeft' || key === 'a') moveStatus.left = true;
-    if (e.key === 'ArrowRight' || key === 'd') moveStatus.right = true;
+    
+    // 💡 เพิ่มการเช็กคีย์ภาษาไทยเข้าไปคู่กับอังกฤษ (W=ฟ, S=ห, A=ฟ/ห สลับตามเลย์เอาต์)
+    if (e.key === 'ArrowUp' || key === 'w' || key === 'ฟ') moveStatus.forward = true;
+    if (e.key === 'ArrowDown' || key === 's' || key === 'ห') moveStatus.backward = true;
+    if (e.key === 'ArrowLeft' || key === 'a' || key === 'ฟ' || key === 'ภ') moveStatus.left = true; // รองรับแป้นพิมพ์ไทยทั้งพิมพ์เล็ก/ใหญ่
+    if (e.key === 'ArrowRight' || key === 'd' || key === 'ด') moveStatus.right = true;
     if (e.key === ' ' && !jumpConfig.isJumping) triggerAvatarJump();
 
-    if (key === 'h') togglePanelElement('dashboard');
-    if (key === 'm') togglePanelElement('details-panel');
-    if (key === 'p') togglePanelElement('process-panel');
-    if (key === 't') togglePanelElement('transform-panel');
-    if (key === 'r') resetCameraToAvatar();
+    // ปุ่มลัดเปิด/ปิดหน้าต่างเมนูต่าง ๆ (H=อ, M=ท, P=ย, T=ะ, R=พ)
+    if (key === 'h' || key === 'อ') togglePanelElement('dashboard');
+    if (key === 'm' || key === 'ท') togglePanelElement('details-panel');
+    if (key === 'p' || key === 'ย') togglePanelElement('process-panel');
+    if (key === 't' || key === 'ะ') togglePanelElement('transform-panel');
+    if (key === 'r' || key === 'พ') resetCameraToAvatar();
 });
 
 window.addEventListener('keyup', (e) => {
     const key = e.key.toLowerCase();
-    if (e.key === 'ArrowUp' || key === 'w') moveStatus.forward = false;
-    if (e.key === 'ArrowDown' || key === 's') moveStatus.backward = false;
-    if (e.key === 'ArrowLeft' || key === 'a') moveStatus.left = false;
-    if (e.key === 'ArrowRight' || key === 'd') moveStatus.right = false;
+    
+    // 💡 อย่าลืมเคลียร์สถานะตอนปล่อยนิ้วจากปุ่มภาษาไทยด้วย ไม่งั้นตัวละครจะวิ่งไม่หยุด
+    if (e.key === 'ArrowUp' || key === 'w' || key === 'ฟ') moveStatus.forward = false;
+    if (e.key === 'ArrowDown' || key === 's' || key === 'ห') moveStatus.backward = false;
+    if (e.key === 'ArrowLeft' || key === 'a' || key === 'ฟ' || key === 'ภ') moveStatus.left = false;
+    if (e.key === 'ArrowRight' || key === 'd' || key === 'ด') moveStatus.right = false;
 });
-
 // --- 5. IOT & DATA SIMULATION ---
 function loopIotSimulation() {
     if(!activeSelectedMeshUUID) return;
