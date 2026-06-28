@@ -488,9 +488,46 @@ function closeLiveEditFields() {
 }
 
 // --- 8. AVATAR PHYSICS & COLLISION ---
+// --- 8. AVATAR PHYSICS & COLLISION + FREE LOOK CAMERA ---
 function updateAvatarPhysics() {
-    if (!avatarModel) return;
     if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
+
+    // ==========================================
+    // 🎥 ลอจิกการทำงานเมื่ออยู่โหมด FREE LOOK
+    // ==========================================
+    if (isFreeLook) {
+        // สร้างทิศทางอ้างอิงจากมุมที่กล้องกำลังหันไปมอง
+        const camDirection = new THREE.Vector3();
+        camera.getWorldDirection(camDirection);
+        
+        // เวกเตอร์ซ้าย-ขวา ของกล้อง
+        const camRight = new THREE.Vector3();
+        camRight.crossVectors(camera.up, camDirection).normalize();
+
+        // คำนวณการเคลื่อนที่ของตัวกล้อง (ไม่ใช่โมเดล Avatar)
+        if (moveStatus.forward) {
+            camera.position.addScaledVector(camDirection, freeLookSpeed);
+            controls.target.addScaledVector(camDirection, freeLookSpeed);
+        }
+        if (moveStatus.backward) {
+            camera.position.addScaledVector(camDirection, -freeLookSpeed);
+            controls.target.addScaledVector(camDirection, -freeLookSpeed);
+        }
+        if (moveStatus.left) {
+            camera.position.addScaledVector(camRight, freeLookSpeed);
+            controls.target.addScaledVector(camRight, freeLookSpeed);
+        }
+        if (moveStatus.right) {
+            camera.position.addScaledVector(camRight, -freeLookSpeed);
+            controls.target.addScaledVector(camRight, -freeLookSpeed);
+        }
+        return; // ออกจากฟังก์ชันทันที ไม่ให้ลอจิกขยับตัวละครด้านล่างทำงาน
+    }
+
+    // ==========================================
+    // 👤 ลอจิกการทำงานปกติ (โหมดติดตามตัวละคร)
+    // ==========================================
+    if (!avatarModel) return;
 
     if (jumpConfig.isJumping) {
         avatarModel.position.y += jumpConfig.velocity;
@@ -506,33 +543,40 @@ function updateAvatarPhysics() {
         }
     }
 
-    if (moveStatus.left)  avatarModel.rotation.y += avatarConfig.turnSpeed;
+    if (moveStatus.left) avatarModel.rotation.y += avatarConfig.turnSpeed;
     if (moveStatus.right) avatarModel.rotation.y -= avatarConfig.turnSpeed;
 
     let moveVector = new THREE.Vector3(0, 0, 0);
-    if (moveStatus.forward)  moveVector.z = -avatarConfig.speed;
-    if (moveStatus.backward) moveVector.z =  avatarConfig.speed;
+    if (moveStatus.forward) moveVector.z = -avatarConfig.speed;
+    if (moveStatus.backward) moveVector.z = avatarConfig.speed;
     moveVector.applyQuaternion(avatarModel.quaternion);
 
     const isMoving = moveVector.lengthSq() > 0;
-    animateEngineerWalk(avatarModel, isMoving);
 
     if (isMoving) {
         let nextX = avatarModel.position.x + moveVector.x;
         let nextZ = avatarModel.position.z + moveVector.z;
-        let currentY = avatarModel.position.y - jumpConfig.groundY;
+        let currentY = avatarModel.position.y - jumpConfig.groundY; 
+
         let collisionDetected = false;
-        let targetStepY = jumpConfig.groundY;
+        let targetStepY = jumpConfig.groundY; 
 
         for (let i = 0; i < factoryColliders.length; i++) {
-            const box = factoryColliders[i].box;
+            const col = factoryColliders[i];
+            const box = col.box; 
+
             if (nextX + avatarConfig.radius > box.min.x && nextX - avatarConfig.radius < box.max.x &&
                 nextZ + avatarConfig.radius > box.min.z && nextZ - avatarConfig.radius < box.max.z &&
                 currentY < box.max.y && currentY + 1.6 > box.min.y) {
+                
                 const stepHeight = box.max.y - currentY;
-                if (stepHeight > 0 && stepHeight <= 0.4) {
-                    if ((box.max.y + jumpConfig.groundY) > targetStepY) targetStepY = box.max.y + jumpConfig.groundY;
-                } else { collisionDetected = true; }
+                if (stepHeight > 0 && stepHeight <= 0.4) { 
+                    if ((box.max.y + jumpConfig.groundY) > targetStepY) {
+                        targetStepY = box.max.y + jumpConfig.groundY;
+                    }
+                } else {
+                    collisionDetected = true;
+                }
             }
         }
 
@@ -543,28 +587,13 @@ function updateAvatarPhysics() {
         }
     }
 
-    // Free look camera pan
-    if (freeLookMode) {
-        const panSpeed = 0.15;
-        const forward = new THREE.Vector3();
-        camera.getWorldDirection(forward); forward.y = 0; forward.normalize();
-        const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0,1,0));
-        if (freeLookMove.forward)  { camera.position.addScaledVector(forward,  panSpeed); controls.target.addScaledVector(forward,  panSpeed); }
-        if (freeLookMove.backward) { camera.position.addScaledVector(forward, -panSpeed); controls.target.addScaledVector(forward, -panSpeed); }
-        if (freeLookMove.left)     { camera.position.addScaledVector(right,   -panSpeed); controls.target.addScaledVector(right,   -panSpeed); }
-        if (freeLookMove.right)    { camera.position.addScaledVector(right,    panSpeed); controls.target.addScaledVector(right,    panSpeed); }
-    }
-    if (!freeLookMode) {
-        const targetCamOffset = defaultCameraOffset.clone().applyMatrix4(avatarModel.matrixWorld);
-        camera.position.lerp(targetCamOffset, 0.08);
-        controls.target.lerp(new THREE.Vector3(avatarModel.position.x, avatarModel.position.y + 0.8, avatarModel.position.z), 0.1);
-        controls.enabled = false; // ล็อคกล้องตาม avatar
-    } else {
-        controls.enabled = true; // free look
-    }
+    // กล้องเดินตามผู้เล่นสมูท ๆ (ทำงานเฉพาะตอนไม่ใช่ Free Look)
+    const targetCamOffset = defaultCameraOffset.clone().applyMatrix4(avatarModel.matrixWorld);
+    camera.position.lerp(targetCamOffset, 0.08);
+    controls.target.set(avatarModel.position.x, avatarModel.position.y + 0.3, avatarModel.position.z);
 
     if (factoryModel && isMoving) {
-        let closestMesh = null; let minDistance = 2.5;
+        let closestMesh = null; let minDistance = 2.5; 
         factoryModel.traverse(function (child) {
             if (child.isMesh) {
                 const meshWorldPos = new THREE.Vector3(); child.getWorldPosition(meshWorldPos);
@@ -572,7 +601,9 @@ function updateAvatarPhysics() {
                 if (dist < minDistance) { minDistance = dist; closestMesh = child; }
             }
         });
-        if (closestMesh) highlightAndShowWorkflow(closestMesh, closestMesh.name || "พื้นที่อับอากาศ", "🚶 ตัวละครเดินเข้าใกล้ตำแหน่ง");
+        if (closestMesh) {
+            highlightAndShowWorkflow(closestMesh, closestMesh.name || "พื้นที่อับอากาศ", "🚶 ตัวละครเดินเข้าใกล้ตำแหน่ง");
+        }
     }
 }
 
