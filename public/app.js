@@ -927,17 +927,17 @@ function initMultiplayer() {
             };
         }
 
-        // อัปเดต UI เสมอถ้า process-panel กำลังแสดงอยู่
+        // อัปเดต UI ถ้า process-panel เปิดอยู่และ key ตรงกัน
         const processPanel = document.getElementById('process-panel');
         const isPanelVisible = processPanel && processPanel.style.display !== 'none';
         if (isPanelVisible) {
-            const descViewEl = document.getElementById('desc-view-area');
-            const stepsViewEl = document.getElementById('steps-view-area');
-            const titleEl = document.getElementById('process-title');
-            const currentName = titleEl ? titleEl.innerText.replace('⚙️ โซน: ','').replace('⚙️ ชิ้นส่วน: ','').trim() : '';
-
-            // อัปเดตถ้าดู object เดียวกัน หรือถ้าไม่มีชื่อก็อัปเดตเลย
-            if (!data.meshName || currentName === data.meshName || currentName === data.name) {
+            // เช็ค activeSelectedKeyKey ฝั่งเพื่อนตรงกับที่ส่งมาไหม
+            const sameKey = (activeSelectedKeyKey === data.meshName);
+            console.log('[WORKFLOW] received key:', data.meshName, '| my key:', activeSelectedKeyKey, '| match:', sameKey);
+            if (sameKey) {
+                const descViewEl = document.getElementById('desc-view-area');
+                const stepsViewEl = document.getElementById('steps-view-area');
+                const titleEl = document.getElementById('process-title');
                 if (descViewEl) descViewEl.innerText = data.desc || '';
                 if (stepsViewEl) stepsViewEl.innerHTML = (data.steps || []).map(s =>
                     `<div class="step-box tag-blue"><span class="badge">REGULATION</span>${s}</div>`
@@ -970,25 +970,24 @@ const _origSaveLiveEdit = saveLiveEdit;
 window.saveLiveEdit = function() {
     if (!activeSelectedMeshUUID) return;
 
-    // ดึงชื่อจาก workflowDatabase โดยใช้ activeSelectedMeshUUID
-    const currentData = workflowDatabase[activeSelectedMeshUUID] || workflowDatabase[activeSelectedKeyKey] || {};
-    const titleEl = document.getElementById('process-title');
-    const titleFromEl = titleEl ? titleEl.innerText.replace('⚙️ โซน: ', '').replace('⚙️ ชิ้นส่วน: ', '').trim() : '';
-    const newTitle = currentData.name || titleFromEl || activeSelectedMeshUUID;
-    const descEl = document.getElementById('input-edit-desc');
-    const stepsEl = document.getElementById('input-edit-steps');
-    const newDesc = descEl ? descEl.value.trim() : '';
-    const newStepsArray = stepsEl ? stepsEl.value.split(',').map(s => s.trim()).filter(s => s.length > 0) : [];
+    // ดึงค่าจาก input ก่อน _origSaveLiveEdit รัน (มันจะซ่อน input หลังจากนั้น)
+    const inputTitle = document.getElementById('input-edit-title');
+    const inputDesc = document.getElementById('input-edit-desc');
+    const inputSteps = document.getElementById('input-edit-steps');
+    const newTitle = inputTitle ? inputTitle.value.trim() : '';
+    const newDesc = inputDesc ? inputDesc.value.trim() : '';
+    const newStepsArray = inputSteps ? inputSteps.value.split(',').map(s => s.trim()).filter(s => s.length > 0) : [];
+    const keyToSync = activeSelectedKeyKey || activeSelectedMeshUUID;
 
-    console.log('[WORKFLOW] saving:', newTitle, newDesc);
+    console.log('[WORKFLOW] saving title:', newTitle, 'key:', keyToSync);
 
     // บันทึกในเครื่องตัวเอง
     _origSaveLiveEdit();
 
-    // Broadcast ให้ทุกคน — ใช้ชื่อเป็น key เพราะ UUID ต่างกันในแต่ละ browser
-    if (socket && socket.connected) {
+    // Broadcast ให้ทุกคน
+    if (socket && socket.connected && keyToSync) {
         socket.emit('workflow_update', {
-            meshName: newTitle,
+            meshName: keyToSync,
             name: newTitle,
             desc: newDesc,
             steps: newStepsArray,
