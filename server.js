@@ -1,12 +1,22 @@
-const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
-const path = require('path');
+import express from 'express';
+import http from 'http';
+import { Server } from 'socket.io';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { createClient } from '@supabase/supabase-js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*", methods: ["GET","POST"] } });
 const PORT = process.env.PORT || 3000;
+
+// เชื่อมต่อ Supabase
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_ANON_KEY;
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
@@ -15,9 +25,24 @@ const players = {};
 const COLORS = ['#ff6b6b','#ffd93d','#6bcb77','#4d96ff','#c77dff','#ff9f43','#00d2d3','#ff6b9d'];
 let currentModelUrl = null;
 let currentModelName = null;
-const workflowDb = {}; // key -> { name, desc, steps, colorClass }
 
-io.on('connection', socket => {
+async function getAllWorkflows() {
+    try {
+        if (!supabaseUrl || !supabaseKey) return {};
+        const { data, error } = await supabase.from('workflows').select('*');
+        if (error) throw error;
+        const dbObj = {};
+        data.forEach(row => {
+            dbObj[row.key] = { name: row.name, desc: row.description, steps: row.steps, colorClass: row.color_class };
+        });
+        return dbObj;
+    } catch (err) {
+        console.error('Error fetching from Supabase:', err.message);
+        return {};
+    }
+}
+
+io.on('connection', async (socket) => {
     console.log(`[+] ${socket.id}`);
     const player = {
         id: socket.id,
@@ -28,12 +53,14 @@ io.on('connection', socket => {
     };
     players[socket.id] = player;
 
+    const currentWorkflowDb = await getAllWorkflows();
+
     socket.emit('self_init', {
         self: player,
         others: Object.values(players).filter(p=>p.id!==socket.id),
         modelUrl: currentModelUrl,
         modelName: currentModelName,
-        workflowDb: workflowDb
+        workflowDb: currentWorkflowDb
     });
     socket.broadcast.emit('player_joined', player);
 
@@ -46,13 +73,30 @@ io.on('connection', socket => {
     socket.on('model_shared', data => {
         currentModelUrl = data.url; currentModelName = data.fileName;
         io.emit('load_model', { url: data.url, fileName: data.fileName });
-        console.log(`[MODEL] ${data.fileName}`);
     });
 
-    socket.on('workflow_update', data => {
-        workflowDb[data.key] = { name:data.name, desc:data.desc, steps:data.steps, colorClass:data.colorClass||'tag-blue' };
-        socket.broadcast.emit('workflow_updated', data);
-        console.log(`[WORKFLOW] key:${data.key} name:${data.name}`);
+    socket.on('workflow_update', async (data) => {
+        try {
+            const { error } = await supabase
+                .from('workflows')
+                .upsert({
+                    key: data.key,
+                    name: data.name,
+                    description: data.desc,
+                    steps: data.steps || [],
+                    color_class: data.colorClass || 'tag-blue',
+                    updated_at: new Date()
+                });
+
+            if (error) throw error;
+            io.emit('workflow_updated', data);
+        } catch (err) {
+            console.error('Supabase update failed:', err.message);
+        }
+    });
+
+    socket.on('component_select', data => {
+        socket.broadcast.emit('component_selected', data);
     });
 
     socket.on('set_name', name => {
@@ -69,7 +113,6 @@ io.on('connection', socket => {
     socket.on('disconnect', () => {
         delete players[socket.id];
         io.emit('player_left', { id:socket.id });
-        console.log(`[-] ${socket.id}`);
     });
 });
 
