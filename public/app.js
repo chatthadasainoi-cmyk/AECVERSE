@@ -543,55 +543,37 @@ window.addEventListener('resize', () => {
 
 
 // ============================================================
-// MULTIPLAYER MODULE — ต่อท้าย app.js (ไม่แก้ไขโค้ดเดิม)
-// Socket.IO + Supabase Storage สำหรับ sync โมเดลและผู้เล่น
+// MULTIPLAYER MODULE (Clean Version)
 // ============================================================
 
 const SUPABASE_URL = 'https://hzlokmixfkfrmkuucfhg.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh6bG9rbWl4Zmtmcm1rdXVjZmhnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1NzA5NTUsImV4cCI6MjA5ODE0Njk1NX0.DSj0c7XN979948Iq5rGmWqI9ddcbg56OmfKFin--Luo';
 const SUPABASE_BUCKET = 'models';
 
-// --- Upload file to Supabase Storage ---
+// --- Supabase Upload ---
 async function uploadToSupabase(file) {
     const fileName = `model_${Date.now()}_${file.name.replace(/\s+/g, '_')}`;
     const uploadUrl = `${SUPABASE_URL}/storage/v1/object/${SUPABASE_BUCKET}/${fileName}`;
-
-    document.getElementById('factory-status').innerText = `⬆️ กำลังอัปโหลด ${file.name} ขึ้น Cloud... (${(file.size/1024/1024).toFixed(1)} MB)`;
-
+    document.getElementById('factory-status').innerText = `⬆️ กำลังอัปโหลด ${file.name}... (${(file.size/1024/1024).toFixed(1)} MB)`;
     const res = await fetch(uploadUrl, {
         method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': file.type || 'application/octet-stream',
-            'x-upsert': 'true'
-        },
+        headers: { 'Authorization': `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'application/octet-stream', 'x-upsert': 'true' },
         body: file
     });
-
-    if (!res.ok) {
-        const err = await res.text();
-        throw new Error(`Supabase upload failed: ${err}`);
-    }
-
-    // Build public URL
-    const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/${SUPABASE_BUCKET}/${fileName}`;
-    return publicUrl;
+    if (!res.ok) throw new Error(await res.text());
+    return `${SUPABASE_URL}/storage/v1/object/public/${SUPABASE_BUCKET}/${fileName}`;
 }
 
-// --- Load model from a public URL (for remote players) ---
+// --- Load model from URL ---
 function loadModelFromUrl(url, fileName) {
     if (factoryModel) { scene.remove(factoryModel); originalMaterials.clear(); factoryColliders = []; }
-
     document.getElementById('factory-status').innerText = `⬇️ กำลังโหลดโมเดลจาก Cloud...`;
-
     const loader = getLoaderForFile(fileName || url);
-    loader.load(url, function(loadedObject) {
-        factoryModel = loadedObject.scene ? loadedObject.scene : loadedObject;
-
+    loader.load(url, function(obj) {
+        factoryModel = obj.scene ? obj.scene : obj;
         let meshCount = 0;
         const container = document.getElementById('mesh-container');
         container.innerHTML = '';
-
         factoryModel.traverse(function(child) {
             if (child.isMesh) {
                 meshCount++;
@@ -601,425 +583,267 @@ function loadModelFromUrl(url, fileName) {
                 const mName = child.name || `ชิ้นส่วนที่_${meshCount}`;
                 item.innerText = `🏭 ${mName}`;
                 item.id = `mesh-item-${child.uuid}`;
-                item.addEventListener('click', () => { highlightAndShowWorkflow(child, mName, "คลิกเลือกโมเดล"); });
+                item.addEventListener('click', () => highlightAndShowWorkflow(child, mName, 'คลิกเลือกโมเดล'));
                 container.appendChild(item);
             }
         });
-
         document.getElementById('model-meta').innerHTML = `<span class="info-tag">ตรวจพบชิ้นส่วน: ${meshCount} รายการ</span>`;
         document.getElementById('details-panel').style.display = 'block';
-
         const box = new THREE.Box3().setFromObject(factoryModel);
         const size = box.getSize(new THREE.Vector3());
         initialFactoryScale = 12 / Math.max(size.x, size.y, size.z);
         factoryModel.scale.set(initialFactoryScale, initialFactoryScale, initialFactoryScale);
         const center = box.getCenter(new THREE.Vector3());
         factoryModel.position.set(-center.x * initialFactoryScale, 0, -center.z * initialFactoryScale);
-
         scene.add(factoryModel);
-        document.getElementById('factory-status').innerText = `✓ โหลดสำเร็จ: ${fileName || 'โมเดลจาก Cloud'}`;
+        document.getElementById('factory-status').innerText = `✓ โหลดสำเร็จ: ${fileName}`;
         buildColliders();
         setFactoryMaterialMode(currentMaterialMode);
         syncSlidersWithModel();
-    }, undefined, (err) => {
-        document.getElementById('factory-status').innerText = `❌ โหลดโมเดลล้มเหลว`;
+    }, undefined, err => {
+        document.getElementById('factory-status').innerText = `❌ โหลดล้มเหลว`;
         console.error(err);
     });
 }
 
-// --- Override factory-input to upload to Supabase first ---
-const _origFactoryInput = document.getElementById('factory-input');
-const newFactoryInput = _origFactoryInput.cloneNode(true);
-_origFactoryInput.parentNode.replaceChild(newFactoryInput, _origFactoryInput);
+// --- Override factory-input: upload to Supabase then broadcast ---
+const _origInput = document.getElementById('factory-input');
+const _newInput = _origInput.cloneNode(true);
+_origInput.parentNode.replaceChild(_newInput, _origInput);
 
-newFactoryInput.addEventListener('change', async function(event) {
+_newInput.addEventListener('change', async function(event) {
     const files = event.target.files;
-    if (files.length === 0) return;
-
+    if (!files.length) return;
     let modelFile = null;
-    for (let i = 0; i < files.length; i++) {
-        const ext = files[i].name.split('.').pop().toLowerCase();
-        if (ext === 'gltf' || ext === 'glb' || ext === 'fbx') { modelFile = files[i]; break; }
+    for (let f of files) {
+        const ext = f.name.split('.').pop().toLowerCase();
+        if (['gltf','glb','fbx'].includes(ext)) { modelFile = f; break; }
     }
-    if (!modelFile) {
-        document.getElementById('factory-status').innerText = '❌ ผิดพลาด: ไม่พบไฟล์ 3D หลัก';
-        return;
-    }
-
+    if (!modelFile) { document.getElementById('factory-status').innerText = '❌ ไม่พบไฟล์ 3D'; return; }
     try {
-        const publicUrl = await uploadToSupabase(modelFile);
-        document.getElementById('factory-status').innerText = `✅ อัปโหลดสำเร็จ — กำลังแชร์ให้ผู้เล่นทุกคน...`;
-
-        // Broadcast URL ให้ทุกคนผ่าน Socket.IO (server จะ relay)
-        if (socket && socket.connected) {
-            socket.emit('model_shared', { url: publicUrl, fileName: modelFile.name });
+        const url = await uploadToSupabase(modelFile);
+        if (mpSocket && mpSocket.connected) {
+            mpSocket.emit('model_shared', { url, fileName: modelFile.name });
         } else {
-            // ถ้าไม่มี multiplayer ก็โหลดเฉพาะตัวเอง
-            loadModelFromUrl(publicUrl, modelFile.name);
+            loadModelFromUrl(url, modelFile.name);
         }
-    } catch (err) {
+    } catch(err) {
         document.getElementById('factory-status').innerText = `❌ อัปโหลดล้มเหลว: ${err.message}`;
-        console.error(err);
     }
 });
 
-// --- Remote player registry ---
+// --- Override saveLiveEdit: broadcast workflow changes ---
+const _origSaveLiveEdit = saveLiveEdit;
+window.saveLiveEdit = function() {
+    if (!activeSelectedMeshUUID) return;
+    // ดึงข้อมูลก่อน _origSaveLiveEdit ซ่อน input
+    const titleEl = document.getElementById('input-edit-title');
+    const descEl = document.getElementById('input-edit-desc');
+    const stepsEl = document.getElementById('input-edit-steps');
+    const newTitle = titleEl ? titleEl.value.trim() : '';
+    const newDesc = descEl ? descEl.value.trim() : '';
+    const newSteps = stepsEl ? stepsEl.value.split(',').map(s=>s.trim()).filter(Boolean) : [];
+    const syncKey = activeSelectedKeyKey || activeSelectedMeshUUID;
+    _origSaveLiveEdit();
+    if (mpSocket && mpSocket.connected && syncKey) {
+        mpSocket.emit('workflow_update', { key: syncKey, name: newTitle, desc: newDesc, steps: newSteps, colorClass: 'tag-blue' });
+    }
+};
+
+// --- Remote avatars ---
 const remoteAvatars = {};
-let mySocketId = null;
-let myColor = '#00ffff';
+const remoteTargets = {};
+const mpPlayerNames = {};
+const mpPlayerColors = {};
+let mpMyId = null;
+let mpMyColor = '#00ffff';
 
 function buildRemoteAvatar(color) {
-    const hex = parseInt(color.replace('#', ''), 16);
-    const group = new THREE.Group();
-    const bodyMat = new THREE.MeshStandardMaterial({ color: hex, emissive: hex >> 1, roughness: 0.3, metalness: 0.7 });
-    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 1.2, 16), bodyMat);
-    body.position.y = 0.6;
-    group.add(body);
-    const headMat = new THREE.MeshStandardMaterial({ color: hex, emissive: hex >> 2 });
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.35, 16, 16), headMat);
-    head.position.y = 1.2;
-    group.add(head);
-    const ptr = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.4), new THREE.MeshBasicMaterial({ color: 0xffffff }));
-    ptr.position.set(0, 0.9, -0.45);
-    group.add(ptr);
-    group.userData.nameLabel = null;
-    return group;
+    const hex = parseInt(color.replace('#',''), 16);
+    const g = new THREE.Group();
+    const mat = new THREE.MeshStandardMaterial({ color: hex, emissive: hex>>1, roughness: 0.3, metalness: 0.7 });
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.35,0.35,1.2,16), mat);
+    body.position.y = 0.6; g.add(body);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.35,16,16), new THREE.MeshStandardMaterial({color:hex}));
+    head.position.y = 1.2; g.add(head);
+    const ptr = new THREE.Mesh(new THREE.BoxGeometry(0.1,0.1,0.4), new THREE.MeshBasicMaterial({color:0xffffff}));
+    ptr.position.set(0,0.9,-0.45); g.add(ptr);
+    return g;
 }
 
-function setAvatarLabel(avatarGroup, name, color) {
-    if (avatarGroup.userData.nameLabel) {
-        avatarGroup.remove(avatarGroup.userData.nameLabel);
-        avatarGroup.userData.nameLabel.material.map.dispose();
-    }
-    const canvas = document.createElement('canvas');
-    canvas.width = 256; canvas.height = 64;
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, 256, 64);
-    ctx.fillStyle = 'rgba(0,0,0,0.55)';
-    ctx.roundRect(4, 4, 248, 56, 10);
-    ctx.fill();
-    ctx.font = 'bold 26px Arial';
-    ctx.fillStyle = color || '#ffffff';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(name.substring(0, 14), 128, 32);
-    const tex = new THREE.CanvasTexture(canvas);
-    const mat = new THREE.SpriteMaterial({ map: tex, depthTest: false });
-    const sprite = new THREE.Sprite(mat);
-    sprite.scale.set(1.8, 0.45, 1);
-    sprite.position.y = 2.1;
-    avatarGroup.add(sprite);
-    avatarGroup.userData.nameLabel = sprite;
+function setAvatarLabel(g, name, color) {
+    if (g._label) { g.remove(g._label); g._label.material.map.dispose(); }
+    const c = document.createElement('canvas'); c.width=256; c.height=64;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle='rgba(0,0,0,0.6)'; ctx.roundRect(4,4,248,56,10); ctx.fill();
+    ctx.font='bold 24px Arial'; ctx.fillStyle=color||'#fff'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(name.substring(0,16), 128, 32);
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),depthTest:false}));
+    sp.scale.set(1.8,0.45,1); sp.position.y=2.1;
+    g.add(sp); g._label = sp;
 }
 
-function addRemotePlayer(data) {
+function addRemote(data) {
     if (remoteAvatars[data.id]) return;
-    const avatar = buildRemoteAvatar(data.color || '#ffffff');
-    avatar.position.set(data.position.x, data.position.y, data.position.z);
-    avatar.rotation.y = data.rotation?.y || 0;
-    scene.add(avatar);
-    remoteAvatars[data.id] = avatar;
-    setAvatarLabel(avatar, data.name || data.id, data.color || '#fff');
-    updatePlayerListUI();
+    const av = buildRemoteAvatar(data.color||'#fff');
+    av.position.set(data.position.x, data.position.y, data.position.z);
+    scene.add(av); remoteAvatars[data.id] = av;
+    setAvatarLabel(av, data.name||data.id, data.color||'#fff');
+    mpPlayerNames[data.id] = data.name; mpPlayerColors[data.id] = data.color;
+    updateMpUI();
 }
 
-function removeRemotePlayer(id) {
-    if (remoteAvatars[id]) { scene.remove(remoteAvatars[id]); delete remoteAvatars[id]; }
-    updatePlayerListUI();
+function removeRemote(id) {
+    if (remoteAvatars[id]) { scene.remove(remoteAvatars[id]); delete remoteAvatars[id]; delete remoteTargets[id]; }
+    delete mpPlayerNames[id]; delete mpPlayerColors[id];
+    updateMpUI();
 }
 
-const remoteTargets = {};
-
-function applyRemoteMove(data) {
-    if (!remoteTargets[data.id]) remoteTargets[data.id] = { pos: new THREE.Vector3(), rotY: 0 };
-    remoteTargets[data.id].pos.set(data.position.x, data.position.y, data.position.z);
-    remoteTargets[data.id].rotY = data.rotation?.y || 0;
-}
-
-function updateRemoteAvatars() {
+// Lerp remote avatars — hook into animate loop via renderer.render patch
+const _origRender = renderer.render.bind(renderer);
+renderer.render = function(sc, cam) {
     for (const id in remoteAvatars) {
-        const avatar = remoteAvatars[id];
-        const target = remoteTargets[id];
-        if (!target) continue;
-        avatar.position.lerp(target.pos, 0.18);
-        avatar.rotation.y += (target.rotY - avatar.rotation.y) * 0.18;
+        const av = remoteAvatars[id]; const t = remoteTargets[id];
+        if (!t) continue;
+        av.position.lerp(t.pos, 0.18);
+        av.rotation.y += (t.rotY - av.rotation.y) * 0.18;
     }
-}
+    if (mpSocket && mpSocket.connected && avatarModel) {
+        const now = Date.now();
+        if (now - _lastSend > 50) {
+            _lastSend = now;
+            mpSocket.emit('player_move', {
+                position: {x:avatarModel.position.x, y:avatarModel.position.y, z:avatarModel.position.z},
+                rotation: {y:avatarModel.rotation.y}
+            });
+        }
+    }
+    _origRender(sc, cam);
+};
+let _lastSend = 0;
 
-const _playerNames = {};
-const _playerColors = {};
-
-function updatePlayerListUI() {
+// --- UI ---
+function updateMpUI() {
     const list = document.getElementById('mp-player-list');
     if (!list) return;
-    const allIds = [mySocketId, ...Object.keys(remoteAvatars)].filter(Boolean);
-    document.getElementById('mp-player-count').innerText = allIds.length;
-    list.innerHTML = allIds.map(id => {
-        const isMe = id === mySocketId;
-        const name = _playerNames[id] || (isMe ? 'คุณ' : id.substring(0, 6));
-        const color = _playerColors[id] || '#ffffff';
-        return `<div style="display:flex;align-items:center;gap:6px;padding:3px 0;font-size:12px;color:#cbd5e1;">
-            <span style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0;"></span>
-            <span style="color:${color};font-weight:${isMe?'bold':'normal'}">${isMe ? '👤 ' : ''}${name}</span>
+    const all = [mpMyId, ...Object.keys(remoteAvatars)].filter(Boolean);
+    document.getElementById('mp-player-count').innerText = all.length;
+    list.innerHTML = all.map(id => {
+        const isMe = id === mpMyId;
+        const name = mpPlayerNames[id] || (isMe ? 'คุณ' : id.slice(0,6));
+        const color = mpPlayerColors[id] || '#fff';
+        return `<div style="display:flex;align-items:center;gap:6px;padding:3px 0;font-size:12px;">
+            <span style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0"></span>
+            <span style="color:${color};font-weight:${isMe?'bold':'normal'}">${isMe?'👤 ':''}${name}</span>
         </div>`;
     }).join('');
 }
 
-function appendChat(msg) {
+function mpAppendChat(msg) {
     const log = document.getElementById('mp-chat-log');
     if (!log) return;
-    const div = document.createElement('div');
-    div.style.cssText = `margin-bottom:4px;color:${msg.color||'#fff'};word-break:break-all;`;
-    div.innerHTML = `<strong>${msg.name}:</strong> ${msg.text}`;
-    log.appendChild(div);
-    log.scrollTop = log.scrollHeight;
+    const d = document.createElement('div');
+    d.style.cssText = `margin-bottom:4px;color:${msg.color||'#fff'};word-break:break-all;font-size:11px;`;
+    d.innerHTML = `<strong>${msg.name}:</strong> ${msg.text}`;
+    log.appendChild(d); log.scrollTop = log.scrollHeight;
 }
-
-let _lastSendTime = 0;
-const SEND_INTERVAL_MS = 50;
-
-function maybeSendPosition() {
-    const now = Date.now();
-    if (now - _lastSendTime < SEND_INTERVAL_MS) return;
-    _lastSendTime = now;
-    if (!avatarModel || !socket || !socket.connected) return;
-    socket.emit('player_move', {
-        position: { x: avatarModel.position.x, y: avatarModel.position.y, z: avatarModel.position.z },
-        rotation: { y: avatarModel.rotation.y },
-        isJumping: jumpConfig.isJumping
-    });
-}
-
-const _origRender = renderer.render.bind(renderer);
-renderer.render = function(scene, camera) {
-    updateRemoteAvatars();
-    maybeSendPosition();
-    _origRender(scene, camera);
-};
 
 window.setMyName = function() {
-    const input = document.getElementById('mp-name-input');
-    const name = input.value.trim();
-    if (!name || !socket) return;
-    socket.emit('set_name', name);
-    _playerNames[mySocketId] = name;
-    updatePlayerListUI();
+    const v = document.getElementById('mp-name-input').value.trim();
+    if (!v || !mpSocket) return;
+    mpSocket.emit('set_name', v);
+    mpPlayerNames[mpMyId] = v; updateMpUI();
 };
 
 window.sendChat = function() {
-    const input = document.getElementById('mp-chat-input');
-    const text = input.value.trim();
-    if (!text || !socket) return;
-    socket.emit('chat_message', text);
-    input.value = '';
+    const inp = document.getElementById('mp-chat-input');
+    const text = inp.value.trim();
+    if (!text || !mpSocket) return;
+    mpSocket.emit('chat_message', text); inp.value = '';
 };
 
-document.getElementById('mp-chat-input')?.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') window.sendChat();
-});
-document.getElementById('mp-name-input')?.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') window.setMyName();
-});
+document.getElementById('mp-chat-input')?.addEventListener('keydown', e => { if(e.key==='Enter') window.sendChat(); });
+document.getElementById('mp-name-input')?.addEventListener('keydown', e => { if(e.key==='Enter') window.setMyName(); });
 
-window.addEventListener('keydown', (e) => {
-    if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
-    if (e.key.toLowerCase() === 'u') togglePanelElement('multiplayer-panel');
+window.addEventListener('keydown', e => {
+    if (document.activeElement.tagName==='INPUT'||document.activeElement.tagName==='TEXTAREA') return;
+    if (e.key.toLowerCase()==='u') togglePanelElement('multiplayer-panel');
 }, true);
 
-// --- Socket.IO connection ---
-let socket;
+// --- Socket.IO ---
+let mpSocket;
 function initMultiplayer() {
-    const statusDot = document.getElementById('mp-dot');
-    const statusText = document.getElementById('mp-status-text');
+    const dot = document.getElementById('mp-dot');
+    const txt = document.getElementById('mp-status-text');
+    if (typeof io === 'undefined') { txt.innerText = 'Single Player mode'; return; }
 
-    if (typeof io === 'undefined') {
-        statusText.innerText = 'ไม่พบ Socket.IO — Single Player mode';
-        return;
-    }
+    const SERVER = window.RAILWAY_SERVER_URL || window.location.origin;
+    mpSocket = io(SERVER, { transports: ['websocket','polling'] });
 
-    // ใส่ Railway URL ตรงนี้
-    const RAILWAY_URL = window.RAILWAY_SERVER_URL || window.location.origin;
-    socket = io(RAILWAY_URL, { transports: ['websocket', 'polling'] });
+    mpSocket.on('connect', () => { dot.style.background='#22c55e'; txt.innerText='เชื่อมต่อแล้ว ✓'; });
+    mpSocket.on('disconnect', () => { dot.style.background='#ef4444'; txt.innerText='การเชื่อมต่อขาด...'; });
 
-    socket.on('connect', () => {
-        statusDot.style.background = '#22c55e';
-        statusText.innerText = 'เชื่อมต่อแล้ว ✓';
+    mpSocket.on('self_init', data => {
+        mpMyId = data.self.id;
+        mpMyColor = data.self.color;
+        mpPlayerNames[mpMyId] = data.self.name;
+        mpPlayerColors[mpMyId] = mpMyColor;
+        document.getElementById('mp-name-input').value = data.self.name;
+        if (avatarModel) avatarModel.position.set(data.self.position.x, data.self.position.y, data.self.position.z);
+        data.others.forEach(p => addRemote(p));
+        // โหลดโมเดลที่มีในห้อง
+        if (data.modelUrl) loadModelFromUrl(data.modelUrl, data.modelName);
+        // โหลด workflow ที่แก้ไขไว้
+        if (data.workflowDb) Object.assign(workflowDatabase, data.workflowDb);
+        updateMpUI();
     });
 
-    socket.on('disconnect', () => {
-        statusDot.style.background = '#ef4444';
-        statusText.innerText = 'การเชื่อมต่อขาด — กำลังลองใหม่...';
+    mpSocket.on('player_joined', data => {
+        addRemote(data);
+        mpAppendChat({name:'ระบบ', color:'#64748b', text:`${data.name} เข้าร่วมโลก`});
     });
 
-    socket.on('self_init', (data) => {
-        mySocketId = data.self.id;
-        myColor = data.self.color;
-        _playerNames[mySocketId] = data.self.name;
-        _playerColors[mySocketId] = myColor;
-
-        if (avatarModel) {
-            avatarModel.position.set(data.self.position.x, data.self.position.y, data.self.position.z);
-        }
-
-        const nameInput = document.getElementById('mp-name-input');
-        if (nameInput) nameInput.value = data.self.name;
-
-        data.others.forEach(p => {
-            _playerNames[p.id] = p.name;
-            _playerColors[p.id] = p.color;
-            addRemotePlayer(p);
-        });
-
-        // โหลด workflow database จาก server (ข้อมูลที่แก้ไขไปแล้ว)
-        // key เป็นชื่อ mesh ใช้ได้ข้าม browser
-        if (data.workflowDatabase) {
-            Object.assign(workflowDatabase, data.workflowDatabase);
-            console.log('[WORKFLOW] Loaded from server:', Object.keys(data.workflowDatabase));
-        }
-
-        // โหลดโมเดลที่มีอยู่แล้วในห้อง (ถ้ามี)
-        if (data.modelUrl) {
-            appendChat({ id: 'system', name: 'ระบบ', color: '#64748b', text: `กำลังโหลดโมเดลที่มีอยู่ในห้อง...` });
-            loadModelFromUrl(data.modelUrl, data.modelName);
-        }
-
-        updatePlayerListUI();
+    mpSocket.on('player_left', data => {
+        const name = mpPlayerNames[data.id] || data.id;
+        removeRemote(data.id);
+        mpAppendChat({name:'ระบบ', color:'#64748b', text:`${name} ออกจากโลก`});
     });
 
-    socket.on('player_joined', (data) => {
-        _playerNames[data.id] = data.name;
-        _playerColors[data.id] = data.color;
-        addRemotePlayer(data);
-        appendChat({ id: 'system', name: 'ระบบ', color: '#64748b', text: `${data.name} เข้าร่วมโลก` });
-    });
-
-    socket.on('player_left', (data) => {
-        const name = _playerNames[data.id] || data.id;
-        removeRemotePlayer(data.id);
-        delete _playerNames[data.id];
-        delete _playerColors[data.id];
-        appendChat({ id: 'system', name: 'ระบบ', color: '#64748b', text: `${name} ออกจากโลก` });
-    });
-
-    socket.on('player_moved', (data) => {
+    mpSocket.on('player_moved', data => {
         if (!remoteAvatars[data.id]) return;
-        applyRemoteMove(data);
+        if (!remoteTargets[data.id]) remoteTargets[data.id] = { pos: new THREE.Vector3(), rotY: 0 };
+        remoteTargets[data.id].pos.set(data.position.x, data.position.y, data.position.z);
+        remoteTargets[data.id].rotY = data.rotation?.y || 0;
     });
 
-    socket.on('player_renamed', (data) => {
-        _playerNames[data.id] = data.name;
-        if (remoteAvatars[data.id]) setAvatarLabel(remoteAvatars[data.id], data.name, _playerColors[data.id] || '#fff');
-        updatePlayerListUI();
+    mpSocket.on('player_renamed', data => {
+        mpPlayerNames[data.id] = data.name;
+        if (remoteAvatars[data.id]) setAvatarLabel(remoteAvatars[data.id], data.name, mpPlayerColors[data.id]||'#fff');
+        updateMpUI();
     });
 
-    // ได้รับ URL โมเดลจากผู้เล่นคนอื่น — โหลดทันที
-    socket.on('load_model', (data) => {
-        appendChat({ id: 'system', name: 'ระบบ', color: '#00ffff', text: `📦 ผู้เล่นแชร์โมเดลใหม่: ${data.fileName}` });
+    // โมเดลใหม่ — โหลดทันที
+    mpSocket.on('load_model', data => {
+        mpAppendChat({name:'ระบบ', color:'#00ffff', text:`📦 โมเดลใหม่: ${data.fileName}`});
         loadModelFromUrl(data.url, data.fileName);
     });
 
-    // รับ workflow update จากคนอื่น
-    socket.on('workflow_updated', (data) => {
-        // บันทึกลง database ทั้ง key ชื่อและ UUID
-        if (data.meshName) {
-            workflowDatabase[data.meshName] = {
-                name: data.name, desc: data.desc, steps: data.steps, colorClass: data.colorClass || 'tag-blue'
-            };
+    // workflow อัปเดต — ใช้ key ตรงๆ จาก server
+    mpSocket.on('workflow_updated', data => {
+        // บันทึกลง database
+        workflowDatabase[data.key] = { name: data.name, desc: data.desc, steps: data.steps, colorClass: data.colorClass||'tag-blue' };
+        // ถ้า panel เปิดอยู่และดู key เดียวกัน — อัปเดต UI ทันที
+        const panel = document.getElementById('process-panel');
+        if (panel && panel.style.display !== 'none' && activeSelectedKeyKey === data.key) {
+            renderWorkflowUI(data.name, data.desc, data.steps, '✏️ อัปเดตโดยผู้เล่นอื่น', data.colorClass||'tag-blue');
         }
-
-        // อัปเดต UI ถ้า process-panel เปิดอยู่และ key ตรงกัน
-        const processPanel = document.getElementById('process-panel');
-        const isPanelVisible = processPanel && processPanel.style.display !== 'none';
-        if (isPanelVisible) {
-            // เช็ค activeSelectedKeyKey ฝั่งเพื่อนตรงกับที่ส่งมาไหม
-            const sameKey = (activeSelectedKeyKey === data.meshName);
-            console.log('[WORKFLOW] received key:', data.meshName, '| my key:', activeSelectedKeyKey, '| match:', sameKey);
-            if (sameKey) {
-                const descViewEl = document.getElementById('desc-view-area');
-                const stepsViewEl = document.getElementById('steps-view-area');
-                const titleEl = document.getElementById('process-title');
-                if (descViewEl) descViewEl.innerText = data.desc || '';
-                if (stepsViewEl) stepsViewEl.innerHTML = (data.steps || []).map(s =>
-                    `<div class="step-box tag-blue"><span class="badge">REGULATION</span>${s}</div>`
-                ).join('');
-                if (titleEl && data.name) titleEl.innerText = '⚙️ โซน: ' + data.name;
-            }
-        }
-
-        // แจ้งแชท
-        appendChat({ id:'system', name:'ระบบ', color:'#ffaa00', text:`✏️ ข้อมูล "${data.name}" ถูกแก้ไขแล้ว` });
+        mpAppendChat({name:'ระบบ', color:'#ffaa00', text:`✏️ "${data.name}" ถูกแก้ไขแล้ว`});
     });
 
-    socket.on('chat_message', (msg) => {
-        appendChat(msg);
-    });
+    mpSocket.on('chat_message', msg => mpAppendChat(msg));
 }
 
 initMultiplayer();
 // ============================================================
 // END MULTIPLAYER MODULE
-// ============================================================
-
-
-// ============================================================
-// WORKFLOW SYNC MODULE — sync การแก้ไขข้อมูลให้ทุกคนเห็น
-// ============================================================
-
-// Override saveLiveEdit เพื่อ broadcast ผ่าน Socket.IO
-const _origSaveLiveEdit = saveLiveEdit;
-window.saveLiveEdit = function() {
-    if (!activeSelectedMeshUUID) return;
-
-    // ดึงค่าจาก input ก่อน _origSaveLiveEdit รัน (มันจะซ่อน input หลังจากนั้น)
-    const inputTitle = document.getElementById('input-edit-title');
-    const inputDesc = document.getElementById('input-edit-desc');
-    const inputSteps = document.getElementById('input-edit-steps');
-    const newTitle = inputTitle ? inputTitle.value.trim() : '';
-    const newDesc = inputDesc ? inputDesc.value.trim() : '';
-    const newStepsArray = inputSteps ? inputSteps.value.split(',').map(s => s.trim()).filter(s => s.length > 0) : [];
-    const keyToSync = activeSelectedKeyKey || activeSelectedMeshUUID;
-
-    console.log('[WORKFLOW] saving title:', newTitle, 'key:', keyToSync);
-
-    // บันทึกในเครื่องตัวเอง
-    _origSaveLiveEdit();
-
-    // Broadcast ให้ทุกคน
-    if (socket && socket.connected && keyToSync) {
-        socket.emit('workflow_update', {
-            meshName: keyToSync,
-            name: newTitle,
-            desc: newDesc,
-            steps: newStepsArray,
-            colorClass: 'tag-blue'
-        });
-    }
-};
-
-// รับ workflow_update จากคนอื่น
-function applyRemoteWorkflowUpdate(data) {
-    // บันทึกลง database ด้วยชื่อ mesh เป็น key (ใช้ได้ข้าม browser)
-    workflowDatabase[data.meshName] = {
-        name: data.name,
-        desc: data.desc,
-        steps: data.steps,
-        colorClass: data.colorClass || 'tag-blue'
-    };
-
-    // อัปเดต UI ถ้ากำลังดูโซนที่มีชื่อตรงกัน
-    const currentTitle = document.getElementById('process-title');
-    const currentName = currentTitle ? currentTitle.innerText.replace('⚙️ โซน: ', '').replace('⚙️ ชิ้นส่วน: ', '').trim() : '';
-
-    if (currentName === data.meshName) {
-        renderWorkflowUI(data.name, data.desc, data.steps, "✏️ อัปเดตโดยผู้เล่นอื่น", data.colorClass || 'tag-blue');
-        cancelLiveEdit();
-    }
-
-    appendChat({
-        id: 'system', name: 'ระบบ', color: '#ffaa00',
-        text: `✏️ ข้อมูล "${data.name}" ถูกแก้ไขแล้ว`
-    });
-}
-// ============================================================
-// END WORKFLOW SYNC MODULE
 // ============================================================
