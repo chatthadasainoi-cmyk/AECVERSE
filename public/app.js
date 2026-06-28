@@ -1,12 +1,14 @@
 // --- 1. SETUP THREE.JS SCENE ---
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0a0f14);
+scene.background = new THREE.Color(0x0a0f14); // เปลี่ยนสีพื้นหลังให้เข้าธีมดาร์กโหมด
 
 const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
 camera.position.set(0, 6, 12); 
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
+
+// สั่งผูกเข้ากับกล่อง Container เสมอ เพื่อป้องกันโครงสร้าง UI เพี้ยนแบบในรูปภาพ
 document.getElementById('canvas-container').appendChild(renderer.domElement);
 
 const controls = new THREE.OrbitControls(camera, renderer.domElement);
@@ -20,11 +22,12 @@ const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
 dirLight.position.set(10, 20, 10);
 scene.add(dirLight);
 
+// พื้นตารางกริดเรืองแสงสีเทอร์ควอยซ์
 const gridHelper = new THREE.GridHelper(60, 60, 0x00ffff, 0x1e293b);
 scene.add(gridHelper);
 
 let factoryModel = null;
-let avatarModel = null;
+let avatarModel = null; // จะเก็บตัวละครทรงแท่งแคปซูลแทน
 let originalMaterials = new Map();
 let currentMaterialMode = 'solid'; 
 let initialFactoryScale = 1;
@@ -35,11 +38,14 @@ let factoryColliders = [];
 
 const moveStatus = { forward: false, backward: false, left: false, right: false };
 const avatarConfig = { speed: 0.12, turnSpeed: 0.045, radius: 0.35 };
-const jumpConfig = { velocity: 0, gravity: -0.012, jumpForce: 0.24, isJumping: false, groundY: 0.9 };
-const defaultCameraOffset = new THREE.Vector3(0, 2.5, 5); // Z+ = ด้านหลัง avatar
-let freeLookMode = false; // F = toggle free look
-const freeLookMove = { forward: false, backward: false, left: false, right: false };
+const jumpConfig = { velocity: 0, gravity: -0.012, jumpForce: 0.24, isJumping: false, groundY: 0.9 }; // groundY ปรับตามกึ่งกลางความสูงแคปซูล
+const defaultCameraOffset = new THREE.Vector3(0, 2.5, 5);
 
+// 🎥 ตัวแปรควบคุมโหมด Free Look
+let isFreeLook = false; 
+const freeLookSpeed = 0.2; 
+
+// ฐานข้อมูลตรวจสอบความปลอดภัยของระบบไบโอแก๊ส
 const workflowDatabase = {
     "default": { 
         "name": "โครงสร้างทั่วไป", 
@@ -73,94 +79,41 @@ const workflowDatabase = {
     }
 };
 
-// --- 2. ENGINEER AVATAR (Low-poly blocky style) ---
-function createEngineerAvatar(helmetColor) {
-    const group = new THREE.Group();
-    const hex = helmetColor ? parseInt(String(helmetColor).replace('#',''), 16) : 0xff9900;
-
-    const skinMat  = new THREE.MeshStandardMaterial({ color: 0xf4c08a, roughness: 0.8 });
-    const suitMat  = new THREE.MeshStandardMaterial({ color: 0xff6600, roughness: 0.6 });
-    const helmetMat= new THREE.MeshStandardMaterial({ color: hex, roughness: 0.3, metalness: 0.4 });
-    const bootMat  = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.9 });
-    const glassMat = new THREE.MeshStandardMaterial({ color: 0x88ccff, transparent: true, opacity: 0.5 });
-    const visibMat = new THREE.MeshStandardMaterial({ color: 0xffff00, roughness: 0.5 });
-
-    // Body
-    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.65, 0.3), suitMat);
-    torso.position.y = 0.95; group.add(torso);
-    // Hi-vis stripe
-    const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.07, 0.31), visibMat);
-    stripe.position.y = 0.95; group.add(stripe);
-    // Head
-    const head = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.36, 0.35), skinMat);
-    head.position.y = 1.44; group.add(head);
-    // Helmet
-    const helmet = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.18, 0.41), helmetMat);
-    helmet.position.y = 1.65; group.add(helmet);
-    const brim = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.04, 0.48), helmetMat);
-    brim.position.y = 1.56; group.add(brim);
-    // Visor
-    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.1, 0.04), glassMat);
-    visor.position.set(0, 1.43, 0.178); group.add(visor);
-    // Eyes
-    const eyeMat = new THREE.MeshBasicMaterial({ color: 0x111111 });
-    const eyeL = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.06, 0.03), eyeMat);
-    eyeL.position.set(-0.08, 1.45, 0.178); group.add(eyeL);
-    const eyeR = eyeL.clone(); eyeR.position.set(0.08, 1.45, 0.178); group.add(eyeR);
-    // Arms
-    const armGeo = new THREE.BoxGeometry(0.18, 0.52, 0.2);
-    const armL = new THREE.Mesh(armGeo, suitMat); armL.position.set(-0.37, 0.88, 0); group.add(armL);
-    const armR = new THREE.Mesh(armGeo, suitMat); armR.position.set( 0.37, 0.88, 0); group.add(armR);
-    // Arm hi-vis
-    const asL = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.06, 0.21), visibMat); asL.position.set(-0.37, 0.88, 0); group.add(asL);
-    const asR = asL.clone(); asR.position.set(0.37, 0.88, 0); group.add(asR);
-    // Hands
-    const handGeo = new THREE.BoxGeometry(0.14, 0.13, 0.13);
-    const handL = new THREE.Mesh(handGeo, skinMat); handL.position.set(-0.37, 0.6, 0); group.add(handL);
-    const handR = handL.clone(); handR.position.set(0.37, 0.6, 0); group.add(handR);
-    // Legs
-    const legGeo = new THREE.BoxGeometry(0.22, 0.52, 0.24);
-    const legL = new THREE.Mesh(legGeo, suitMat); legL.position.set(-0.15, 0.34, 0); group.add(legL);
-    const legR = new THREE.Mesh(legGeo, suitMat); legR.position.set( 0.15, 0.34, 0); group.add(legR);
-    // Boots
-    const bootGeo = new THREE.BoxGeometry(0.24, 0.16, 0.3);
-    const bootL = new THREE.Mesh(bootGeo, bootMat); bootL.position.set(-0.15, 0.05, 0.03); group.add(bootL);
-    const bootR = bootL.clone(); bootR.position.set(0.15, 0.05, 0.03); group.add(bootR);
-    // Direction pointer
-    const ptr = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.3), new THREE.MeshBasicMaterial({color:0x00ffff}));
-    ptr.position.set(0, 0.9, -0.3); group.add(ptr);
-    // Shadow
-    const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.3,16), new THREE.MeshBasicMaterial({color:0x000000,transparent:true,opacity:0.2}));
-    shadow.rotation.x = -Math.PI/2; shadow.position.y = 0.01; group.add(shadow);
-
-    // Store refs for walk animation
-    group.userData.armL = armL;
-    group.userData.armR = armR;
-    group.userData.legL = legL;
-    group.userData.legR = legR;
-    group.userData.walkPhase = 0;
-
-    return group;
-}
-
-function animateEngineerWalk(g, isMoving) {
-    if (!g || !g.userData.armL) return;
-    if (isMoving) g.userData.walkPhase += 0.12;
-    else g.userData.walkPhase *= 0.8;
-    const s = Math.sin(g.userData.walkPhase) * 0.4;
-    g.userData.armL.rotation.x =  s;
-    g.userData.armR.rotation.x = -s;
-    g.userData.legL.rotation.x = -s;
-    g.userData.legR.rotation.x =  s;
-}
-
+// --- 2. 🛡️ สร้าง AVATAR แบบแท่งกระบอกแคปซูลอัตโนมัติ ---
 function createProceduralAvatar() {
-    const avatarGroup = createEngineerAvatar('#ff9900');
+    const avatarGroup = new THREE.Group();
+
+    // ตัวตน (Body Cylinder)
+    const bodyGeom = new THREE.CylinderGeometry(avatarConfig.radius, avatarConfig.radius, 1.2, 16);
+    const bodyMat = new THREE.MeshStandardMaterial({ 
+        color: 0xff9900, 
+        emissive: 0x331100,
+        roughness: 0.2, 
+        metalness: 0.8 
+    });
+    const bodyMesh = new THREE.Mesh(bodyGeom, bodyMat);
+    bodyMesh.position.y = 0.6;
+    avatarGroup.add(bodyMesh);
+
+    // ส่วนหัว (Head Sphere)
+    const headGeom = new THREE.SphereGeometry(avatarConfig.radius, 16, 16);
+    const headMat = new THREE.MeshStandardMaterial({ color: 0xffaa00, emissive: 0x442200 });
+    const headMesh = new THREE.Mesh(headGeom, headMat);
+    headMesh.position.y = 1.2;
+    avatarGroup.add(headMesh);
+
+    // บีคอนบอกทิศทางหน้าของตัวละคร (Direction Indicator Pointer)
+    const pointerGeom = new THREE.BoxGeometry(0.1, 0.1, 0.4);
+    const pointerMat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
+    const pointerMesh = new THREE.Mesh(pointerGeom, pointerMat);
+    pointerMesh.position.set(0, 0.9, -avatarConfig.radius - 0.1);
+    avatarGroup.add(pointerMesh);
+
     avatarGroup.position.set(0, jumpConfig.groundY, 8);
-    avatarGroup.rotation.y = Math.PI; // หันหลังให้กล้อง
     scene.add(avatarGroup);
+    
     avatarModel = avatarGroup;
-    document.getElementById('transform-panel').style.display = 'block';
+    document.getElementById('transform-panel').style.display = 'block'; 
 }
 
 createProceduralAvatar();
@@ -171,8 +124,8 @@ function getLoaderForFile(fileName) {
 }
 
 function togglePanelElement(elementId) {
-    const el = document.getElementById(elementId);
-    if (el) el.style.display = (el.style.display === 'none') ? 'block' : 'none';
+    const targetEl = document.getElementById(elementId);
+    if (targetEl) targetEl.style.display = (targetEl.style.display === 'none') ? 'block' : 'none';
 }
 
 function triggerAvatarJump() {
@@ -198,6 +151,13 @@ document.getElementById('factory-input').addEventListener('change', function (ev
 
     if (factoryModel) { scene.remove(factoryModel); originalMaterials.clear(); factoryColliders = []; }
 
+    const manager = new THREE.LoadingManager();
+    manager.setURLModifier((url) => {
+        const baseName = url.split('/').pop();
+        if (textureFiles[baseName]) return URL.createObjectURL(textureFiles[baseName]);
+        return url;
+    });
+
     const loader = getLoaderForFile(modelFile.name);
     loader.load(URL.createObjectURL(modelFile), function (loadedObject) {
         factoryModel = loadedObject.scene ? loadedObject.scene : loadedObject;
@@ -215,6 +175,8 @@ document.getElementById('factory-input').addEventListener('change', function (ev
                 meshCount++;
                 originalMaterials.set(child.uuid, child.material.clone());
                 if (uploadedTexture) { child.material.map = uploadedTexture; child.material.needsUpdate = true; }
+
+                // เก็บชื่อออริจินัลจากไฟล์ป้องกันการสูญหายเมื่อมีการแก้ไขชื่อเรียลไทม์
                 if (!child._original3DName) { child._original3DName = child.name || `Object_${meshCount}`; }
 
                 const item = document.createElement('div');
@@ -234,11 +196,13 @@ document.getElementById('factory-input').addEventListener('change', function (ev
         const size = box.getSize(new THREE.Vector3());
         initialFactoryScale = 12 / Math.max(size.x, size.y, size.z);
         factoryModel.scale.set(initialFactoryScale, initialFactoryScale, initialFactoryScale);
+        
         const center = box.getCenter(new THREE.Vector3());
         factoryModel.position.set(-center.x * initialFactoryScale, 0, -center.z * initialFactoryScale);
 
         scene.add(factoryModel);
         document.getElementById('factory-status').innerText = `✓ โหลดสำเร็จ: ${modelFile.name}`;
+        
         buildColliders();
         setFactoryMaterialMode(currentMaterialMode);
         syncSlidersWithModel();
@@ -270,32 +234,30 @@ window.addEventListener('keydown', (e) => {
     if(document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
     const key = e.key.toLowerCase();
     
-    // 💡 กดปุ่ม F หรือ ด เพื่อสลับโหมด Free Look
+    // 💡 สลับโหมด Free Look (กด F หรือ ด)
     if (key === 'f' || key === 'ด') {
         isFreeLook = !isFreeLook;
         if (!isFreeLook) {
-            // ถ้าปิดโหมด Free Look ให้รีเซ็ตมุมกล้องกลับมาล็อกที่ตัวละครทันที
             resetCameraToAvatar();
         }
-        // แสดงข้อความแจ้งเตือนในระบบแชทซิมูเลเตอร์
         mpAppendChat({
             name: 'ระบบกล้อง', 
             color: '#00ffff', 
-            text: isFreeLook ? '🎥 เข้าสู่โหมด Free Look (ใช้ W A S D / ไ ฟ ห ก บินกล้อง)' : '👤 กลับสู่โหมดติดตามตัวละคร'
+            text: isFreeLook ? '🎥 โหมด Free Look (ใช้ W A S D / ไ ฟ ห ก บินกล้องอิสระ)' : '👤 กลับสู่โหมดติดตามตัวละคร'
         });
         return;
     }
 
-    // การควบคุมทิศทาง (รองรับคีย์บอร์ดภาษาอังกฤษ และ ภาษาไทย ไ-ฟ-ห-ก-ด)
+    // ควบคุมทิศทาง (รองรับภาษาอังกฤษ และ แป้นพิมพ์ภาษาไทย)
     if (e.key === 'ArrowUp' || key === 'w' || key === 'ฟ' || key === 'ไ') moveStatus.forward = true;
     if (e.key === 'ArrowDown' || key === 's' || key === 'ห') moveStatus.backward = true;
     if (e.key === 'ArrowLeft' || key === 'a' || key === 'ฟ' || key === 'ภ' || key === 'ไ') moveStatus.left = true;
     if (e.key === 'ArrowRight' || key === 'd' || key === 'ด' || key === 'ก') moveStatus.right = true;
     
-    // ตัวละครกระโดด (ทำงานเฉพาะตอนไม่ได้เปิดโหมด Free Look)
+    // สั่งกระโดด (เฉพาะโหมดล็อกตัวละครปกติ)
     if (e.key === ' ' && !jumpConfig.isJumping && !isFreeLook) triggerAvatarJump();
 
-    // ปุ่มลัด UI อื่นๆ ยังสามารถกดได้ปกติแม้จะอยู่โหมด Free Look
+    // ปุ่มลัดฟังก์ชัน UI
     if (key === 'h' || key === 'อ') togglePanelElement('dashboard');
     if (key === 'm' || key === 'ท') togglePanelElement('details-panel');
     if (key === 'p' || key === 'ย') togglePanelElement('process-panel');
@@ -310,15 +272,20 @@ window.addEventListener('keyup', (e) => {
     if (e.key === 'ArrowLeft' || key === 'a' || key === 'ฟ' || key === 'ภ' || key === 'ไ') moveStatus.left = false;
     if (e.key === 'ArrowRight' || key === 'd' || key === 'ด' || key === 'ก') moveStatus.right = false;
 });
+
 // --- 5. IOT & DATA SIMULATION ---
 function loopIotSimulation() {
     if(!activeSelectedMeshUUID) return;
+    let pressureVal = 0, tempVal = 25.0;
+
     if (activeSelectedKeyKey === "pipe") {
-        document.getElementById('iot-pressure').innerText = (1.5 + Math.random() * 0.5).toFixed(2) + " bar";
-        document.getElementById('iot-temp').innerText = (31.2 + Math.random() * 1.5).toFixed(1) + " °C";
+        pressureVal = 1.5 + Math.random() * 0.5; tempVal = 31.2 + Math.random() * 1.5;
+        document.getElementById('iot-pressure').innerText = pressureVal.toFixed(2) + " bar";
+        document.getElementById('iot-temp').innerText = tempVal.toFixed(1) + " °C";
     } else if (activeSelectedKeyKey === "tank") {
-        document.getElementById('iot-pressure').innerText = (0.04 + Math.random() * 0.03).toFixed(3) + " bar";
-        document.getElementById('iot-temp').innerText = (37.5 + Math.random() * 0.8).toFixed(1) + " °C";
+        pressureVal = 0.04 + Math.random() * 0.03; tempVal = 37.5 + Math.random() * 0.8;
+        document.getElementById('iot-pressure').innerText = pressureVal.toFixed(3) + " bar";
+        document.getElementById('iot-temp').innerText = tempVal.toFixed(1) + " °C";
     } else {
         document.getElementById('iot-pressure').innerText = "0.00 bar";
         document.getElementById('iot-temp').innerText = "28.5 °C";
@@ -328,10 +295,11 @@ setInterval(loopIotSimulation, 1500);
 
 function exportWorkflowDatabase() {
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(workflowDatabase, null, 2));
-    const a = document.createElement('a');
-    a.setAttribute("href", dataStr);
-    a.setAttribute("download", "biogas_safety_db.json");
-    document.body.appendChild(a); a.click(); a.remove();
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute("href", dataStr);
+    downloadAnchor.setAttribute("download", "biogas_safety_db.json");
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click(); downloadAnchor.remove();
 }
 
 function syncSlidersWithModel() {
@@ -355,14 +323,16 @@ function updateSliderLabels() {
 ['param-posX', 'param-posY', 'param-posZ', 'param-rotY', 'param-scale'].forEach(id => {
     document.getElementById(id).addEventListener('input', () => {
         if (!factoryModel) return;
-        factoryModel.position.set(
-            parseFloat(document.getElementById('param-posX').value),
-            parseFloat(document.getElementById('param-posY').value),
-            parseFloat(document.getElementById('param-posZ').value)
-        );
-        factoryModel.rotation.y = parseFloat(document.getElementById('param-rotY').value) * (Math.PI / 180);
+        const px = parseFloat(document.getElementById('param-posX').value);
+        const py = parseFloat(document.getElementById('param-posY').value);
+        const pz = parseFloat(document.getElementById('param-posZ').value);
+        const ry = parseFloat(document.getElementById('param-rotY').value) * (Math.PI / 180);
         const sc = parseFloat(document.getElementById('param-scale').value);
-        factoryModel.scale.set(initialFactoryScale*sc, initialFactoryScale*sc, initialFactoryScale*sc);
+
+        factoryModel.position.set(px, py, pz);
+        factoryModel.rotation.y = ry;
+        factoryModel.scale.set(initialFactoryScale * sc, initialFactoryScale * sc, initialFactoryScale * sc);
+        
         updateSliderLabels();
         buildColliders();
     });
@@ -400,19 +370,23 @@ function highlightAndShowWorkflow(targetMesh, meshName, method) {
 
     const origName = targetMesh._original3DName || targetMesh.name || meshName;
     let databaseKey = "default";
+
     if (workflowDatabase[origName]) databaseKey = origName;
     else if (workflowDatabase[targetMesh.name]) databaseKey = targetMesh.name;
     else if (workflowDatabase[targetMesh.uuid]) databaseKey = targetMesh.uuid;
     else {
         const nameLower = origName.toLowerCase();
-        if (nameLower.includes("tank") || nameLower.includes("ถัง") || nameLower.includes("หมัก") || nameLower.includes("digester")) databaseKey = "tank";
+        if (nameLower.includes("tank") || nameLower.includes("ถัง") || nameLower.includes("บ่อหมัก") || nameLower.includes("digester")) databaseKey = "tank";
         else if (nameLower.includes("pipe") || nameLower.includes("ท่อ") || nameLower.includes("line")) databaseKey = "pipe";
         else if (nameLower.includes("engine") || nameLower.includes("อาคาร") || nameLower.includes("generator") || nameLower.includes("utilization") || nameLower.includes("genset")) databaseKey = "utilization";
         else if (nameLower.includes("flare") || nameLower.includes("เผา")) databaseKey = "flare";
     }
+
     activeSelectedKeyKey = databaseKey;
+
     const matchedData = workflowDatabase[databaseKey] || workflowDatabase["default"];
     renderWorkflowUI(matchedData.name || meshName, matchedData.desc, matchedData.steps, method, matchedData.colorClass || 'tag-blue');
+    
     cancelLiveEdit();
     document.getElementById('process-panel').style.display = 'block';
 }
@@ -422,6 +396,7 @@ function renderWorkflowUI(name, desc, stepsArray, method, colorClass) {
     document.getElementById('title-container').innerHTML = `<span id="process-title">⚙️ โซน: ${name}</span>`;
     document.getElementById('desc-view-area').innerText = desc;
     document.getElementById('detection-method').innerText = method;
+
     const stepsContainer = document.getElementById('steps-view-area');
     stepsContainer.innerHTML = '';
     stepsArray.forEach(step => {
@@ -437,11 +412,13 @@ function enableLiveEdit() {
     if (!activeSelectedMeshUUID) return;
     const currentData = workflowDatabase[activeSelectedKeyKey] || workflowDatabase["default"];
     const currentTitleText = document.getElementById('process-title').innerText.replace("⚙️ โซน: ", "");
+
     document.getElementById('title-container').innerHTML = `
         <input type="text" id="input-edit-title" class="ui-edit-input" style="font-weight:bold;" value="${currentData.name !== "โครงสร้างทั่วไป" ? currentData.name : currentTitleText}">
     `;
     document.getElementById('input-edit-desc').value = currentData.desc;
     document.getElementById('input-edit-steps').value = currentData.steps.join(', ');
+
     document.getElementById('desc-view-area').style.display = 'none';
     document.getElementById('steps-view-area').style.display = 'none';
     document.getElementById('desc-edit-area').style.display = 'block';
@@ -455,8 +432,10 @@ function saveLiveEdit() {
     const newTitle = document.getElementById('input-edit-title').value.trim();
     const newDesc = document.getElementById('input-edit-desc').value.trim();
     const newStepsArray = document.getElementById('input-edit-steps').value.split(',').map(s => s.trim()).filter(s => s.length > 0);
+
     workflowDatabase[activeSelectedMeshUUID] = { "name": newTitle, "desc": newDesc, "steps": newStepsArray, "colorClass": "tag-blue" };
     activeSelectedKeyKey = activeSelectedMeshUUID;
+
     if (factoryModel) {
         factoryModel.traverse(function(child) {
             if (child.isMesh && child.uuid === activeSelectedMeshUUID) {
@@ -487,24 +466,21 @@ function closeLiveEditFields() {
     document.getElementById('edit-actions-group').style.display = 'none';
 }
 
-// --- 8. AVATAR PHYSICS & COLLISION ---
 // --- 8. AVATAR PHYSICS & COLLISION + FREE LOOK CAMERA ---
 function updateAvatarPhysics() {
     if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
 
     // ==========================================
-    // 🎥 ลอจิกการทำงานเมื่ออยู่โหมด FREE LOOK
+    // 🎥 ลอจิกทำงานเมื่ออยู่โหมด FREE LOOK
     // ==========================================
     if (isFreeLook) {
-        // สร้างทิศทางอ้างอิงจากมุมที่กล้องกำลังหันไปมอง
         const camDirection = new THREE.Vector3();
         camera.getWorldDirection(camDirection);
         
-        // เวกเตอร์ซ้าย-ขวา ของกล้อง
         const camRight = new THREE.Vector3();
         camRight.crossVectors(camera.up, camDirection).normalize();
 
-        // คำนวณการเคลื่อนที่ของตัวกล้อง (ไม่ใช่โมเดล Avatar)
+        // เคลื่อนตัวตำแหน่งกล้องและจุดโฟกัสไปพร้อมกันตามทิศหน้ากล้อง
         if (moveStatus.forward) {
             camera.position.addScaledVector(camDirection, freeLookSpeed);
             controls.target.addScaledVector(camDirection, freeLookSpeed);
@@ -521,11 +497,11 @@ function updateAvatarPhysics() {
             camera.position.addScaledVector(camRight, -freeLookSpeed);
             controls.target.addScaledVector(camRight, -freeLookSpeed);
         }
-        return; // ออกจากฟังก์ชันทันที ไม่ให้ลอจิกขยับตัวละครด้านล่างทำงาน
+        return; // ตัดจบฟังก์ชันตรงนี้ ไม่ไปยุ่งกับขยับตัวละครผู้เล่นด้านล่าง
     }
 
     // ==========================================
-    // 👤 ลอจิกการทำงานปกติ (โหมดติดตามตัวละคร)
+    // 👤 ลอจิกผู้เล่นเคลื่อนที่ปกติ (โหมดล็อกตัวละคร)
     // ==========================================
     if (!avatarModel) return;
 
@@ -587,7 +563,7 @@ function updateAvatarPhysics() {
         }
     }
 
-    // กล้องเดินตามผู้เล่นสมูท ๆ (ทำงานเฉพาะตอนไม่ใช่ Free Look)
+    // แพนกล้องสมูทติดตามหลังผู้เล่น
     const targetCamOffset = defaultCameraOffset.clone().applyMatrix4(avatarModel.matrixWorld);
     camera.position.lerp(targetCamOffset, 0.08);
     controls.target.set(avatarModel.position.x, avatarModel.position.y + 0.3, avatarModel.position.z);
@@ -621,6 +597,8 @@ window.addEventListener('resize', () => {
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
 });
+
+
 
 // ============================================================
 // MULTIPLAYER MODULE (Clean Version)
@@ -656,7 +634,9 @@ function loadModelFromUrl(url, fileName) {
             if (child.isMesh) {
                 meshCount++;
                 originalMaterials.set(child.uuid, child.material.clone());
+                
                 if (!child._original3DName) { child._original3DName = child.name || `Object_${meshCount}`; }
+
                 const item = document.createElement('div');
                 item.className = 'mesh-item';
                 const mName = child.name || child._original3DName;
@@ -710,23 +690,22 @@ _newInput.addEventListener('change', async function(event) {
     }
 });
 
-// Override saveLiveEdit: broadcast workflow changes
 const _origSaveLiveEdit = saveLiveEdit;
 window.saveLiveEdit = function() {
     if (!activeSelectedMeshUUID) return;
     const titleEl = document.getElementById('input-edit-title');
-    const descEl  = document.getElementById('input-edit-desc');
+    const descEl = document.getElementById('input-edit-desc');
     const stepsEl = document.getElementById('input-edit-steps');
     const newTitle = titleEl ? titleEl.value.trim() : '';
-    const newDesc  = descEl  ? descEl.value.trim()  : '';
+    const newDesc = descEl ? descEl.value.trim() : '';
     const newSteps = stepsEl ? stepsEl.value.split(',').map(s=>s.trim()).filter(Boolean) : [];
-
+    
     let originalNameKey = activeSelectedMeshUUID;
     if (factoryModel) {
         factoryModel.traverse(function(child) {
             if (child.isMesh && child.uuid === activeSelectedMeshUUID) {
                 originalNameKey = child._original3DName || child.name || child.uuid;
-                if (!child._original3DName) child._original3DName = originalNameKey;
+                if (!child._original3DName) { child._original3DName = originalNameKey; }
             }
         });
     }
@@ -738,13 +717,13 @@ window.saveLiveEdit = function() {
     }
 
     if (mpSocket && mpSocket.connected && originalNameKey) {
-        mpSocket.emit('workflow_update', {
-            key: originalNameKey,
-            name: newTitle,
-            desc: newDesc,
-            steps: newSteps,
+        mpSocket.emit('workflow_update', { 
+            key: originalNameKey, 
+            name: newTitle, 
+            desc: newDesc, 
+            steps: newSteps, 
             colorClass: 'tag-blue',
-            targetUuid: activeSelectedMeshUUID
+            targetUuid: activeSelectedMeshUUID 
         });
     }
 };
@@ -757,7 +736,16 @@ let mpMyId = null;
 let mpMyColor = '#00ffff';
 
 function buildRemoteAvatar(color) {
-    return createEngineerAvatar(color || '#4d96ff');
+    const hex = parseInt(color.replace('#',''), 16);
+    const g = new THREE.Group();
+    const mat = new THREE.MeshStandardMaterial({ color: hex, emissive: hex>>1, roughness: 0.3, metalness: 0.7 });
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.35,0.35,1.2,16), mat);
+    body.position.y = 0.6; g.add(body);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.35,16,16), new THREE.MeshStandardMaterial({color:hex}));
+    head.position.y = 1.2; g.add(head);
+    const ptr = new THREE.Mesh(new THREE.BoxGeometry(0.1,0.1,0.4), new THREE.MeshBasicMaterial({color:0xffffff}));
+    ptr.position.set(0,0.9,-0.45); g.add(ptr);
+    return g;
 }
 
 function setAvatarLabel(g, name, color) {
@@ -768,13 +756,13 @@ function setAvatarLabel(g, name, color) {
     ctx.font='bold 24px Arial'; ctx.fillStyle=color||'#fff'; ctx.textAlign='center'; ctx.textBaseline='middle';
     ctx.fillText(name.substring(0,16), 128, 32);
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),depthTest:false}));
-    sp.scale.set(1.8,0.45,1); sp.position.y=2.2;
+    sp.scale.set(1.8,0.45,1); sp.position.y=2.1;
     g.add(sp); g._label = sp;
 }
 
 function addRemote(data) {
     if (remoteAvatars[data.id]) return;
-    const av = buildRemoteAvatar(data.color||'#4d96ff');
+    const av = buildRemoteAvatar(data.color||'#fff');
     av.position.set(data.position.x, data.position.y, data.position.z);
     scene.add(av); remoteAvatars[data.id] = av;
     setAvatarLabel(av, data.name||data.id, data.color||'#fff');
@@ -795,7 +783,6 @@ renderer.render = function(sc, cam) {
         if (!t) continue;
         av.position.lerp(t.pos, 0.18);
         av.rotation.y += (t.rotY - av.rotation.y) * 0.18;
-        animateEngineerWalk(av, t.pos.distanceTo(av.position) > 0.01);
     }
     if (mpSocket && mpSocket.connected && avatarModel) {
         const now = Date.now();
@@ -818,7 +805,7 @@ function updateMpUI() {
     document.getElementById('mp-player-count').innerText = all.length;
     list.innerHTML = all.map(id => {
         const isMe = id === mpMyId;
-        const name  = mpPlayerNames[id] || (isMe ? 'คุณ' : id.slice(0,6));
+        const name = mpPlayerNames[id] || (isMe ? 'คุณ' : id.slice(0,6));
         const color = mpPlayerColors[id] || '#fff';
         return `<div style="display:flex;align-items:center;gap:6px;padding:3px 0;font-size:12px;">
             <span style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0"></span>
@@ -867,8 +854,8 @@ function initMultiplayer() {
     const SERVER = window.RAILWAY_SERVER_URL || window.location.origin;
     mpSocket = io(SERVER, { transports: ['websocket','polling'] });
 
-    mpSocket.on('connect',    () => { dot.style.background='#22c55e'; txt.innerText='เชื่อมต่อแล้ว ✓'; });
-    mpSocket.on('disconnect', () => { dot.style.background='#ef4444'; txt.innerText='การเชื่อมต่อขาด...'; });
+    mpSocket.on('connect', () => { dot.style.background='#22c55e'; txt.innerText='เชื่อมต่อแล้ว ✓'; });
+    mpSocket.on('disconnect', () => { dot.style.background='#ef4444'; txt.innerText='การ接続ขาด...'; });
 
     mpSocket.on('self_init', data => {
         mpMyId = data.self.id;
@@ -878,8 +865,8 @@ function initMultiplayer() {
         document.getElementById('mp-name-input').value = data.self.name;
         if (avatarModel) avatarModel.position.set(data.self.position.x, data.self.position.y, data.self.position.z);
         data.others.forEach(p => addRemote(p));
-        if (data.modelUrl)    loadModelFromUrl(data.modelUrl, data.modelName);
-        if (data.workflowDb)  Object.assign(workflowDatabase, data.workflowDb);
+        if (data.modelUrl) loadModelFromUrl(data.modelUrl, data.modelName);
+        if (data.workflowDb) Object.assign(workflowDatabase, data.workflowDb);
         updateMpUI();
     });
 
@@ -914,19 +901,26 @@ function initMultiplayer() {
 
     mpSocket.on('workflow_updated', data => {
         workflowDatabase[data.key] = { name: data.name, desc: data.desc, steps: data.steps, colorClass: data.colorClass||'tag-blue' };
+        
         if (data.targetUuid) {
             workflowDatabase[data.targetUuid] = { name: data.name, desc: data.desc, steps: data.steps, colorClass: data.colorClass||'tag-blue' };
         }
+
         if (factoryModel) {
             factoryModel.traverse(function(child) {
-                if (child.isMesh && !child._original3DName) child._original3DName = child.name;
+                if (child.isMesh && !child._original3DName) {
+                    child._original3DName = child.name;
+                }
+                
                 if (child.isMesh && (child._original3DName === data.key || child.name === data.key || child.uuid === data.key || child.uuid === data.targetUuid)) {
-                    child.name = data.name;
+                    child.name = data.name; 
+                    
                     const sideListItem = document.getElementById(`mesh-item-${child.uuid}`);
                     if (sideListItem) sideListItem.innerText = `🏭 ${data.name}`;
                 }
             });
         }
+
         const panel = document.getElementById('process-panel');
         if (panel && panel.style.display !== 'none' && (activeSelectedKeyKey === data.key || activeSelectedKeyKey === data.targetUuid || activeSelectedMeshUUID === data.targetUuid)) {
             renderWorkflowUI(data.name, data.desc, data.steps, '✏️ อัปเดตโดยผู้เล่นอื่น', data.colorClass||'tag-blue');
