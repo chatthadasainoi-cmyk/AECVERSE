@@ -1,133 +1,12 @@
-// ============================================================
-// Engineer Avatar Builder — Low-poly blocky style
-// สร้างตัวละครวิศวกรจาก Three.js primitives
-// ============================================================
-
-function createEngineerAvatar(color) {
-    const group = new THREE.Group();
-    const hex = color ? parseInt(color.replace('#',''), 16) : 0xffaa44;
-
-    // Materials
-    const skinMat = new THREE.MeshStandardMaterial({ color: 0xf4c08a, roughness: 0.8 });
-    const suitMat = new THREE.MeshStandardMaterial({ color: 0xff8c00, roughness: 0.6, metalness: 0.1 }); // Orange safety suit
-    const helmetMat = new THREE.MeshStandardMaterial({ color: hex, roughness: 0.3, metalness: 0.4 });
-    const bootMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.9 });
-    const glassMat = new THREE.MeshStandardMaterial({ color: 0x88ccff, transparent: true, opacity: 0.6 });
-    const visibMat = new THREE.MeshStandardMaterial({ color: 0xffff00, roughness: 0.5 }); // Hi-vis stripe
-
-    // === BODY ===
-    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.65, 0.3), suitMat);
-    torso.position.y = 0.95; group.add(torso);
-
-    // Hi-vis stripe on torso
-    const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.08, 0.31), visibMat);
-    stripe.position.y = 0.95; group.add(stripe);
-
-    // === HEAD ===
-    const head = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.38, 0.35), skinMat);
-    head.position.y = 1.44; group.add(head);
-
-    // === HELMET ===
-    const helmet = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.2, 0.41), helmetMat);
-    helmet.position.y = 1.67; group.add(helmet);
-    const helmetBrim = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.05, 0.48), helmetMat);
-    helmetBrim.position.y = 1.57; group.add(helmetBrim);
-
-    // === VISOR ===
-    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.12, 0.04), glassMat);
-    visor.position.set(0, 1.43, 0.175); group.add(visor);
-
-    // === EYES ===
-    const eyeMat = new THREE.MeshBasicMaterial({ color: 0x222222 });
-    const eyeL = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.06, 0.04), eyeMat);
-    eyeL.position.set(-0.08, 1.46, 0.178); group.add(eyeL);
-    const eyeR = eyeL.clone();
-    eyeR.position.set(0.08, 1.46, 0.178); group.add(eyeR);
-
-    // === ARMS ===
-    const armGeo = new THREE.BoxGeometry(0.18, 0.55, 0.2);
-    const armL = new THREE.Mesh(armGeo, suitMat);
-    armL.position.set(-0.37, 0.88, 0); group.add(armL);
-    const armR = new THREE.Mesh(armGeo, suitMat);
-    armR.position.set(0.37, 0.88, 0); group.add(armR);
-
-    // Hi-vis stripe on arms
-    const armStripeL = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.06, 0.21), visibMat);
-    armStripeL.position.set(-0.37, 0.88, 0); group.add(armStripeL);
-    const armStripeR = armStripeL.clone();
-    armStripeR.position.set(0.37, 0.88, 0); group.add(armStripeR);
-
-    // Hands
-    const handGeo = new THREE.BoxGeometry(0.14, 0.14, 0.14);
-    const handL = new THREE.Mesh(handGeo, skinMat);
-    handL.position.set(-0.37, 0.58, 0); group.add(handL);
-    const handR = handL.clone();
-    handR.position.set(0.37, 0.58, 0); group.add(handR);
-
-    // === LEGS ===
-    const legGeo = new THREE.BoxGeometry(0.22, 0.55, 0.24);
-    const legL = new THREE.Mesh(legGeo, suitMat);
-    legL.position.set(-0.15, 0.35, 0); group.add(legL);
-    const legR = new THREE.Mesh(legGeo, suitMat);
-    legR.position.set(0.15, 0.35, 0); group.add(legR);
-
-    // Boots
-    const bootGeo = new THREE.BoxGeometry(0.24, 0.18, 0.3);
-    const bootL = new THREE.Mesh(bootGeo, bootMat);
-    bootL.position.set(-0.15, 0.05, 0.03); group.add(bootL);
-    const bootR = bootL.clone();
-    bootR.position.set(0.15, 0.05, 0.03); group.add(bootR);
-
-    // === SHADOW ===
-    const shadow = new THREE.Mesh(
-        new THREE.CircleGeometry(0.3, 16),
-        new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.2 })
-    );
-    shadow.rotation.x = -Math.PI / 2;
-    shadow.position.y = 0.01; group.add(shadow);
-
-    // Store arm refs for walk animation
-    group.userData.armL = armL;
-    group.userData.armR = armR;
-    group.userData.legL = legL;
-    group.userData.legR = legR;
-    group.userData.walkPhase = Math.random() * Math.PI * 2;
-    group.userData.isWalking = false;
-
-    return group;
-}
-
-// Walk animation — call this in the render loop
-function animateEngineerWalk(avatarGroup, isMoving, delta) {
-    if (!avatarGroup || !avatarGroup.userData.armL) return;
-    const speed = 8;
-    if (isMoving) {
-        avatarGroup.userData.walkPhase += delta * speed;
-        avatarGroup.userData.isWalking = true;
-    } else {
-        // Ease back to neutral
-        avatarGroup.userData.walkPhase *= 0.85;
-        if (Math.abs(avatarGroup.userData.walkPhase) < 0.01) avatarGroup.userData.walkPhase = 0;
-    }
-    const swing = Math.sin(avatarGroup.userData.walkPhase) * 0.35;
-    avatarGroup.userData.armL.rotation.x = swing;
-    avatarGroup.userData.armR.rotation.x = -swing;
-    avatarGroup.userData.legL.rotation.x = -swing;
-    avatarGroup.userData.legR.rotation.x = swing;
-    // Slight body bob
-    avatarGroup.position.y += Math.abs(Math.sin(avatarGroup.userData.walkPhase * 2)) * 0.003;
-}
 // --- 1. SETUP THREE.JS SCENE ---
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0a0f14); // เปลี่ยนสีพื้นหลังให้เข้าธีมดาร์กโหมด
+scene.background = new THREE.Color(0x0a0f14);
 
 const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
 camera.position.set(0, 6, 12); 
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
-
-// สั่งผูกเข้ากับกล่อง Container เสมอ เพื่อป้องกันโครงสร้าง UI เพี้ยนแบบในรูปภาพ
 document.getElementById('canvas-container').appendChild(renderer.domElement);
 
 const controls = new THREE.OrbitControls(camera, renderer.domElement);
@@ -141,12 +20,11 @@ const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
 dirLight.position.set(10, 20, 10);
 scene.add(dirLight);
 
-// พื้นตารางกริดเรืองแสงสีเทอร์ควอยซ์
 const gridHelper = new THREE.GridHelper(60, 60, 0x00ffff, 0x1e293b);
 scene.add(gridHelper);
 
 let factoryModel = null;
-let avatarModel = null; // จะเก็บตัวละครทรงแท่งแคปซูลแทน
+let avatarModel = null;
 let originalMaterials = new Map();
 let currentMaterialMode = 'solid'; 
 let initialFactoryScale = 1;
@@ -157,10 +35,9 @@ let factoryColliders = [];
 
 const moveStatus = { forward: false, backward: false, left: false, right: false };
 const avatarConfig = { speed: 0.12, turnSpeed: 0.045, radius: 0.35 };
-const jumpConfig = { velocity: 0, gravity: -0.012, jumpForce: 0.24, isJumping: false, groundY: 0.9 }; // groundY ปรับตามกึ่งกลางความสูงแคปซูล
+const jumpConfig = { velocity: 0, gravity: -0.012, jumpForce: 0.24, isJumping: false, groundY: 0.9 };
 const defaultCameraOffset = new THREE.Vector3(0, 2.5, 5);
 
-// ฐานข้อมูลตรวจสอบความปลอดภัยของระบบไบโอแก๊ส
 const workflowDatabase = {
     "default": { 
         "name": "โครงสร้างทั่วไป", 
@@ -194,9 +71,88 @@ const workflowDatabase = {
     }
 };
 
-// --- 2. 🛡️ สร้าง AVATAR แบบแท่งกระบอกแคปซูลอัตโนมัติ (ไม่ต้องโหลดไฟล์แล้ว) ---
+// --- 2. ENGINEER AVATAR (Low-poly blocky style) ---
+function createEngineerAvatar(helmetColor) {
+    const group = new THREE.Group();
+    const hex = helmetColor ? parseInt(String(helmetColor).replace('#',''), 16) : 0xff9900;
+
+    const skinMat  = new THREE.MeshStandardMaterial({ color: 0xf4c08a, roughness: 0.8 });
+    const suitMat  = new THREE.MeshStandardMaterial({ color: 0xff6600, roughness: 0.6 });
+    const helmetMat= new THREE.MeshStandardMaterial({ color: hex, roughness: 0.3, metalness: 0.4 });
+    const bootMat  = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.9 });
+    const glassMat = new THREE.MeshStandardMaterial({ color: 0x88ccff, transparent: true, opacity: 0.5 });
+    const visibMat = new THREE.MeshStandardMaterial({ color: 0xffff00, roughness: 0.5 });
+
+    // Body
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.65, 0.3), suitMat);
+    torso.position.y = 0.95; group.add(torso);
+    // Hi-vis stripe
+    const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.07, 0.31), visibMat);
+    stripe.position.y = 0.95; group.add(stripe);
+    // Head
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.36, 0.35), skinMat);
+    head.position.y = 1.44; group.add(head);
+    // Helmet
+    const helmet = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.18, 0.41), helmetMat);
+    helmet.position.y = 1.65; group.add(helmet);
+    const brim = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.04, 0.48), helmetMat);
+    brim.position.y = 1.56; group.add(brim);
+    // Visor
+    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.1, 0.04), glassMat);
+    visor.position.set(0, 1.43, 0.178); group.add(visor);
+    // Eyes
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0x111111 });
+    const eyeL = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.06, 0.03), eyeMat);
+    eyeL.position.set(-0.08, 1.45, 0.178); group.add(eyeL);
+    const eyeR = eyeL.clone(); eyeR.position.set(0.08, 1.45, 0.178); group.add(eyeR);
+    // Arms
+    const armGeo = new THREE.BoxGeometry(0.18, 0.52, 0.2);
+    const armL = new THREE.Mesh(armGeo, suitMat); armL.position.set(-0.37, 0.88, 0); group.add(armL);
+    const armR = new THREE.Mesh(armGeo, suitMat); armR.position.set( 0.37, 0.88, 0); group.add(armR);
+    // Arm hi-vis
+    const asL = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.06, 0.21), visibMat); asL.position.set(-0.37, 0.88, 0); group.add(asL);
+    const asR = asL.clone(); asR.position.set(0.37, 0.88, 0); group.add(asR);
+    // Hands
+    const handGeo = new THREE.BoxGeometry(0.14, 0.13, 0.13);
+    const handL = new THREE.Mesh(handGeo, skinMat); handL.position.set(-0.37, 0.6, 0); group.add(handL);
+    const handR = handL.clone(); handR.position.set(0.37, 0.6, 0); group.add(handR);
+    // Legs
+    const legGeo = new THREE.BoxGeometry(0.22, 0.52, 0.24);
+    const legL = new THREE.Mesh(legGeo, suitMat); legL.position.set(-0.15, 0.34, 0); group.add(legL);
+    const legR = new THREE.Mesh(legGeo, suitMat); legR.position.set( 0.15, 0.34, 0); group.add(legR);
+    // Boots
+    const bootGeo = new THREE.BoxGeometry(0.24, 0.16, 0.3);
+    const bootL = new THREE.Mesh(bootGeo, bootMat); bootL.position.set(-0.15, 0.05, 0.03); group.add(bootL);
+    const bootR = bootL.clone(); bootR.position.set(0.15, 0.05, 0.03); group.add(bootR);
+    // Direction pointer
+    const ptr = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.3), new THREE.MeshBasicMaterial({color:0x00ffff}));
+    ptr.position.set(0, 0.9, -0.3); group.add(ptr);
+    // Shadow
+    const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.3,16), new THREE.MeshBasicMaterial({color:0x000000,transparent:true,opacity:0.2}));
+    shadow.rotation.x = -Math.PI/2; shadow.position.y = 0.01; group.add(shadow);
+
+    // Store refs for walk animation
+    group.userData.armL = armL;
+    group.userData.armR = armR;
+    group.userData.legL = legL;
+    group.userData.legR = legR;
+    group.userData.walkPhase = 0;
+
+    return group;
+}
+
+function animateEngineerWalk(g, isMoving) {
+    if (!g || !g.userData.armL) return;
+    if (isMoving) g.userData.walkPhase += 0.12;
+    else g.userData.walkPhase *= 0.8;
+    const s = Math.sin(g.userData.walkPhase) * 0.4;
+    g.userData.armL.rotation.x =  s;
+    g.userData.armR.rotation.x = -s;
+    g.userData.legL.rotation.x = -s;
+    g.userData.legR.rotation.x =  s;
+}
+
 function createProceduralAvatar() {
-    // สร้างตัวละครวิศวกร Low-poly
     const avatarGroup = createEngineerAvatar('#ff9900');
     avatarGroup.position.set(0, jumpConfig.groundY, 8);
     scene.add(avatarGroup);
@@ -204,7 +160,6 @@ function createProceduralAvatar() {
     document.getElementById('transform-panel').style.display = 'block';
 }
 
-// เรียกสร้างทันทีเปิดเว็บ
 createProceduralAvatar();
 
 function getLoaderForFile(fileName) {
@@ -213,8 +168,8 @@ function getLoaderForFile(fileName) {
 }
 
 function togglePanelElement(elementId) {
-    const targetEl = document.getElementById(elementId);
-    if (targetEl) targetEl.style.display = (targetEl.style.display === 'none') ? 'block' : 'none';
+    const el = document.getElementById(elementId);
+    if (el) el.style.display = (el.style.display === 'none') ? 'block' : 'none';
 }
 
 function triggerAvatarJump() {
@@ -240,13 +195,6 @@ document.getElementById('factory-input').addEventListener('change', function (ev
 
     if (factoryModel) { scene.remove(factoryModel); originalMaterials.clear(); factoryColliders = []; }
 
-    const manager = new THREE.LoadingManager();
-    manager.setURLModifier((url) => {
-        const baseName = url.split('/').pop();
-        if (textureFiles[baseName]) return URL.createObjectURL(textureFiles[baseName]);
-        return url;
-    });
-
     const loader = getLoaderForFile(modelFile.name);
     loader.load(URL.createObjectURL(modelFile), function (loadedObject) {
         factoryModel = loadedObject.scene ? loadedObject.scene : loadedObject;
@@ -264,10 +212,11 @@ document.getElementById('factory-input').addEventListener('change', function (ev
                 meshCount++;
                 originalMaterials.set(child.uuid, child.material.clone());
                 if (uploadedTexture) { child.material.map = uploadedTexture; child.material.needsUpdate = true; }
+                if (!child._original3DName) { child._original3DName = child.name || `Object_${meshCount}`; }
 
                 const item = document.createElement('div');
                 item.className = 'mesh-item';
-                const mName = child.name || `ชิ้นส่วนที่_${meshCount}`;
+                const mName = child.name || child._original3DName;
                 item.innerText = `🏭 ${mName}`;
                 item.id = `mesh-item-${child.uuid}`; 
                 item.addEventListener('click', () => { highlightAndShowWorkflow(child, mName, "คลิกเลือกโมเดล"); });
@@ -282,13 +231,11 @@ document.getElementById('factory-input').addEventListener('change', function (ev
         const size = box.getSize(new THREE.Vector3());
         initialFactoryScale = 12 / Math.max(size.x, size.y, size.z);
         factoryModel.scale.set(initialFactoryScale, initialFactoryScale, initialFactoryScale);
-        
         const center = box.getCenter(new THREE.Vector3());
         factoryModel.position.set(-center.x * initialFactoryScale, 0, -center.z * initialFactoryScale);
 
         scene.add(factoryModel);
         document.getElementById('factory-status').innerText = `✓ โหลดสำเร็จ: ${modelFile.name}`;
-        
         buildColliders();
         setFactoryMaterialMode(currentMaterialMode);
         syncSlidersWithModel();
@@ -315,44 +262,39 @@ function resetCameraToAvatar() {
     controls.update();
 }
 
-// --- 4. KEYBOARD CONTROL CONTROL ---
+// --- 4. KEYBOARD CONTROL ---
 window.addEventListener('keydown', (e) => {
     if(document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
     const key = e.key.toLowerCase();
-    if (e.key === 'ArrowUp' || key === 'w') moveStatus.forward = true;
-    if (e.key === 'ArrowDown' || key === 's') moveStatus.backward = true;
-    if (e.key === 'ArrowLeft' || key === 'a') moveStatus.left = true;
-    if (e.key === 'ArrowRight' || key === 'd') moveStatus.right = true;
+    if (e.key === 'ArrowUp'    || key === 'w' || key === 'ไ') moveStatus.forward  = true;
+    if (e.key === 'ArrowDown'  || key === 's' || key === 'ห') moveStatus.backward = true;
+    if (e.key === 'ArrowLeft'  || key === 'a' || key === 'ฟ' || key === 'ภ') moveStatus.left  = true;
+    if (e.key === 'ArrowRight' || key === 'd' || key === 'ก') moveStatus.right = true;
     if (e.key === ' ' && !jumpConfig.isJumping) triggerAvatarJump();
-
-    if (key === 'h') togglePanelElement('dashboard');
-    if (key === 'm') togglePanelElement('details-panel');
-    if (key === 'p') togglePanelElement('process-panel');
-    if (key === 't') togglePanelElement('transform-panel');
-    if (key === 'r') resetCameraToAvatar();
+    if (key === 'h' || key === '้') togglePanelElement('dashboard');
+    if (key === 'm' || key === 'ท') togglePanelElement('details-panel');
+    if (key === 'p' || key === 'ย') togglePanelElement('process-panel');
+    if (key === 't' || key === 'ะ') togglePanelElement('transform-panel');
+    if (key === 'r' || key === 'พ') resetCameraToAvatar();
 });
 
 window.addEventListener('keyup', (e) => {
     const key = e.key.toLowerCase();
-    if (e.key === 'ArrowUp' || key === 'w') moveStatus.forward = false;
-    if (e.key === 'ArrowDown' || key === 's') moveStatus.backward = false;
-    if (e.key === 'ArrowLeft' || key === 'a') moveStatus.left = false;
-    if (e.key === 'ArrowRight' || key === 'd') moveStatus.right = false;
+    if (e.key === 'ArrowUp'    || key === 'w' || key === 'ไ') moveStatus.forward  = false;
+    if (e.key === 'ArrowDown'  || key === 's' || key === 'ห') moveStatus.backward = false;
+    if (e.key === 'ArrowLeft'  || key === 'a' || key === 'ฟ' || key === 'ภ') moveStatus.left  = false;
+    if (e.key === 'ArrowRight' || key === 'd' || key === 'ก') moveStatus.right = false;
 });
 
 // --- 5. IOT & DATA SIMULATION ---
 function loopIotSimulation() {
     if(!activeSelectedMeshUUID) return;
-    let pressureVal = 0, tempVal = 25.0;
-
     if (activeSelectedKeyKey === "pipe") {
-        pressureVal = 1.5 + Math.random() * 0.5; tempVal = 31.2 + Math.random() * 1.5;
-        document.getElementById('iot-pressure').innerText = pressureVal.toFixed(2) + " bar";
-        document.getElementById('iot-temp').innerText = tempVal.toFixed(1) + " °C";
+        document.getElementById('iot-pressure').innerText = (1.5 + Math.random() * 0.5).toFixed(2) + " bar";
+        document.getElementById('iot-temp').innerText = (31.2 + Math.random() * 1.5).toFixed(1) + " °C";
     } else if (activeSelectedKeyKey === "tank") {
-        pressureVal = 0.04 + Math.random() * 0.03; tempVal = 37.5 + Math.random() * 0.8;
-        document.getElementById('iot-pressure').innerText = pressureVal.toFixed(3) + " bar";
-        document.getElementById('iot-temp').innerText = tempVal.toFixed(1) + " °C";
+        document.getElementById('iot-pressure').innerText = (0.04 + Math.random() * 0.03).toFixed(3) + " bar";
+        document.getElementById('iot-temp').innerText = (37.5 + Math.random() * 0.8).toFixed(1) + " °C";
     } else {
         document.getElementById('iot-pressure').innerText = "0.00 bar";
         document.getElementById('iot-temp').innerText = "28.5 °C";
@@ -362,11 +304,10 @@ setInterval(loopIotSimulation, 1500);
 
 function exportWorkflowDatabase() {
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(workflowDatabase, null, 2));
-    const downloadAnchor = document.createElement('a');
-    downloadAnchor.setAttribute("href", dataStr);
-    downloadAnchor.setAttribute("download", "biogas_safety_db.json");
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click(); downloadAnchor.remove();
+    const a = document.createElement('a');
+    a.setAttribute("href", dataStr);
+    a.setAttribute("download", "biogas_safety_db.json");
+    document.body.appendChild(a); a.click(); a.remove();
 }
 
 function syncSlidersWithModel() {
@@ -390,16 +331,14 @@ function updateSliderLabels() {
 ['param-posX', 'param-posY', 'param-posZ', 'param-rotY', 'param-scale'].forEach(id => {
     document.getElementById(id).addEventListener('input', () => {
         if (!factoryModel) return;
-        const px = parseFloat(document.getElementById('param-posX').value);
-        const py = parseFloat(document.getElementById('param-posY').value);
-        const pz = parseFloat(document.getElementById('param-posZ').value);
-        const ry = parseFloat(document.getElementById('param-rotY').value) * (Math.PI / 180);
+        factoryModel.position.set(
+            parseFloat(document.getElementById('param-posX').value),
+            parseFloat(document.getElementById('param-posY').value),
+            parseFloat(document.getElementById('param-posZ').value)
+        );
+        factoryModel.rotation.y = parseFloat(document.getElementById('param-rotY').value) * (Math.PI / 180);
         const sc = parseFloat(document.getElementById('param-scale').value);
-
-        factoryModel.position.set(px, py, pz);
-        factoryModel.rotation.y = ry;
-        factoryModel.scale.set(initialFactoryScale * sc, initialFactoryScale * sc, initialFactoryScale * sc);
-        
+        factoryModel.scale.set(initialFactoryScale*sc, initialFactoryScale*sc, initialFactoryScale*sc);
         updateSliderLabels();
         buildColliders();
     });
@@ -435,20 +374,21 @@ function highlightAndShowWorkflow(targetMesh, meshName, method) {
         });
     }
 
-    const nameLower = meshName.toLowerCase();
+    const origName = targetMesh._original3DName || targetMesh.name || meshName;
     let databaseKey = "default";
-    
-    if (nameLower.includes("tank") || nameLower.includes("ถัง") || nameLower.includes("หมัก") || nameLower.includes("digester")) databaseKey = "tank";
-    else if (nameLower.includes("pipe") || nameLower.includes("ท่อ") || nameLower.includes("line")) databaseKey = "pipe";
-    else if (nameLower.includes("engine") || nameLower.includes("อาคาร") || nameLower.includes("generator") || nameLower.includes("utilization") || nameLower.includes("genset")) databaseKey = "utilization";
-    else if (nameLower.includes("flare") || nameLower.includes("เผา")) databaseKey = "flare";
-    
-    if (workflowDatabase[targetMesh.uuid]) databaseKey = targetMesh.uuid;
+    if (workflowDatabase[origName]) databaseKey = origName;
+    else if (workflowDatabase[targetMesh.name]) databaseKey = targetMesh.name;
+    else if (workflowDatabase[targetMesh.uuid]) databaseKey = targetMesh.uuid;
+    else {
+        const nameLower = origName.toLowerCase();
+        if (nameLower.includes("tank") || nameLower.includes("ถัง") || nameLower.includes("หมัก") || nameLower.includes("digester")) databaseKey = "tank";
+        else if (nameLower.includes("pipe") || nameLower.includes("ท่อ") || nameLower.includes("line")) databaseKey = "pipe";
+        else if (nameLower.includes("engine") || nameLower.includes("อาคาร") || nameLower.includes("generator") || nameLower.includes("utilization") || nameLower.includes("genset")) databaseKey = "utilization";
+        else if (nameLower.includes("flare") || nameLower.includes("เผา")) databaseKey = "flare";
+    }
     activeSelectedKeyKey = databaseKey;
-
-    const matchedData = workflowDatabase[databaseKey];
+    const matchedData = workflowDatabase[databaseKey] || workflowDatabase["default"];
     renderWorkflowUI(matchedData.name || meshName, matchedData.desc, matchedData.steps, method, matchedData.colorClass || 'tag-blue');
-    
     cancelLiveEdit();
     document.getElementById('process-panel').style.display = 'block';
 }
@@ -458,7 +398,6 @@ function renderWorkflowUI(name, desc, stepsArray, method, colorClass) {
     document.getElementById('title-container').innerHTML = `<span id="process-title">⚙️ โซน: ${name}</span>`;
     document.getElementById('desc-view-area').innerText = desc;
     document.getElementById('detection-method').innerText = method;
-
     const stepsContainer = document.getElementById('steps-view-area');
     stepsContainer.innerHTML = '';
     stepsArray.forEach(step => {
@@ -472,15 +411,13 @@ function renderWorkflowUI(name, desc, stepsArray, method, colorClass) {
 // --- 7. LIVE EDITOR ---
 function enableLiveEdit() {
     if (!activeSelectedMeshUUID) return;
-    const currentData = workflowDatabase[activeSelectedKeyKey];
+    const currentData = workflowDatabase[activeSelectedKeyKey] || workflowDatabase["default"];
     const currentTitleText = document.getElementById('process-title').innerText.replace("⚙️ โซน: ", "");
-
     document.getElementById('title-container').innerHTML = `
         <input type="text" id="input-edit-title" class="ui-edit-input" style="font-weight:bold;" value="${currentData.name !== "โครงสร้างทั่วไป" ? currentData.name : currentTitleText}">
     `;
     document.getElementById('input-edit-desc').value = currentData.desc;
     document.getElementById('input-edit-steps').value = currentData.steps.join(', ');
-
     document.getElementById('desc-view-area').style.display = 'none';
     document.getElementById('steps-view-area').style.display = 'none';
     document.getElementById('desc-edit-area').style.display = 'block';
@@ -494,10 +431,8 @@ function saveLiveEdit() {
     const newTitle = document.getElementById('input-edit-title').value.trim();
     const newDesc = document.getElementById('input-edit-desc').value.trim();
     const newStepsArray = document.getElementById('input-edit-steps').value.split(',').map(s => s.trim()).filter(s => s.length > 0);
-
     workflowDatabase[activeSelectedMeshUUID] = { "name": newTitle, "desc": newDesc, "steps": newStepsArray, "colorClass": "tag-blue" };
     activeSelectedKeyKey = activeSelectedMeshUUID;
-
     if (factoryModel) {
         factoryModel.traverse(function(child) {
             if (child.isMesh && child.uuid === activeSelectedMeshUUID) {
@@ -514,7 +449,7 @@ function saveLiveEdit() {
 function cancelLiveEdit() {
     closeLiveEditFields();
     if (activeSelectedMeshUUID) {
-        const currentData = workflowDatabase[activeSelectedKeyKey];
+        const currentData = workflowDatabase[activeSelectedKeyKey] || workflowDatabase["default"];
         renderWorkflowUI(currentData.name, currentData.desc, currentData.steps, document.getElementById('detection-method').innerText, currentData.colorClass || 'tag-blue');
     }
 }
@@ -533,7 +468,6 @@ function updateAvatarPhysics() {
     if (!avatarModel) return;
     if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
 
-    // ระบบกระโดดและแรงโน้มถ่วง
     if (jumpConfig.isJumping) {
         avatarModel.position.y += jumpConfig.velocity;
         jumpConfig.velocity += jumpConfig.gravity;
@@ -548,47 +482,33 @@ function updateAvatarPhysics() {
         }
     }
 
-    // เลี้ยวซ้ายขวา
-    if (moveStatus.left) avatarModel.rotation.y += avatarConfig.turnSpeed;
+    if (moveStatus.left)  avatarModel.rotation.y += avatarConfig.turnSpeed;
     if (moveStatus.right) avatarModel.rotation.y -= avatarConfig.turnSpeed;
 
-    // Walk animation
-    const isMoving = moveStatus.forward || moveStatus.backward || moveStatus.left || moveStatus.right;
-    animateEngineerWalk(avatarModel, isMoving, 0.016);
-
-    // คำนวณทิศทางการเคลื่อนที่ตามหน้าเวกเตอร์ของแคปซูล
     let moveVector = new THREE.Vector3(0, 0, 0);
-    if (moveStatus.forward) moveVector.z = -avatarConfig.speed;
-    if (moveStatus.backward) moveVector.z = avatarConfig.speed;
+    if (moveStatus.forward)  moveVector.z = -avatarConfig.speed;
+    if (moveStatus.backward) moveVector.z =  avatarConfig.speed;
     moveVector.applyQuaternion(avatarModel.quaternion);
 
     const isMoving = moveVector.lengthSq() > 0;
+    animateEngineerWalk(avatarModel, isMoving);
 
     if (isMoving) {
         let nextX = avatarModel.position.x + moveVector.x;
         let nextZ = avatarModel.position.z + moveVector.z;
-        let currentY = avatarModel.position.y - jumpConfig.groundY; // หาค่าระนาบเท้าที่แท้จริง
-
+        let currentY = avatarModel.position.y - jumpConfig.groundY;
         let collisionDetected = false;
-        let targetStepY = jumpConfig.groundY; 
+        let targetStepY = jumpConfig.groundY;
 
-        // คำนวณการตรวจชนกับกล่องรอบวัตถุในโรงงาน (Bounding Box Collision)
         for (let i = 0; i < factoryColliders.length; i++) {
-            const col = factoryColliders[i];
-            const box = col.box; 
-
+            const box = factoryColliders[i].box;
             if (nextX + avatarConfig.radius > box.min.x && nextX - avatarConfig.radius < box.max.x &&
                 nextZ + avatarConfig.radius > box.min.z && nextZ - avatarConfig.radius < box.max.z &&
                 currentY < box.max.y && currentY + 1.6 > box.min.y) {
-                
                 const stepHeight = box.max.y - currentY;
-                if (stepHeight > 0 && stepHeight <= 0.4) { // ระบบ Step-up อัตโนมัติเมื่อเจอทางต่างระดับขนาดเล็ก
-                    if ((box.max.y + jumpConfig.groundY) > targetStepY) {
-                        targetStepY = box.max.y + jumpConfig.groundY;
-                    }
-                } else {
-                    collisionDetected = true;
-                }
+                if (stepHeight > 0 && stepHeight <= 0.4) {
+                    if ((box.max.y + jumpConfig.groundY) > targetStepY) targetStepY = box.max.y + jumpConfig.groundY;
+                } else { collisionDetected = true; }
             }
         }
 
@@ -599,14 +519,12 @@ function updateAvatarPhysics() {
         }
     }
 
-    // ให้กล้องเคลื่อนที่ติดตามหลวมๆ (Smooth Lerp Camera Following)
     const targetCamOffset = defaultCameraOffset.clone().applyMatrix4(avatarModel.matrixWorld);
     camera.position.lerp(targetCamOffset, 0.08);
     controls.target.set(avatarModel.position.x, avatarModel.position.y + 0.3, avatarModel.position.z);
 
-    // ระบบ Proximity Trigger ตรวจสอบจุดปลอดภัยเมื่อเดินเข้าใกล้โมเดล
     if (factoryModel && isMoving) {
-        let closestMesh = null; let minDistance = 2.5; 
+        let closestMesh = null; let minDistance = 2.5;
         factoryModel.traverse(function (child) {
             if (child.isMesh) {
                 const meshWorldPos = new THREE.Vector3(); child.getWorldPosition(meshWorldPos);
@@ -614,9 +532,7 @@ function updateAvatarPhysics() {
                 if (dist < minDistance) { minDistance = dist; closestMesh = child; }
             }
         });
-        if (closestMesh) {
-            highlightAndShowWorkflow(closestMesh, closestMesh.name || "พื้นที่อับอากาศ", "🚶 ตัวละครเดินเข้าใกล้ตำแหน่ง");
-        }
+        if (closestMesh) highlightAndShowWorkflow(closestMesh, closestMesh.name || "พื้นที่อับอากาศ", "🚶 ตัวละครเดินเข้าใกล้ตำแหน่ง");
     }
 }
 
@@ -635,8 +551,6 @@ window.addEventListener('resize', () => {
     renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-
-
 // ============================================================
 // MULTIPLAYER MODULE (Clean Version)
 // ============================================================
@@ -645,7 +559,6 @@ const SUPABASE_URL = 'https://hzlokmixfkfrmkuucfhg.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh6bG9rbWl4Zmtmcm1rdXVjZmhnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1NzA5NTUsImV4cCI6MjA5ODE0Njk1NX0.DSj0c7XN979948Iq5rGmWqI9ddcbg56OmfKFin--Luo';
 const SUPABASE_BUCKET = 'models';
 
-// --- Supabase Upload ---
 async function uploadToSupabase(file) {
     const fileName = `model_${Date.now()}_${file.name.replace(/\s+/g, '_')}`;
     const uploadUrl = `${SUPABASE_URL}/storage/v1/object/${SUPABASE_BUCKET}/${fileName}`;
@@ -659,7 +572,6 @@ async function uploadToSupabase(file) {
     return `${SUPABASE_URL}/storage/v1/object/public/${SUPABASE_BUCKET}/${fileName}`;
 }
 
-// --- Load model from URL ---
 function loadModelFromUrl(url, fileName) {
     if (factoryModel) { scene.remove(factoryModel); originalMaterials.clear(); factoryColliders = []; }
     document.getElementById('factory-status').innerText = `⬇️ กำลังโหลดโมเดลจาก Cloud...`;
@@ -673,9 +585,10 @@ function loadModelFromUrl(url, fileName) {
             if (child.isMesh) {
                 meshCount++;
                 originalMaterials.set(child.uuid, child.material.clone());
+                if (!child._original3DName) { child._original3DName = child.name || `Object_${meshCount}`; }
                 const item = document.createElement('div');
                 item.className = 'mesh-item';
-                const mName = child.name || `ชิ้นส่วนที่_${meshCount}`;
+                const mName = child.name || child._original3DName;
                 item.innerText = `🏭 ${mName}`;
                 item.id = `mesh-item-${child.uuid}`;
                 item.addEventListener('click', () => highlightAndShowWorkflow(child, mName, 'คลิกเลือกโมเดล'));
@@ -701,7 +614,6 @@ function loadModelFromUrl(url, fileName) {
     });
 }
 
-// --- Override factory-input: upload to Supabase then broadcast ---
 const _origInput = document.getElementById('factory-input');
 const _newInput = _origInput.cloneNode(true);
 _origInput.parentNode.replaceChild(_newInput, _origInput);
@@ -727,26 +639,45 @@ _newInput.addEventListener('change', async function(event) {
     }
 });
 
-// --- Override saveLiveEdit: broadcast workflow changes ---
+// Override saveLiveEdit: broadcast workflow changes
 const _origSaveLiveEdit = saveLiveEdit;
 window.saveLiveEdit = function() {
     if (!activeSelectedMeshUUID) return;
-    // ดึงข้อมูลก่อน _origSaveLiveEdit ซ่อน input
     const titleEl = document.getElementById('input-edit-title');
-    const descEl = document.getElementById('input-edit-desc');
+    const descEl  = document.getElementById('input-edit-desc');
     const stepsEl = document.getElementById('input-edit-steps');
     const newTitle = titleEl ? titleEl.value.trim() : '';
-    const newDesc = descEl ? descEl.value.trim() : '';
+    const newDesc  = descEl  ? descEl.value.trim()  : '';
     const newSteps = stepsEl ? stepsEl.value.split(',').map(s=>s.trim()).filter(Boolean) : [];
-    // ใช้ชื่อ mesh เป็น sync key — ใช้ได้ข้าม browser
-    const syncKey = newTitle || activeSelectedKeyKey;
+
+    let originalNameKey = activeSelectedMeshUUID;
+    if (factoryModel) {
+        factoryModel.traverse(function(child) {
+            if (child.isMesh && child.uuid === activeSelectedMeshUUID) {
+                originalNameKey = child._original3DName || child.name || child.uuid;
+                if (!child._original3DName) child._original3DName = originalNameKey;
+            }
+        });
+    }
+
     _origSaveLiveEdit();
-    if (mpSocket && mpSocket.connected && syncKey) {
-        mpSocket.emit('workflow_update', { key: syncKey, name: newTitle, desc: newDesc, steps: newSteps, colorClass: 'tag-blue' });
+
+    if (originalNameKey) {
+        workflowDatabase[originalNameKey] = { "name": newTitle, "desc": newDesc, "steps": newSteps, "colorClass": "tag-blue" };
+    }
+
+    if (mpSocket && mpSocket.connected && originalNameKey) {
+        mpSocket.emit('workflow_update', {
+            key: originalNameKey,
+            name: newTitle,
+            desc: newDesc,
+            steps: newSteps,
+            colorClass: 'tag-blue',
+            targetUuid: activeSelectedMeshUUID
+        });
     }
 };
 
-// --- Remote avatars ---
 const remoteAvatars = {};
 const remoteTargets = {};
 const mpPlayerNames = {};
@@ -755,7 +686,6 @@ let mpMyId = null;
 let mpMyColor = '#00ffff';
 
 function buildRemoteAvatar(color) {
-    // ใช้โมเดลวิศวกรเดียวกับ local player แต่เปลี่ยนสีหมวก
     return createEngineerAvatar(color || '#4d96ff');
 }
 
@@ -767,13 +697,13 @@ function setAvatarLabel(g, name, color) {
     ctx.font='bold 24px Arial'; ctx.fillStyle=color||'#fff'; ctx.textAlign='center'; ctx.textBaseline='middle';
     ctx.fillText(name.substring(0,16), 128, 32);
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),depthTest:false}));
-    sp.scale.set(1.8,0.45,1); sp.position.y=2.1;
+    sp.scale.set(1.8,0.45,1); sp.position.y=2.2;
     g.add(sp); g._label = sp;
 }
 
 function addRemote(data) {
     if (remoteAvatars[data.id]) return;
-    const av = buildRemoteAvatar(data.color||'#fff');
+    const av = buildRemoteAvatar(data.color||'#4d96ff');
     av.position.set(data.position.x, data.position.y, data.position.z);
     scene.add(av); remoteAvatars[data.id] = av;
     setAvatarLabel(av, data.name||data.id, data.color||'#fff');
@@ -787,7 +717,6 @@ function removeRemote(id) {
     updateMpUI();
 }
 
-// Lerp remote avatars — hook into animate loop via renderer.render patch
 const _origRender = renderer.render.bind(renderer);
 renderer.render = function(sc, cam) {
     for (const id in remoteAvatars) {
@@ -795,6 +724,7 @@ renderer.render = function(sc, cam) {
         if (!t) continue;
         av.position.lerp(t.pos, 0.18);
         av.rotation.y += (t.rotY - av.rotation.y) * 0.18;
+        animateEngineerWalk(av, t.pos.distanceTo(av.position) > 0.01);
     }
     if (mpSocket && mpSocket.connected && avatarModel) {
         const now = Date.now();
@@ -810,7 +740,6 @@ renderer.render = function(sc, cam) {
 };
 let _lastSend = 0;
 
-// --- UI ---
 function updateMpUI() {
     const list = document.getElementById('mp-player-list');
     if (!list) return;
@@ -818,7 +747,7 @@ function updateMpUI() {
     document.getElementById('mp-player-count').innerText = all.length;
     list.innerHTML = all.map(id => {
         const isMe = id === mpMyId;
-        const name = mpPlayerNames[id] || (isMe ? 'คุณ' : id.slice(0,6));
+        const name  = mpPlayerNames[id] || (isMe ? 'คุณ' : id.slice(0,6));
         const color = mpPlayerColors[id] || '#fff';
         return `<div style="display:flex;align-items:center;gap:6px;padding:3px 0;font-size:12px;">
             <span style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0"></span>
@@ -858,7 +787,6 @@ window.addEventListener('keydown', e => {
     if (e.key.toLowerCase()==='u') togglePanelElement('multiplayer-panel');
 }, true);
 
-// --- Socket.IO ---
 let mpSocket;
 function initMultiplayer() {
     const dot = document.getElementById('mp-dot');
@@ -868,7 +796,7 @@ function initMultiplayer() {
     const SERVER = window.RAILWAY_SERVER_URL || window.location.origin;
     mpSocket = io(SERVER, { transports: ['websocket','polling'] });
 
-    mpSocket.on('connect', () => { dot.style.background='#22c55e'; txt.innerText='เชื่อมต่อแล้ว ✓'; });
+    mpSocket.on('connect',    () => { dot.style.background='#22c55e'; txt.innerText='เชื่อมต่อแล้ว ✓'; });
     mpSocket.on('disconnect', () => { dot.style.background='#ef4444'; txt.innerText='การเชื่อมต่อขาด...'; });
 
     mpSocket.on('self_init', data => {
@@ -879,10 +807,8 @@ function initMultiplayer() {
         document.getElementById('mp-name-input').value = data.self.name;
         if (avatarModel) avatarModel.position.set(data.self.position.x, data.self.position.y, data.self.position.z);
         data.others.forEach(p => addRemote(p));
-        // โหลดโมเดลที่มีในห้อง
-        if (data.modelUrl) loadModelFromUrl(data.modelUrl, data.modelName);
-        // โหลด workflow ที่แก้ไขไว้
-        if (data.workflowDb) Object.assign(workflowDatabase, data.workflowDb);
+        if (data.modelUrl)    loadModelFromUrl(data.modelUrl, data.modelName);
+        if (data.workflowDb)  Object.assign(workflowDatabase, data.workflowDb);
         updateMpUI();
     });
 
@@ -910,40 +836,29 @@ function initMultiplayer() {
         updateMpUI();
     });
 
-    // โมเดลใหม่ — โหลดทันที
     mpSocket.on('load_model', data => {
         mpAppendChat({name:'ระบบ', color:'#00ffff', text:`📦 โมเดลใหม่: ${data.fileName}`});
         loadModelFromUrl(data.url, data.fileName);
     });
 
-    // workflow อัปเดต — บันทึกและ sync UI
     mpSocket.on('workflow_updated', data => {
-        // บันทึกลง database ด้วยทั้ง key (ชื่อ) และ UUID ของแต่ละฝั่ง (ถ้ามี)
         workflowDatabase[data.key] = { name: data.name, desc: data.desc, steps: data.steps, colorClass: data.colorClass||'tag-blue' };
-
-        // หา mesh ที่ชื่อตรงกัน แล้วเก็บ UUID ของฝั่งนี้ด้วย
+        if (data.targetUuid) {
+            workflowDatabase[data.targetUuid] = { name: data.name, desc: data.desc, steps: data.steps, colorClass: data.colorClass||'tag-blue' };
+        }
         if (factoryModel) {
-            factoryModel.traverse(child => {
-                if (child.isMesh && (child.name === data.key || child.name === data.name)) {
-                    workflowDatabase[child.uuid] = workflowDatabase[data.key];
-                    // อัปเดตชื่อใน mesh list
-                    const item = document.getElementById(`mesh-item-${child.uuid}`);
-                    if (item) item.innerText = `🏭 ${data.name}`;
+            factoryModel.traverse(function(child) {
+                if (child.isMesh && !child._original3DName) child._original3DName = child.name;
+                if (child.isMesh && (child._original3DName === data.key || child.name === data.key || child.uuid === data.key || child.uuid === data.targetUuid)) {
                     child.name = data.name;
+                    const sideListItem = document.getElementById(`mesh-item-${child.uuid}`);
+                    if (sideListItem) sideListItem.innerText = `🏭 ${data.name}`;
                 }
             });
         }
-
-        // อัปเดต UI ถ้า panel เปิดอยู่
         const panel = document.getElementById('process-panel');
-        if (panel && panel.style.display !== 'none') {
-            const titleEl = document.getElementById('process-title');
-            const currentName = titleEl ? titleEl.innerText.replace('⚙️ โซน: ','').trim() : '';
-            // match ด้วยชื่อหรือ key
-            if (currentName === data.key || currentName === data.name ||
-                activeSelectedKeyKey === data.key) {
-                renderWorkflowUI(data.name, data.desc, data.steps, '✏️ อัปเดตโดยผู้เล่นอื่น', data.colorClass||'tag-blue');
-            }
+        if (panel && panel.style.display !== 'none' && (activeSelectedKeyKey === data.key || activeSelectedKeyKey === data.targetUuid || activeSelectedMeshUUID === data.targetUuid)) {
+            renderWorkflowUI(data.name, data.desc, data.steps, '✏️ อัปเดตโดยผู้เล่นอื่น', data.colorClass||'tag-blue');
         }
         mpAppendChat({name:'ระบบ', color:'#ffaa00', text:`✏️ "${data.name}" ถูกแก้ไขแล้ว`});
     });
