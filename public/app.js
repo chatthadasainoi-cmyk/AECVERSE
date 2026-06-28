@@ -918,9 +918,25 @@ function initMultiplayer() {
         loadModelFromUrl(data.url, data.fileName);
     });
 
-    // รับ workflow update จากคนอื่น
+    // รับ workflow update จากคนอื่น — inline ไม่พึ่ง function ภายนอก
     socket.on('workflow_updated', (data) => {
-        applyRemoteWorkflowUpdate(data);
+        console.log('[WORKFLOW] received:', data);
+        // บันทึกลง database
+        if (data.meshName) workflowDatabase[data.meshName] = {
+            name: data.name, desc: data.desc, steps: data.steps, colorClass: data.colorClass || 'tag-blue'
+        };
+        // อัปเดต UI ถ้ากำลังดูโซนนั้นอยู่
+        const titleEl = document.getElementById('process-title');
+        const currentName = titleEl ? titleEl.innerText.replace('⚙️ โซน: ','').replace('⚙️ ชิ้นส่วน: ','').trim() : '';
+        if (currentName === data.meshName || currentName === data.name) {
+            document.getElementById('desc-view-area').innerText = data.desc || '';
+            const stepsEl = document.getElementById('steps-view-area');
+            if (stepsEl) stepsEl.innerHTML = (data.steps || []).map(s =>
+                `<div class="step-box tag-blue"><span class="badge">REGULATION</span>${s}</div>`
+            ).join('');
+        }
+        // แจ้งแชท
+        appendChat({ id:'system', name:'ระบบ', color:'#ffaa00', text:`✏️ ข้อมูล "${data.name}" ถูกแก้ไขแล้ว` });
     });
 
     socket.on('chat_message', (msg) => {
