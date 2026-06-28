@@ -352,10 +352,12 @@ function highlightAndShowWorkflow(targetMesh, meshName, method) {
     else if (nameLower.includes("engine") || nameLower.includes("อาคาร") || nameLower.includes("generator") || nameLower.includes("utilization") || nameLower.includes("genset")) databaseKey = "utilization";
     else if (nameLower.includes("flare") || nameLower.includes("เผา")) databaseKey = "flare";
     
-    if (workflowDatabase[targetMesh.uuid]) databaseKey = targetMesh.uuid;
+    // 💡 ปรับปรุงเพื่อให้ระบบจับคู่คีย์ชิ้นส่วนที่เกิดจากการแก้ไขแบบเรียลไทม์ได้แม่นยำขึ้น
+    if (workflowDatabase[targetMesh.name]) databaseKey = targetMesh.name;
+    else if (workflowDatabase[targetMesh.uuid]) databaseKey = targetMesh.uuid;
     activeSelectedKeyKey = databaseKey;
 
-    const matchedData = workflowDatabase[databaseKey];
+    const matchedData = workflowDatabase[databaseKey] || workflowDatabase["default"];
     renderWorkflowUI(matchedData.name || meshName, matchedData.desc, matchedData.steps, method, matchedData.colorClass || 'tag-blue');
     
     cancelLiveEdit();
@@ -381,7 +383,7 @@ function renderWorkflowUI(name, desc, stepsArray, method, colorClass) {
 // --- 7. LIVE EDITOR ---
 function enableLiveEdit() {
     if (!activeSelectedMeshUUID) return;
-    const currentData = workflowDatabase[activeSelectedKeyKey];
+    const currentData = workflowDatabase[activeSelectedKeyKey] || workflowDatabase["default"];
     const currentTitleText = document.getElementById('process-title').innerText.replace("⚙️ โซน: ", "");
 
     document.getElementById('title-container').innerHTML = `
@@ -423,7 +425,7 @@ function saveLiveEdit() {
 function cancelLiveEdit() {
     closeLiveEditFields();
     if (activeSelectedMeshUUID) {
-        const currentData = workflowDatabase[activeSelectedKeyKey];
+        const currentData = workflowDatabase[activeSelectedKeyKey] || workflowDatabase["default"];
         renderWorkflowUI(currentData.name, currentData.desc, currentData.steps, document.getElementById('detection-method').innerText, currentData.colorClass || 'tag-blue');
     }
 }
@@ -643,10 +645,31 @@ window.saveLiveEdit = function() {
     const newTitle = titleEl ? titleEl.value.trim() : '';
     const newDesc = descEl ? descEl.value.trim() : '';
     const newSteps = stepsEl ? stepsEl.value.split(',').map(s=>s.trim()).filter(Boolean) : [];
-    const syncKey = activeSelectedKeyKey || activeSelectedMeshUUID;
+    
+    // 💡 [แก้ไขจุดสำคัญสำหรับส่งเครือข่าย]: ค้นหาชื่อชิ้นส่วนดั้งเดิม (child.name) เพื่อใช้เป็น Key หลักร่วมกันระหว่างผู้เล่น
+    let originalNameKey = activeSelectedMeshUUID;
+    if (factoryModel) {
+        factoryModel.traverse(function(child) {
+            if (child.isMesh && child.uuid === activeSelectedMeshUUID) {
+                // เก็บค่าชื่อชิ้นส่วนดั้งเดิมในโครงสร้าง 3D ก่อนโดนแก้ไขชื่อใหม่ เพื่อนำไปแมตช์ให้ตรงกับฉากของเพื่อน
+                originalNameKey = child._original3DName || child.name || child.uuid;
+                if (!child._original3DName) { child._original3DName = originalNameKey; }
+            }
+        });
+    }
+
     _origSaveLiveEdit();
-    if (mpSocket && mpSocket.connected && syncKey) {
-        mpSocket.emit('workflow_update', { key: syncKey, name: newTitle, desc: newDesc, steps: newSteps, colorClass: 'tag-blue' });
+
+    // 💡 ส่งแพ็กเกจข้อมูลอัปเดตกระจายหาทุกคนผ่าน Key ชื่อดั้งเดิม ทำให้เบราว์เซอร์ของเพื่อนแมตช์เจอวัตถุชิ้นเดียวกันทันที
+    if (mpSocket && mpSocket.connected && originalNameKey) {
+        mpSocket.emit('workflow_update', { 
+            key: originalNameKey, 
+            name: newTitle, 
+            desc: newDesc, 
+            steps: newSteps, 
+            colorClass: 'tag-blue',
+            targetUuid: activeSelectedMeshUUID // ส่ง UUID ไปเป็นโครงสร้างสำรอง
+        });
     }
 };
 
@@ -781,7 +804,7 @@ function initMultiplayer() {
     mpSocket = io(SERVER, { transports: ['websocket','polling'] });
 
     mpSocket.on('connect', () => { dot.style.background='#22c55e'; txt.innerText='เชื่อมต่อแล้ว ✓'; });
-    mpSocket.on('disconnect', () => { dot.style.background='#ef4444'; txt.innerText='การเชื่อมต่อขาด...'; });
+    mpSocket.on('disconnect', () => { dot.style.background='#ef4444'; txt.innerText='การ接続ขาด...'; });
 
     mpSocket.on('self_init', data => {
         mpMyId = data.self.id;
@@ -828,13 +851,39 @@ function initMultiplayer() {
         loadModelFromUrl(data.url, data.fileName);
     });
 
-    // workflow อัปเดต — ใช้ key ตรงๆ จาก server
+    // 💡 [แก้ไขจุดรับสัญญาณจุดสำคัญที่สุดสำหรับหน้าจอเพื่อน]
+    // สัญญาณความปลอดภัยส่งมาจากเซิร์ฟเวอร์ — ให้ทำการบันทึกและแก้ไขข้อมูลชิ้นส่วนบนโมเดลแบบเรียลไทม์ทันที
     mpSocket.on('workflow_updated', data => {
-        // บันทึกลง database
+        // บันทึกข้อความลงใน Local Database ของเครื่องเราโดยตรง
         workflowDatabase[data.key] = { name: data.name, desc: data.desc, steps: data.steps, colorClass: data.colorClass||'tag-blue' };
-        // ถ้า panel เปิดอยู่และดู key เดียวกัน — อัปเดต UI ทันที
+        
+        // บันทึกข้อมูลคีย์เสริมข้ามเน็ตเวิร์ก
+        if (data.targetUuid) {
+            workflowDatabase[data.targetUuid] = { name: data.name, desc: data.desc, steps: data.steps, colorClass: data.colorClass||'tag-blue' };
+        }
+
+        // วิ่งไปค้นหาวัตถุ 3D ในโมเดลเพื่อเปลี่ยนชื่อชิ้นส่วน และชื่อเมนูด้านข้างของทุกคนให้เปลี่ยนตามกันทันที
+        if (factoryModel) {
+            factoryModel.traverse(function(child) {
+                // เก็บชื่อดั้งเดิมก่อนโดนเปลี่ยน
+                if (child.isMesh && !child._original3DName) {
+                    child._original3DName = child.name;
+                }
+                
+                // ตรวจสอบความถูกต้องว่าคีย์ชิ้นส่วนนี้ตรงกับชื่อโมเดล 3D ดั้งเดิมชิ้นนั้นหรือไม่
+                if (child.isMesh && (child._original3DName === data.key || child.name === data.key || child.uuid === data.key || child.uuid === data.targetUuid)) {
+                    child.name = data.name; // เปลี่ยนชื่อโมเดลจริงใน 3D Scene
+                    
+                    // เปลี่ยนชื่อปุ่มในแผงเมนู "รายชื่อชิ้นส่วน" ด้านข้างให้สวยงามตามผู้ส่ง
+                    const sideListItem = document.getElementById(`mesh-item-${child.uuid}`);
+                    if (sideListItem) sideListItem.innerText = `🏭 ${data.name}`;
+                }
+            });
+        }
+
+        // ถ้าเราเปิดแผงรายละเอียดชิ้นส่วนนี้ดูอยู่พอดี — ให้ระบบรีเรนเดอร์เนื้อหาไทม์ไลน์ใหม่ทันทีแบบเรียลไทม์
         const panel = document.getElementById('process-panel');
-        if (panel && panel.style.display !== 'none' && activeSelectedKeyKey === data.key) {
+        if (panel && panel.style.display !== 'none' && (activeSelectedKeyKey === data.key || activeSelectedMeshUUID === data.targetUuid)) {
             renderWorkflowUI(data.name, data.desc, data.steps, '✏️ อัปเดตโดยผู้เล่นอื่น', data.colorClass||'tag-blue');
         }
         mpAppendChat({name:'ระบบ', color:'#ffaa00', text:`✏️ "${data.name}" ถูกแก้ไขแล้ว`});
