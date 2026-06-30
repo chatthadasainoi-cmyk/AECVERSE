@@ -563,36 +563,25 @@ function updateAvatarPhysics() {
     animateEngineerWalk(avatarModel, isMoving);
 
     if (isMoving) {
-        let nextX = avatarModel.position.x + moveVector.x;
-        let nextZ = avatarModel.position.z + moveVector.z;
-        let currentY = avatarModel.position.y - jumpConfig.groundY; 
+        // 💡 ไม่มีกำแพงกั้นอีกต่อไป — เดินทะลุได้อิสระ
+        // แต่ถ้าเดินเข้าไปใน hitbox ของชิ้นส่วนใด จะ trigger แสดง workflow ทันที (ไม่บล็อกการเดิน)
+        const nextX = avatarModel.position.x + moveVector.x;
+        const nextZ = avatarModel.position.z + moveVector.z;
+        const currentY = avatarModel.position.y - jumpConfig.groundY;
 
-        let collisionDetected = false;
-        let targetStepY = jumpConfig.groundY; 
+        avatarModel.position.x = nextX;
+        avatarModel.position.z = nextZ;
 
+        // เช็คว่าชนเข้ากับ hitbox ไหนไหม (เพื่อโชว์ popup ทันทีที่แตะ ไม่ต้องรอ minDistance loop ด้านล่าง)
         for (let i = 0; i < factoryColliders.length; i++) {
             const col = factoryColliders[i];
-            const box = col.box; 
-
+            const box = col.box;
             if (nextX + avatarConfig.radius > box.min.x && nextX - avatarConfig.radius < box.max.x &&
                 nextZ + avatarConfig.radius > box.min.z && nextZ - avatarConfig.radius < box.max.z &&
                 currentY < box.max.y && currentY + 1.6 > box.min.y) {
-                
-                const stepHeight = box.max.y - currentY;
-                if (stepHeight > 0 && stepHeight <= 0.4) { 
-                    if ((box.max.y + jumpConfig.groundY) > targetStepY) {
-                        targetStepY = box.max.y + jumpConfig.groundY;
-                    }
-                } else {
-                    collisionDetected = true;
-                }
+                highlightAndShowWorkflow(col.mesh, col.mesh.name || "พื้นที่อับอากาศ", "🚶 ตัวละครเดินชนวัตถุ");
+                break; // โชว์อันแรกที่เจอพอ
             }
-        }
-
-        if (!collisionDetected) {
-            avatarModel.position.x = nextX;
-            avatarModel.position.z = nextZ;
-            if (targetStepY > jumpConfig.groundY) avatarModel.position.y = targetStepY;
         }
     }
 
