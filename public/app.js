@@ -1320,3 +1320,28 @@ function injectMobileCloseButtons() {
 window.addEventListener('DOMContentLoaded', () => {
     injectMobileCloseButtons();
 });
+// นำไปวางในส่วนหลังจากที่โหลดไฟล์ Biogasbase.glb สำเร็จแล้ว
+if (factoryModel) {
+    // ปรับแต่งการตั้งค่าการเรนเดอร์ของชิ้นส่วนย่อยทั้ง 6005 ชิ้น
+    factoryModel.traverse(function (child) {
+        if (child.isMesh) {
+            // 1. เปิดใช้ Frustum Culling (สำคัญมากสำหรับวัตถุหลายชิ้น!)
+            // เพื่อบังคับให้คอมพิวเตอร์/มือถือ "คำนวณและวาดเฉพาะชิ้นส่วนที่กล้องกำลังมองเห็นอยู่เท่านั้น" 
+            // ชิ้นไหนที่หันหลังให้ หรืออยู่ข้างนอกจอ จะไม่โดนวาดเลย ช่วยลดภาระไปได้เยอะมาก
+            child.frustumCulled = true;
+
+            // 2. ปิดระบบเงา Real-time สำหรับชิ้นส่วนโรงงาน (ตัวการใหญ่ที่ทำให้มือถือแล็ก)
+            // โมเดลที่มีชิ้นงานเยอะขนาดนี้ ถ้าเปิดแชร์เงากันแบบสดๆ การ์ดจอมือถือจะค้างทันที
+            child.castShadow = false;
+            child.receiveShadow = false;
+
+            // 3. ปรับแต่ง Material (วัสดุ) ของโมเดลให้คำนวณแสงแบบเรียบง่ายขึ้น (ถ้าต้องการให้ลื่นสุดๆ)
+            if (child.material) {
+                // หากระบบใช้ MeshStandardMaterial ซึ่งกินสเปกมาก 
+                // สามารถปรับค่าเบื้องต้นให้ลดการสะท้อนที่ละเอียดเกินไปลงได้
+                if (child.material.roughness !== undefined) child.material.roughness = 0.8;
+                if (child.material.metalness !== undefined) child.material.metalness = 0.2;
+            }
+        }
+    });
+}
