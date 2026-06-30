@@ -128,53 +128,51 @@ h3 { color: #00ffff; }
     border-left: 4px solid #22c55e;
     display: block;
 }
-/* คอนเทนเนอร์หลักสำหรับปุ่มและจอยสติ๊กบน Mobile */
+/* --- CSS บังคับและปรับแต่งให้รองรับโทรศัพท์แนวนอนโดยเฉพาะ --- */
+
+/* 1. ซ่อนระบบจอยสติ๊กและปุ่มแอคชันไว้เป็นค่าเริ่มต้น */
 #mobile-controls-container {
-    display: none; /* เริ่มต้นซ่อนไว้ก่อน จะเปิดด้วย JavaScript เมื่อตรวจพบอุปกรณ์พกพา */
+    display: none;
     position: absolute;
-    bottom: 80px; /* หลบปุ่ม HUD แถวล่าง */
+    bottom: 25px; 
     left: 0;
     width: 100%;
-    height: 160px;
-    z-index: 999;
-    pointer-events: none; /* ยอมให้คลิกทะลุพื้นหลังเปล่าได้ */
+    height: 120px;
+    z-index: 9999;
+    pointer-events: none;
 }
 
-/* โซนสร้างจอยสติ๊กด้านซ้ายล่าง */
 #mobile-joystick-zone {
     position: absolute;
-    left: 30px;
+    left: 40px;
     bottom: 10px;
-    width: 120px;
-    height: 120px;
-    pointer-events: auto; /* เปิดให้จับสัมผัสได้ */
-}
-
-/* โซนปุ่มกดด้านขวาล่าง */
-#mobile-action-zone {
-    position: absolute;
-    right: 30px;
-    bottom: 10px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
+    width: 110px;
+    height: 110px;
     pointer-events: auto;
 }
 
-/* ตกแต่งปุ่มแอ็กชันบนหน้าจอมือถือ */
+#mobile-action-zone {
+    position: absolute;
+    right: 40px;
+    bottom: 10px;
+    display: flex;
+    flex-direction: row; /* จัดเรียงปุ่มแนวนอนบนโหมด Landscape เพื่อไม่ให้บังจอ */
+    gap: 16px;
+    pointer-events: auto;
+}
+
 .mobile-action-btn {
-    width: 70px;
-    height: 70px;
+    width: 65px;
+    height: 65px;
     border-radius: 50%;
-    background: rgba(249, 115, 22, 0.3);
-    color: #ffffff;
-    border: 2px solid #f97316;
-    font-size: 12px;
+    background: rgba(15, 23, 42, 0.6);
+    color: #00ffff;
+    border: 2px solid rgba(0, 255, 255, 0.4);
+    font-size: 11px;
     font-weight: bold;
-    text-shadow: 0 1px 2px rgba(0,0,0,0.8);
-    box-shadow: 0 4px 10px rgba(0,0,0,0.5);
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -182,19 +180,49 @@ h3 { color: #00ffff; }
     -webkit-user-select: none;
 }
 
-.mobile-action-btn:active {
-    transform: scale(0.92);
-    background: rgba(249, 115, 22, 0.6);
+/* 2. เปิดใช้งานกลไกทั้งหมดเฉพาะเมื่อหน้าจอเป็นแนวราบ/แนวนอนบนอุปกรณ์เคลื่อนที่ (Landscape Mode) */
+@media screen and (max-width: 920px) and (orientation: landscape) {
+    #mobile-controls-container {
+        display: block; /* เปิดให้จอยและปุ่มกดเฉพาะแนวนอนเท่านั้น */
+    }
+
+    #keybind-hud {
+        display: none !important; /* ซ่อนแถบปุ่มคีย์บอร์ดคอมพิวเตอร์ออกไป */
+    }
+
+    /* จัดระเบียบหน้าต่างสเตตัสซ้าย-ขวาบนมือถือแนวนอนไม่ให้บังตรงกลางฉาก */
+    #ui-overlay-container {
+        padding: 10px;
+    }
+    .sidebar, .right-sidebar {
+        width: 240px; /* ลดความกว้างเมนูด้านข้างลงเพื่อให้เห็นตัวละครตรงกลางชัดเจน */
+    }
+    .panel {
+        max-height: 110px;
+        font-size: 11px;
+        padding: 8px;
+    }
+    #details-panel, #transform-panel {
+        display: none !important; /* ซ่อนเมนูจัดตำแหน่งขนาดใหญ่เพื่อคืนพื้นที่จอภาพ */
+    }
 }
 
-/* Media Query ตรวจจับหากหน้าจอแคบหรือผู้ใช้เข้าผ่านสมาร์ตโฟน */
-@media (max-width: 768px) {
-    #mobile-controls-container {
-        display: block; /* แสดงผลเฉพาะบนหน้าจอมือถือและแท็บเล็ต */
-    }
-    /* ปรับแผงผังข้อมูลข้างทางซ้ายให้หดลงไม่ให้ทับกับจอยสติ๊ก */
-    .panel {
-        max-height: 40vh;
-        overflow-y: auto;
+/* 3. ส่วนเสริม الاختياري: หากเปิดในแนวตั้ง (Portrait) บนมือถือ จะแสดงคำเตือนให้หมุนจออัตโนมัติ */
+@media screen and (max-width: 600px) and (orientation: portrait) {
+    body::before {
+        content: "🔄 โปรดหมุนโทรศัพท์เป็นแนวนอน (Landscape Mode) เพื่อเริ่มควบคุมพนักงาน";
+        position: fixed;
+        top: 0; left: 0; width: 100%; height: 100%;
+        background: #0a0f14;
+        color: #00ffff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 30px;
+        box-sizing: border-box;
+        font-size: 16px;
+        font-weight: bold;
+        z-index: 99999;
     }
 }
