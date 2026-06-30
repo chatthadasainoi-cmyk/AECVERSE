@@ -8,7 +8,6 @@ camera.position.set(0, 6, 12);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 
-// สั่งผูกเข้ากับกล่อง Container เสมอ เพื่อป้องกันโครงสร้าง UI เพี้ยนแบบในรูปภาพ
 document.getElementById('canvas-container').appendChild(renderer.domElement);
 
 const controls = new THREE.OrbitControls(camera, renderer.domElement);
@@ -22,12 +21,11 @@ const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
 dirLight.position.set(10, 20, 10);
 scene.add(dirLight);
 
-// พื้นตารางกริดเรืองแสงสีเทอร์ควอยซ์
 const gridHelper = new THREE.GridHelper(60, 60, 0x00ffff, 0x1e293b);
 scene.add(gridHelper);
 
 let factoryModel = null;
-let avatarModel = null; // จะเก็บตัวละครทรงแท่งแคปซูลแทน
+let avatarModel = null;
 let originalMaterials = new Map();
 let currentMaterialMode = 'solid'; 
 let initialFactoryScale = 1;
@@ -38,14 +36,12 @@ let factoryColliders = [];
 
 const moveStatus = { forward: false, backward: false, left: false, right: false };
 const avatarConfig = { speed: 0.12, turnSpeed: 0.045, radius: 0.35 };
-const jumpConfig = { velocity: 0, gravity: -0.012, jumpForce: 0.24, isJumping: false, groundY: 0.9 }; // groundY ปรับตามกึ่งกลางความสูงแคปซูล
+const jumpConfig = { velocity: 0, gravity: -0.012, jumpForce: 0.24, isJumping: false, groundY: 0.9 };
 const defaultCameraOffset = new THREE.Vector3(0, 2.5, 5);
 
-// 🎥 ตัวแปรควบคุมโหมด Free Look
 let isFreeLook = false; 
 const freeLookSpeed = 0.2; 
 
-// ฐานข้อมูลตรวจสอบความปลอดภัยของระบบไบโอแก๊ส
 const workflowDatabase = {
     "default": { 
         "name": "โครงสร้างทั่วไป", 
@@ -79,39 +75,84 @@ const workflowDatabase = {
     }
 };
 
-// --- 2. 🛡️ สร้าง AVATAR แบบแท่งกระบอกแคปซูลอัตโนมัติ ---
+// --- 2. AVATAR วิศวกร Low-poly หันหลังให้กล้องเสมอ ---
+function createEngineerAvatar(helmetColor) {
+    const group = new THREE.Group();
+    const hex = helmetColor ? parseInt(String(helmetColor).replace('#',''), 16) : 0xff9900;
+
+    const skinMat   = new THREE.MeshStandardMaterial({ color: 0xf4c08a, roughness: 0.8 });
+    const suitMat   = new THREE.MeshStandardMaterial({ color: 0xff6600, roughness: 0.6 });
+    const helmetMat = new THREE.MeshStandardMaterial({ color: hex, roughness: 0.3, metalness: 0.4 });
+    const bootMat   = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.9 });
+    const glassMat  = new THREE.MeshStandardMaterial({ color: 0x88ccff, transparent: true, opacity: 0.5 });
+    const visibMat  = new THREE.MeshStandardMaterial({ color: 0xffff00, roughness: 0.5 });
+
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.65, 0.3), suitMat);
+    torso.position.y = 0.95; group.add(torso);
+    const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.07, 0.31), visibMat);
+    stripe.position.y = 0.95; group.add(stripe);
+
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.36, 0.35), skinMat);
+    head.position.y = 1.44; group.add(head);
+
+    const helmet = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.18, 0.41), helmetMat);
+    helmet.position.y = 1.65; group.add(helmet);
+    const brim = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.04, 0.48), helmetMat);
+    brim.position.y = 1.56; group.add(brim);
+
+    // วีซอร์อยู่ด้าน -Z (ด้านหน้าตัวละคร) — กล้องอยู่ +Z จะเห็นด้านหลังหมวกพอดี
+    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.1, 0.04), glassMat);
+    visor.position.set(0, 1.43, -0.178); group.add(visor);
+
+    const armGeo = new THREE.BoxGeometry(0.18, 0.52, 0.2);
+    const armL = new THREE.Mesh(armGeo, suitMat); armL.position.set(-0.37, 0.88, 0); group.add(armL);
+    const armR = new THREE.Mesh(armGeo, suitMat); armR.position.set( 0.37, 0.88, 0); group.add(armR);
+    const asL = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.06, 0.21), visibMat); asL.position.set(-0.37, 0.88, 0); group.add(asL);
+    const asR = asL.clone(); asR.position.set(0.37, 0.88, 0); group.add(asR);
+
+    const handGeo = new THREE.BoxGeometry(0.14, 0.13, 0.13);
+    const handL = new THREE.Mesh(handGeo, skinMat); handL.position.set(-0.37, 0.6, 0); group.add(handL);
+    const handR = handL.clone(); handR.position.set(0.37, 0.6, 0); group.add(handR);
+
+    const legGeo = new THREE.BoxGeometry(0.22, 0.52, 0.24);
+    const legL = new THREE.Mesh(legGeo, suitMat); legL.position.set(-0.15, 0.34, 0); group.add(legL);
+    const legR = new THREE.Mesh(legGeo, suitMat); legR.position.set( 0.15, 0.34, 0); group.add(legR);
+
+    const bootGeo = new THREE.BoxGeometry(0.24, 0.16, 0.3);
+    const bootL = new THREE.Mesh(bootGeo, bootMat); bootL.position.set(-0.15, 0.05, -0.03); group.add(bootL);
+    const bootR = bootL.clone(); bootR.position.set(0.15, 0.05, -0.03); group.add(bootR);
+
+    // ลูกศรบอกทิศ ชี้ไปด้าน -Z (ด้านหน้าตัวละคร)
+    const ptr = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.3), new THREE.MeshBasicMaterial({color:0x00ffff}));
+    ptr.position.set(0, 0.9, -0.5); group.add(ptr);
+
+    const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.3,16), new THREE.MeshBasicMaterial({color:0x000000,transparent:true,opacity:0.2}));
+    shadow.rotation.x = -Math.PI/2; shadow.position.y = 0.01; group.add(shadow);
+
+    group.userData.armL = armL;
+    group.userData.armR = armR;
+    group.userData.legL = legL;
+    group.userData.legR = legR;
+    group.userData.walkPhase = 0;
+
+    return group;
+}
+
+function animateEngineerWalk(g, isMoving) {
+    if (!g || !g.userData.armL) return;
+    if (isMoving) g.userData.walkPhase += 0.12;
+    else g.userData.walkPhase *= 0.8;
+    const s = Math.sin(g.userData.walkPhase) * 0.4;
+    g.userData.armL.rotation.x =  s;
+    g.userData.armR.rotation.x = -s;
+    g.userData.legL.rotation.x = -s;
+    g.userData.legR.rotation.x =  s;
+}
+
 function createProceduralAvatar() {
-    const avatarGroup = new THREE.Group();
-
-    // ตัวตน (Body Cylinder)
-    const bodyGeom = new THREE.CylinderGeometry(avatarConfig.radius, avatarConfig.radius, 1.2, 16);
-    const bodyMat = new THREE.MeshStandardMaterial({ 
-        color: 0xff9900, 
-        emissive: 0x331100,
-        roughness: 0.2, 
-        metalness: 0.8 
-    });
-    const bodyMesh = new THREE.Mesh(bodyGeom, bodyMat);
-    bodyMesh.position.y = 0.6;
-    avatarGroup.add(bodyMesh);
-
-    // ส่วนหัว (Head Sphere)
-    const headGeom = new THREE.SphereGeometry(avatarConfig.radius, 16, 16);
-    const headMat = new THREE.MeshStandardMaterial({ color: 0xffaa00, emissive: 0x442200 });
-    const headMesh = new THREE.Mesh(headGeom, headMat);
-    headMesh.position.y = 1.2;
-    avatarGroup.add(headMesh);
-
-    // บีคอนบอกทิศทางหน้าของตัวละคร (Direction Indicator Pointer)
-    const pointerGeom = new THREE.BoxGeometry(0.1, 0.1, 0.4);
-    const pointerMat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
-    const pointerMesh = new THREE.Mesh(pointerGeom, pointerMat);
-    pointerMesh.position.set(0, 0.9, -avatarConfig.radius - 0.1);
-    avatarGroup.add(pointerMesh);
-
+    const avatarGroup = createEngineerAvatar('#ff9900');
     avatarGroup.position.set(0, jumpConfig.groundY, 8);
     scene.add(avatarGroup);
-    
     avatarModel = avatarGroup;
     document.getElementById('transform-panel').style.display = 'block'; 
 }
@@ -175,8 +216,6 @@ document.getElementById('factory-input').addEventListener('change', function (ev
                 meshCount++;
                 originalMaterials.set(child.uuid, child.material.clone());
                 if (uploadedTexture) { child.material.map = uploadedTexture; child.material.needsUpdate = true; }
-
-                // เก็บชื่อออริจินัลจากไฟล์ป้องกันการสูญหายเมื่อมีการแก้ไขชื่อเรียลไทม์
                 if (!child._original3DName) { child._original3DName = child.name || `Object_${meshCount}`; }
 
                 const item = document.createElement('div');
@@ -209,6 +248,8 @@ document.getElementById('factory-input').addEventListener('change', function (ev
     });
 });
 
+// 💡 HITBOX ปรับใหม่: ขยาย collider ให้ใหญ่กว่าตัว mesh จริง (padding) เพื่อให้ชนง่ายขึ้น ไม่ต้องตามขนาดโมเดลเป๊ะๆ
+const HITBOX_PADDING = 0.6; // ขยายกล่องชนออกทุกด้านเพิ่ม 0.6 หน่วย
 function buildColliders() {
     factoryColliders = [];
     if (!factoryModel) return;
@@ -216,6 +257,8 @@ function buildColliders() {
     factoryModel.traverse(function (child) {
         if (child.isMesh) {
             const meshBox = new THREE.Box3().setFromObject(child);
+            // ขยาย hitbox ออกทุกทิศทาง ทำให้ตัวละครชนได้ง่ายขึ้นแม้โมเดลจะเล็กหรือบาง
+            meshBox.expandByScalar(HITBOX_PADDING);
             factoryColliders.push({ uuid: child.uuid, mesh: child, box: meshBox });
         }
     });
@@ -229,12 +272,11 @@ function resetCameraToAvatar() {
     controls.update();
 }
 
-// --- 4. KEYBOARD CONTROL CONTROL ---
+// --- 4. KEYBOARD CONTROL ---
 window.addEventListener('keydown', (e) => {
     if(document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
     const key = e.key.toLowerCase();
     
-    // 💡 สลับโหมด Free Look (กด F หรือ ด)
     if (key === 'f' || key === 'ด') {
         isFreeLook = !isFreeLook;
         if (!isFreeLook) {
@@ -248,16 +290,13 @@ window.addEventListener('keydown', (e) => {
         return;
     }
 
-    // ควบคุมทิศทาง (รองรับภาษาอังกฤษ และ แป้นพิมพ์ภาษาไทย)
     if (e.key === 'ArrowUp' || key === 'w' || key === 'ฟ' || key === 'ไ') moveStatus.forward = true;
     if (e.key === 'ArrowDown' || key === 's' || key === 'ห') moveStatus.backward = true;
     if (e.key === 'ArrowLeft' || key === 'a' || key === 'ฟ' || key === 'ภ' || key === 'ไ') moveStatus.left = true;
     if (e.key === 'ArrowRight' || key === 'd' || key === 'ด' || key === 'ก') moveStatus.right = true;
     
-    // สั่งกระโดด (เฉพาะโหมดล็อกตัวละครปกติ)
     if (e.key === ' ' && !jumpConfig.isJumping && !isFreeLook) triggerAvatarJump();
 
-    // ปุ่มลัดฟังก์ชัน UI
     if (key === 'h' || key === 'อ') togglePanelElement('dashboard');
     if (key === 'm' || key === 'ท') togglePanelElement('details-panel');
     if (key === 'p' || key === 'ย') togglePanelElement('process-panel');
@@ -470,9 +509,6 @@ function closeLiveEditFields() {
 function updateAvatarPhysics() {
     if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
 
-    // ==========================================
-    // 🎥 ลอจิกทำงานเมื่ออยู่โหมด FREE LOOK
-    // ==========================================
     if (isFreeLook) {
         const camDirection = new THREE.Vector3();
         camera.getWorldDirection(camDirection);
@@ -480,7 +516,6 @@ function updateAvatarPhysics() {
         const camRight = new THREE.Vector3();
         camRight.crossVectors(camera.up, camDirection).normalize();
 
-        // เคลื่อนตัวตำแหน่งกล้องและจุดโฟกัสไปพร้อมกันตามทิศหน้ากล้อง
         if (moveStatus.forward) {
             camera.position.addScaledVector(camDirection, freeLookSpeed);
             controls.target.addScaledVector(camDirection, freeLookSpeed);
@@ -497,12 +532,9 @@ function updateAvatarPhysics() {
             camera.position.addScaledVector(camRight, -freeLookSpeed);
             controls.target.addScaledVector(camRight, -freeLookSpeed);
         }
-        return; // ตัดจบฟังก์ชันตรงนี้ ไม่ไปยุ่งกับขยับตัวละครผู้เล่นด้านล่าง
+        return;
     }
 
-    // ==========================================
-    // 👤 ลอจิกผู้เล่นเคลื่อนที่ปกติ (โหมดล็อกตัวละคร)
-    // ==========================================
     if (!avatarModel) return;
 
     if (jumpConfig.isJumping) {
@@ -528,6 +560,7 @@ function updateAvatarPhysics() {
     moveVector.applyQuaternion(avatarModel.quaternion);
 
     const isMoving = moveVector.lengthSq() > 0;
+    animateEngineerWalk(avatarModel, isMoving);
 
     if (isMoving) {
         let nextX = avatarModel.position.x + moveVector.x;
@@ -563,7 +596,6 @@ function updateAvatarPhysics() {
         }
     }
 
-    // แพนกล้องสมูทติดตามหลังผู้เล่น
     const targetCamOffset = defaultCameraOffset.clone().applyMatrix4(avatarModel.matrixWorld);
     camera.position.lerp(targetCamOffset, 0.08);
     controls.target.set(avatarModel.position.x, avatarModel.position.y + 0.3, avatarModel.position.z);
@@ -736,16 +768,7 @@ let mpMyId = null;
 let mpMyColor = '#00ffff';
 
 function buildRemoteAvatar(color) {
-    const hex = parseInt(color.replace('#',''), 16);
-    const g = new THREE.Group();
-    const mat = new THREE.MeshStandardMaterial({ color: hex, emissive: hex>>1, roughness: 0.3, metalness: 0.7 });
-    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.35,0.35,1.2,16), mat);
-    body.position.y = 0.6; g.add(body);
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.35,16,16), new THREE.MeshStandardMaterial({color:hex}));
-    head.position.y = 1.2; g.add(head);
-    const ptr = new THREE.Mesh(new THREE.BoxGeometry(0.1,0.1,0.4), new THREE.MeshBasicMaterial({color:0xffffff}));
-    ptr.position.set(0,0.9,-0.45); g.add(ptr);
-    return g;
+    return createEngineerAvatar(color || '#4d96ff');
 }
 
 function setAvatarLabel(g, name, color) {
@@ -756,13 +779,13 @@ function setAvatarLabel(g, name, color) {
     ctx.font='bold 24px Arial'; ctx.fillStyle=color||'#fff'; ctx.textAlign='center'; ctx.textBaseline='middle';
     ctx.fillText(name.substring(0,16), 128, 32);
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),depthTest:false}));
-    sp.scale.set(1.8,0.45,1); sp.position.y=2.1;
+    sp.scale.set(1.8,0.45,1); sp.position.y=2.2;
     g.add(sp); g._label = sp;
 }
 
 function addRemote(data) {
     if (remoteAvatars[data.id]) return;
-    const av = buildRemoteAvatar(data.color||'#fff');
+    const av = buildRemoteAvatar(data.color||'#4d96ff');
     av.position.set(data.position.x, data.position.y, data.position.z);
     scene.add(av); remoteAvatars[data.id] = av;
     setAvatarLabel(av, data.name||data.id, data.color||'#fff');
@@ -783,6 +806,7 @@ renderer.render = function(sc, cam) {
         if (!t) continue;
         av.position.lerp(t.pos, 0.18);
         av.rotation.y += (t.rotY - av.rotation.y) * 0.18;
+        animateEngineerWalk(av, t.pos.distanceTo(av.position) > 0.01);
     }
     if (mpSocket && mpSocket.connected && avatarModel) {
         const now = Date.now();
@@ -855,7 +879,7 @@ function initMultiplayer() {
     mpSocket = io(SERVER, { transports: ['websocket','polling'] });
 
     mpSocket.on('connect', () => { dot.style.background='#22c55e'; txt.innerText='เชื่อมต่อแล้ว ✓'; });
-    mpSocket.on('disconnect', () => { dot.style.background='#ef4444'; txt.innerText='การ接続ขาด...'; });
+    mpSocket.on('disconnect', () => { dot.style.background='#ef4444'; txt.innerText='การเชื่อมต่อขาด...'; });
 
     mpSocket.on('self_init', data => {
         mpMyId = data.self.id;
