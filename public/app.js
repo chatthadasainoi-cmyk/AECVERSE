@@ -1215,99 +1215,76 @@ buildColliders = (function(originalFn) {
 // ============================================================
 // END PROXIMITY TAG SYSTEM
 // ============================================================
-// ============================================================
-// --- MOBILE TOUCH & JOYSTICK CONTROL MODULE ---
-// ============================================================
-
-// ฟังก์ชันตรวจจับการทำงานจอยสติ๊กและปุ่มสัมผัสบน Mobile
-function initMobileControls() {
+// ==========================================
+// SYSTEMS: MOBILE VIRTUAL JOYSTICK CONTROLLER
+// ==========================================
+function initMobileJoystick() {
     const joystickZone = document.getElementById('mobile-joystick-zone');
     if (!joystickZone || typeof nipplejs === 'undefined') return;
 
-    // 1. สร้าง Virtual Joystick ด้วย nipplejs
+    // เคลียร์ค่าเดิมป้องกันจอยซ้ำซ้อน
+    joystickZone.innerHTML = '';
+
     const manager = nipplejs.create({
         zone: joystickZone,
         mode: 'static',
-        position: { left: '60px', bottom: '60px' },
+        position: { left: '50%', top: '50%' },
         color: '#00ffff',
         size: 100
     });
 
-    // ฟังเหตุการณ์ขณะลากจอยสติ๊กเพื่อเปลี่ยนเป็นสถานะการเดิน (moveStatus)
     manager.on('move', function (evt, data) {
-        if (!data.angle) return;
+        if (!data.vector) return;
 
-        const radians = data.angle.radians;
-        // แปลงมุมเรเดียนของจอยสติ๊กเป็นค่าทิศทาง เดินหน้า/ถอยหลัง/ซ้าย/ขวา
-        // ยอมให้เคลื่อนที่เฉียงควบคู่กันได้ (เช่น เดินเฉียงหน้า-ขวา)
-        moveStatus.forward  = (radians > Math.PI / 6  && radians < Math.PI * 5 / 6);
-        moveStatus.backward = (radians > Math.PI * 7 / 6 && radians < Math.PI * 11 / 6);
-        moveStatus.left     = (radians > Math.PI * 2 / 3 && radians < Math.PI * 4 / 3);
-        moveStatus.right    = (radians > -Math.PI / 3 && radians < Math.PI / 3) || (radians > Math.PI * 5 / 3);
+        const forward = data.vector.y;
+        const turn = data.vector.x;
+        const threshold = 0.2; // ค่าความไวขั้นต่ำ
+
+        // รีเซ็ตสเตตัสการเดินก่อนคำนวณใหม่
+        if (typeof moveStatus !== 'undefined') {
+            moveStatus.forward = forward > threshold;
+            moveStatus.backward = forward < -threshold;
+            moveStatus.left = turn < -threshold;
+            moveStatus.right = turn > threshold;
+        }
     });
 
-    // เมื่อปล่อยนิ้วหลุดจากจอยสติ๊ก ให้หยุดเดินทันที
     manager.on('end', function () {
-        moveStatus.forward = false;
-        moveStatus.backward = false;
-        moveStatus.left = false;
-        moveStatus.right = false;
+        // เมื่อปล่อยนิ้วหลุดจากจอย ให้หยุดเดินทันที
+        if (typeof moveStatus !== 'undefined') {
+            moveStatus.forward = false;
+            moveStatus.backward = false;
+            moveStatus.left = false;
+            moveStatus.right = false;
+        }
     });
 
-    // 2. ผูกอีเวนต์ปุ่มกระโดดบนมือถือ (Jump Button)
+    // ผูกปุ่ม Action บนหน้าจอมือถือ (Jump และ Interact)
     const btnJump = document.getElementById('btn-mobile-jump');
     if (btnJump) {
         btnJump.addEventListener('touchstart', function(e) {
             e.preventDefault();
-            if (!jumpConfig.isJumping) {
-                jumpConfig.velocity = jumpConfig.jumpForce;
-                jumpConfig.isJumping = true;
-            }
+            // จำลองการกดปุ่ม Spacebar หรือฟังก์ชันกระโดดของคุณ
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: ' ' })); 
         });
     }
 
-    // 3. ผูกอีเวนต์ปุ่มมีปฏิสัมพันธ์ตรวจสอบวัตถุ (Interact Button)
     const btnInteract = document.getElementById('btn-mobile-interact');
     if (btnInteract) {
         btnInteract.addEventListener('touchstart', function(e) {
             e.preventDefault();
-            interactNearestFactoryMesh(); // สั่งให้ค้นหาโรงงานส่วนที่ใกล้ที่สุด
+            // จำลองการกดปุ่ม E หรือฟังก์ชัน Interact ของคุณ
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'e' }));
         });
     }
 }
 
-// ฟังก์ชันจำลองการ Interact: สแกนหาวัตถุในโรงงานที่อยู่ใกล้ตัวผู้เล่นมากที่สุดในรัศมี
-function interactNearestFactoryMesh() {
-    if (!avatarModel || !factoryModel) return;
+// เรียกใช้งานระบบ Mobile Controls เมื่อหน้าจอโหลดเสร็จสิ้น
+window.addEventListener('DOMContentLoaded', () => {
+    initMobileJoystick();
+});
 
-    let nearestMeshUUID = null;
-    let shortestDistance = 8; // หารัศมีสิ่งของที่อยู่รอบตัวในระยะไม่เกิน 8 เมตร
-    const avatarPos = avatarModel.position;
-
-    // ตรวจสอบพิกัดของทุกชิ้นส่วนในโมเดลโรงงาน
-    factoryModel.traverse(function(child) {
-        if (child.isMesh) {
-            const meshWorldPos = new THREE.Vector3();
-            child.getWorldPosition(meshWorldPos);
-            
-            const dist = avatarPos.distanceTo(meshWorldPos);
-            if (dist < shortestDistance) {
-                shortestDistance = dist;
-                nearestMeshUUID = child.uuid;
-            }
-        }
-    });
-
-    // หากเจอชิ้นส่วนโรงงานที่อยู่ใกล้ตัวผู้เล่นมากที่สุด ให้เปิดบอร์ดความปลอดภัยและไฮไลท์ทันที
-    if (nearestMeshUUID) {
-        if (typeof selectMeshByUUID === 'function') {
-            selectMeshByUUID(nearestMeshUUID);
-            mpAppendChat({ name: 'ระบบมือถือ', color: '#f97316', text: '🔍 ตรวจพบวัตถุใกล้ตัวและโหลดข้อมูลความปลอดภัยแล้ว' });
-        }
-    } else {
-        alert("⚠️ ไม่พบชิ้นส่วนโรงงานในระยะใกล้ตัว โปรดเดินเข้าไปใกล้ๆ ถังหมักหรือท่อส่งแก๊สแล้วกดอีกครั้ง");
-    }
-}
-
-// สั่งให้โหลดตัวควบคุม Mobile ทันทีเมื่อเปิดสคริปต์
-initMobileControls();
+// อัปเดตขนาดและจุดศูนย์กลางของจอยใหม่เมื่อมีการหมุนพับหน้าจอ
+window.addEventListener('resize', () => {
+    setTimeout(initMobileJoystick, 200);
+});
