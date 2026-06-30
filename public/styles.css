@@ -226,3 +226,42 @@ h3 { color: #00ffff; }
         z-index: 99999;
     }
 }
+/* --- สไตล์ปุ่มกากบาทปิดหน้าต่างบนมือถือ --- */
+
+/* ซ่อนไว้เป็นค่าเริ่มต้นเมื่อเปิดบน PC */
+.mobile-close-panel-btn {
+    display: none;
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 28px;
+    height: 28px;
+    background: #ef4444; /* สีแดงสว่างสังเกตง่าย */
+    color: #ffffff;
+    border: none;
+    border-radius: 50%;
+    font-size: 14px;
+    font-weight: bold;
+    cursor: pointer;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 8px rgba(239, 68, 68, 0.4);
+    z-index: 99;
+}
+
+.mobile-close-panel-btn:active {
+    background: #dc2626; /* สีแดงเข้มขึ้นเล็กน้อยตอนเอานิ้วกด */
+    transform: scale(0.95);
+}
+
+/* แสดงผลและจัดตำแหน่งให้ปุ่มกดง่ายขึ้น เฉพาะบนมือถือแนวนอน (Landscape) */
+@media screen and (max-width: 920px) and (orientation: landscape) {
+    .panel {
+        position: absolute; /* บังคับตำแหน่งให้สัมพันธ์กับปุ่มปิด */
+        padding-top: 32px !important; /* เว้นพื้นที่ด้านบนหลบปุ่มกากบาทไม่ให้ทับเนื้อหา */
+    }
+
+    .mobile-close-panel-btn {
+        display: flex; /* เปิดใช้งานปุ่มสีแดงเฉพาะบนมือถือ */
+    }
+}
