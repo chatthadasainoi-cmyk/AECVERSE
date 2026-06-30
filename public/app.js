@@ -475,20 +475,8 @@ function setFactoryMaterialMode(mode) {
 }
 
 // --- 6. WORKFLOW RENDERING ---
-function highlightAndShowWorkflow(targetMesh, meshName, method) {
-    if(!factoryModel) return;
-    activeSelectedMeshUUID = targetMesh.uuid; 
-
-    if (currentMaterialMode === 'solid') {
-        factoryModel.traverse(function (child) {
-            if (child.isMesh) {
-                if (child.uuid === targetMesh.uuid) child.material = new THREE.MeshStandardMaterial({ color: 0x00ffff, emissive: 0x001a1a });
-                else if (originalMaterials.has(child.uuid)) child.material = originalMaterials.get(child.uuid).clone();
-            }
-        });
-    }
-
-    const origName = targetMesh._original3DName || targetMesh.name || meshName;
+function resolveDatabaseKey(targetMesh, fallbackName) {
+    const origName = targetMesh._original3DName || targetMesh.name || fallbackName;
     let databaseKey = "default";
 
     if (workflowDatabase[origName]) databaseKey = origName;
@@ -508,7 +496,23 @@ function highlightAndShowWorkflow(targetMesh, meshName, method) {
         else if (nameLower.includes("engine") || nameLower.includes("อาคาร") || nameLower.includes("generator") || nameLower.includes("utilization") || nameLower.includes("genset")) databaseKey = "utilization";
         else if (nameLower.includes("flare") || nameLower.includes("เผา")) databaseKey = "flare";
     }
+    return databaseKey;
+}
 
+function highlightAndShowWorkflow(targetMesh, meshName, method) {
+    if(!factoryModel) return;
+    activeSelectedMeshUUID = targetMesh.uuid; 
+
+    if (currentMaterialMode === 'solid') {
+        factoryModel.traverse(function (child) {
+            if (child.isMesh) {
+                if (child.uuid === targetMesh.uuid) child.material = new THREE.MeshStandardMaterial({ color: 0x00ffff, emissive: 0x001a1a });
+                else if (originalMaterials.has(child.uuid)) child.material = originalMaterials.get(child.uuid).clone();
+            }
+        });
+    }
+
+    const databaseKey = resolveDatabaseKey(targetMesh, meshName);
     activeSelectedKeyKey = databaseKey;
 
     const matchedData = workflowDatabase[databaseKey] || workflowDatabase["default"];
@@ -1035,4 +1039,179 @@ function initMultiplayer() {
 initMultiplayer();
 // ============================================================
 // END MULTIPLAYER MODULE
+// ============================================================
+
+
+// ============================================================
+// PROXIMITY TAG SYSTEM — ป้ายข้อมูลเสมือนจริงเชิงปฏิสัมพันธ์
+// ตามคู่มือ "Interactive Biogas Safety Standard Metaverse"
+// - ไอคอนเล็กแสดงตลอดเวลาเหนือชิ้นส่วน
+// - ขยายเป็นข้อความเต็มเมื่อ avatar เดินเข้าใกล้ในระยะ PROXIMITY_RANGE เมตร
+// ============================================================
+
+const PROXIMITY_RANGE = 3.0; // ระยะที่ป้ายจะขยาย (เมตร) ตามคู่มือ 2-3 เมตร
+const proximityTags = []; // { sprite, mesh, databaseKey, expanded }
+
+// แปลง colorClass -> สี hex สำหรับพื้นหลังป้าย
+function tagColorFromClass(colorClass) {
+    switch (colorClass) {
+        case 'tag-red':    return { bg: 'rgba(239,68,68,0.92)',  border: '#ef4444' };
+        case 'tag-orange': return { bg: 'rgba(249,115,22,0.92)', border: '#f97316' };
+        case 'tag-blue':   return { bg: 'rgba(56,189,248,0.92)', border: '#38bdf8' };
+        case 'tag-green':  return { bg: 'rgba(34,197,94,0.92)',  border: '#22c55e' };
+        default:           return { bg: 'rgba(56,189,248,0.92)', border: '#38bdf8' };
+    }
+}
+
+// สร้าง canvas texture สำหรับป้าย (โหมดย่อ = ไอคอนวงกลม, โหมดขยาย = กล่องข้อความ)
+function createTagCanvas(databaseKey, expanded) {
+    const data = workflowDatabase[databaseKey] || workflowDatabase['default'];
+    const colors = tagColorFromClass(data.colorClass);
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+
+    if (!expanded) {
+        // โหมดย่อ: วงกลมไอคอนเตือนเล็กๆ
+        canvas.width = 96; canvas.height = 96;
+        ctx.clearRect(0, 0, 96, 96);
+        ctx.beginPath();
+        ctx.arc(48, 48, 38, 0, Math.PI * 2);
+        ctx.fillStyle = colors.bg;
+        ctx.fill();
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = '#ffffff';
+        ctx.stroke();
+        ctx.font = 'bold 42px Arial';
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('!', 48, 52);
+    } else {
+        // โหมดขยาย: กล่องข้อความเต็มตามคู่มือ (tagText)
+        const text = data.tagText || data.name || '';
+        ctx.font = 'bold 26px "Segoe UI", Arial, sans-serif';
+        // วัดความกว้างข้อความเพื่อ wrap
+        const maxWidth = 520;
+        const words = text.split(' ');
+        const lines = [];
+        let line = '';
+        const measureCtx = document.createElement('canvas').getContext('2d');
+        measureCtx.font = 'bold 26px "Segoe UI", Arial, sans-serif';
+        for (const w of words) {
+            const test = line ? line + ' ' + w : w;
+            if (measureCtx.measureText(test).width > maxWidth && line) {
+                lines.push(line); line = w;
+            } else { line = test; }
+        }
+        if (line) lines.push(line);
+
+        const lineHeight = 36;
+        const padding = 24;
+        const boxWidth = maxWidth + padding * 2;
+        const boxHeight = lines.length * lineHeight + padding * 2;
+        canvas.width = boxWidth;
+        canvas.height = boxHeight;
+
+        ctx.fillStyle = colors.bg;
+        ctx.beginPath();
+        ctx.roundRect ? ctx.roundRect(0, 0, boxWidth, boxHeight, 14) : ctx.rect(0, 0, boxWidth, boxHeight);
+        ctx.fill();
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = colors.border;
+        ctx.stroke();
+
+        ctx.font = 'bold 26px "Segoe UI", Arial, sans-serif';
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        lines.forEach((l, i) => {
+            ctx.fillText(l, boxWidth / 2, padding + lineHeight * i + lineHeight / 2);
+        });
+    }
+    return canvas;
+}
+
+function buildProximitySprite(databaseKey) {
+    const canvas = createTagCanvas(databaseKey, false);
+    const tex = new THREE.CanvasTexture(canvas);
+    const mat = new THREE.SpriteMaterial({ map: tex, depthTest: false, sizeAttenuation: true });
+    const sprite = new THREE.Sprite(mat);
+    sprite.scale.set(0.5, 0.5, 1);
+    sprite.renderOrder = 999;
+    return sprite;
+}
+
+function updateSpriteTexture(sprite, databaseKey, expanded) {
+    const canvas = createTagCanvas(databaseKey, expanded);
+    sprite.material.map.dispose();
+    const tex = new THREE.CanvasTexture(canvas);
+    sprite.material.map = tex;
+    sprite.material.needsUpdate = true;
+    if (expanded) {
+        // ปรับ scale ตามสัดส่วน canvas เพื่อไม่ให้ข้อความบิดเบี้ยว
+        const aspect = canvas.width / canvas.height;
+        sprite.scale.set(2.2 * aspect, 2.2, 1);
+    } else {
+        sprite.scale.set(0.5, 0.5, 1);
+    }
+}
+
+// สร้าง proximity tag ให้ทุก mesh ในโมเดลโรงงาน (เรียกหลังโหลดโมเดลเสร็จ)
+function buildProximityTags() {
+    // ล้างป้ายเก่าก่อน
+    proximityTags.forEach(t => { scene.remove(t.sprite); t.sprite.material.map.dispose(); t.sprite.material.dispose(); });
+    proximityTags.length = 0;
+
+    if (!factoryModel) return;
+    factoryModel.updateMatrixWorld(true);
+    factoryModel.traverse(function (child) {
+        if (!child.isMesh) return;
+        const databaseKey = resolveDatabaseKey(child, child.name);
+        // ข้ามจุด "default" เพื่อไม่ให้รกฉาก (โซนทั่วไปไม่ต้องมีป้ายลอย)
+        if (databaseKey === 'default') return;
+
+        const worldPos = new THREE.Vector3();
+        child.getWorldPosition(worldPos);
+        const box = new THREE.Box3().setFromObject(child);
+        const height = box.max.y - box.min.y;
+
+        const sprite = buildProximitySprite(databaseKey);
+        sprite.position.set(worldPos.x, box.max.y + Math.max(height * 0.15, 0.4), worldPos.z);
+        scene.add(sprite);
+
+        proximityTags.push({ sprite, mesh: child, databaseKey, expanded: false });
+    });
+}
+
+// เรียกทุกเฟรมเพื่ออัปเดตว่าป้ายไหนควรขยาย/ย่อ ตามระยะห่างจาก avatar
+function updateProximityTags() {
+    if (!avatarModel || proximityTags.length === 0) return;
+    const avatarPos = avatarModel.position;
+
+    proximityTags.forEach(t => {
+        const dist = avatarPos.distanceTo(t.sprite.position);
+        const shouldExpand = dist <= PROXIMITY_RANGE;
+        if (shouldExpand !== t.expanded) {
+            t.expanded = shouldExpand;
+            updateSpriteTexture(t.sprite, t.databaseKey, shouldExpand);
+        }
+    });
+}
+
+// Hook เข้า render loop เดิม (ใช้ renderer.render ที่ multiplayer module patch ไว้แล้ว)
+const _origRenderForTags = renderer.render.bind(renderer);
+renderer.render = function(sc, cam) {
+    updateProximityTags();
+    _origRenderForTags(sc, cam);
+};
+
+// เรียกสร้างป้ายหลังโหลดโมเดลทุกครั้ง — wrap buildColliders เดิมแบบปลอดภัย (ใช้ var เพื่อ override การเรียกผ่าน global scope)
+buildColliders = (function(originalFn) {
+    return function() {
+        originalFn();
+        buildProximityTags();
+    };
+})(buildColliders);
+// ============================================================
+// END PROXIMITY TAG SYSTEM
 // ============================================================
