@@ -1288,3 +1288,35 @@ window.addEventListener('DOMContentLoaded', () => {
 window.addEventListener('resize', () => {
     setTimeout(initMobileJoystick, 200);
 });
+// ==========================================
+// SYSTEM: MOBILE AUTO CLOSE BUTTON IN PANELS
+// ==========================================
+function injectMobileCloseButtons() {
+    // หาหน้าต่าง Panel ทั้งหมดในระบบ
+    const panels = document.querySelectorAll('.panel');
+    
+    panels.forEach(panel => {
+        // ตรวจสอบว่ามีปุ่มปิดอยู่แล้วหรือยัง ป้องกันการสร้างซ้ำ
+        if (panel.querySelector('.mobile-close-panel-btn')) return;
+
+        // สร้างปุ่มกากบาทสีแดง
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'mobile-close-panel-btn';
+        closeBtn.innerHTML = '✕';
+        closeBtn.title = 'ปิดหน้าต่าง';
+
+        // เมื่อกดปุ่ม ให้ซ่อนแผงหน้าต่างนั้นทันที
+        closeBtn.addEventListener('click', (e) => {
+            e.stopPropagation(); // ป้องกัน event บัคไปโดนฉากหลัง
+            panel.style.display = 'none';
+        });
+
+        // แทรกลงไปใน panel
+        panel.appendChild(closeBtn);
+    });
+}
+
+// เรียกทำงานทันทีที่โหลดหน้าจอหลักเสร็จสิ้น
+window.addEventListener('DOMContentLoaded', () => {
+    injectMobileCloseButtons();
+});
