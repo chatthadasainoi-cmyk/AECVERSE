@@ -2,18 +2,16 @@
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0a0f14); // เปลี่ยนสีพื้นหลังให้เข้าธีมดาร์กโหมด
 
-const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+// 💡 แก้บั๊กภาพเอียง/บิดเบี้ยว: เลย์เอาต์ใหม่มี panel ซ้าย-ขวากินพื้นที่ ทำให้ canvas-container
+// ไม่ได้กว้างเท่า window เต็มจอ ต้องอ้างอิงขนาดจริงของ container แทน window.innerWidth/Height
+const canvasContainer = document.getElementById('canvas-container');
+const camera = new THREE.PerspectiveCamera(60, canvasContainer.clientWidth / canvasContainer.clientHeight, 0.1, 1000);
 camera.position.set(0, 6, 12); 
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
-// หาโค้ดตั้งค่า renderer เดิมของคุณ แล้วเพิ่มบรรทัดล่างนี้ต่อท้าย
-renderer.setSize(window.innerWidth, window.innerHeight);
-
-// บรรทัดที่ต้องเพิ่ม: จำกัดความละเอียดหน้าจอบนมือถือไม่ให้เกิน 1.5 หรือ 2 เท่า 
-// มือถือรุ่นใหม่ๆ จอละเอียดเท่าทีวี 4K ถ้าให้ Three.js วาด 3D เต็มความละเอียดจอที่มี 6005 ชิ้นจะกระตุกมาก
-// การใส่คำสั่งนี้จะช่วยคุมให้ภาพคมพอดีและลื่นขึ้นแบบก้าวกระโดด
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
-document.getElementById('canvas-container').appendChild(renderer.domElement);
+renderer.setSize(canvasContainer.clientWidth, canvasContainer.clientHeight);
+canvasContainer.appendChild(renderer.domElement);
 
 const controls = new THREE.OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
@@ -711,9 +709,9 @@ function animate() {
 animate();
 
 window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.aspect = canvasContainer.clientWidth / canvasContainer.clientHeight;
     camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setSize(canvasContainer.clientWidth, canvasContainer.clientHeight);
 });
 
 
