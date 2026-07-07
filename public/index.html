@@ -171,6 +171,36 @@
         <h4>📦 รายการชิ้นส่วนโครงสร้าง</h4>
         <div id="model-meta"></div>
         <div id="mesh-container"></div>
+        
+        <!-- Modal: เลือก Type สำหรับ mesh ที่คลิกเลือก -->
+        <div id="type-selector-modal" class="type-selector-modal" style="display: none;">
+            <div class="type-selector-content">
+                <h4 style="margin-top: 0;">🔧 กำหนดประเภท (Type)</h4>
+                <p id="modal-mesh-name" style="font-size: 12px; color: #94a3b8; margin-bottom: 12px;"></p>
+                
+                <label class="section-label">เลือกประเภทของชิ้นส่วน:</label>
+                <select id="type-selector-dropdown" class="type-selector-dropdown">
+                    <option value="">-- เลือกประเภท --</option>
+                    <option value="tank">🔴 Tank (บ่อหมัก)</option>
+                    <option value="manhole">🔴 Manhole (ประตูท่อ)</option>
+                    <option value="pvrv">🔴 PVRV (จุดเชื่อมต่อ)</option>
+                    <option value="flare">🟢 Flare (หอเผา)</option>
+                    <option value="flame_arrester">🟠 Flame Arrester (ดักไฟ)</option>
+                    <option value="pipe">🟠 Pipe (ท่อ)</option>
+                    <option value="lightning_rod">🟠 Lightning Rod (เสาล่อฟ้า)</option>
+                    <option value="loto">🔵 LOTO (ตู้ควบคุม)</option>
+                    <option value="ppe_checkpoint">🔵 PPE Checkpoint (จุดตรวจ)</option>
+                    <option value="esd">🟢 ESD (ปุ่มฉุกเฉิน)</option>
+                    <option value="utilization">🟢 Utilization (ระบบใช้ประโยชน์)</option>
+                    <option value="default">🔷 Default (ทั่วไป)</option>
+                </select>
+
+                <div class="type-selector-actions">
+                    <button class="panel-action-btn btn-save" onclick="confirmTypeSelection()">✓ ยืนยัน</button>
+                    <button class="panel-action-btn" onclick="closeTypeSelector()">✕ ยกเลิก</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- แผงข้อมูลกระบวนการและความปลอดภัย -->
@@ -208,7 +238,7 @@
                 <p style="margin-top:0;"><strong>🛡️ ข้อกำหนดวิศวกรรม & PPE:</strong></p>
                 <div id="steps-view-area"></div>
                 <div id="steps-edit-area" style="display: none;">
-                    <textarea id="input-edit-steps" class="ui-edit-textarea" style="height: 120px;" placeholder="แยกขั้นตอนด้วยเครื่องหมายจุลภาค (,)"></textarea>
+                    <textarea id="input-edit-steps" class="ui-edit-textarea" style="height: 120px;" placeholder="แยกขั้นตอนด้วยเครื่องหมายจุลภาค"></textarea>
                 </div>
             </div>
         </div>
@@ -221,7 +251,7 @@
 
     <!--
       สคริปต์เสริมสำหรับแท็บซ้าย/ขวา — ไม่ได้แก้ app.js เดิมแม้แต่บรรทัดเดียว
-      แค่คุมว่าใน 1 คอลัมน์ให้เห็นแผงเดียวพร้อมกัน (แทนที่จะเห็นทั้ง 3 แผงกองกัน)
+      แค่คุมว่าใน 1 คอลัมน์ให้เห็นแผงเดียวพร้อมกัน (แทนที่จะเห็นทั้ง 3 แผงกองซ้อน)
       หมายเหตุ: ปุ่มลัดคีย์บอร์ด (H/T/M/P/U) เดิมยังทำงานได้ตามปกติ เพราะเรียก
       togglePanelElement() ตัวเดิม แค่ถ้ากดสลับตอนอยู่แท็บอื่น จะเห็น 2 แผงซ้อนกัน
       ชั่วคราว — เป็นพฤติกรรมที่ตั้งใจให้ยังใช้คีย์ลัดแบบเดิมได้อยู่
