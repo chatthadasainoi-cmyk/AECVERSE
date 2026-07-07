@@ -526,8 +526,11 @@ function highlightAndShowWorkflow(targetMesh, meshName, method) {
 }
 
 function renderWorkflowUI(name, desc, stepsArray, method, colorClass) {
-    document.getElementById('process-panel').className = `panel ${colorClass}`;
-    document.getElementById('title-container').innerHTML = `<span id="process-title">⚙️ โซน: ${name}</span>`;
+    document.getElementById('process-panel').className = `panel floating-safety-panel ${colorClass}`;
+    document.getElementById('title-container').innerHTML = `
+        <span id="process-title" style="font-weight: bold; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">⚙️ โซน: ${name}</span>
+        <span id="detection-method" class="method-tag" style="flex-shrink: 0;"></span>
+    `;
     document.getElementById('desc-view-area').innerText = desc;
     document.getElementById('detection-method').innerText = method;
 
@@ -546,9 +549,11 @@ function enableLiveEdit() {
     if (!activeSelectedMeshUUID) return;
     const currentData = workflowDatabase[activeSelectedKeyKey] || workflowDatabase["default"];
     const currentTitleText = document.getElementById('process-title').innerText.replace("⚙️ โซน: ", "");
+    const currentMethodText = document.getElementById('detection-method') ? document.getElementById('detection-method').innerText : '';
 
     document.getElementById('title-container').innerHTML = `
-        <input type="text" id="input-edit-title" class="ui-edit-input" style="font-weight:bold;" value="${currentData.name !== "โครงสร้างทั่วไป" ? currentData.name : currentTitleText}">
+        <input type="text" id="input-edit-title" class="ui-edit-input" style="font-weight:bold; flex:1;" value="${currentData.name !== "โครงสร้างทั่วไป" ? currentData.name : currentTitleText}">
+        <span id="detection-method" class="method-tag" style="flex-shrink: 0;">${currentMethodText}</span>
     `;
     document.getElementById('input-edit-desc').value = currentData.desc;
     document.getElementById('input-edit-steps').value = currentData.steps.join(', ');
