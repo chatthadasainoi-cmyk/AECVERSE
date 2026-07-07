@@ -44,7 +44,13 @@
         </div>
 
         <div style="margin-top: 15px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 12px;">
-            <button class="panel-action-btn btn-save" style="width: 100%; padding: 10px;" onclick="exportWorkflowDatabase()">💾 ส่งออกฐานข้อมูลระบบ (.json)</button>
+            <label class="section-label">💾 เซฟ / โหลดฉาก (เหมือนเซฟเกม)</label>
+            <button class="panel-action-btn btn-save" style="width: 100%; padding: 10px; margin-bottom: 8px;" onclick="saveScene()">💾 บันทึกฉากทั้งหมด (.json)</button>
+            <div style="position: relative;">
+                <button class="panel-action-btn" style="width: 100%; padding: 10px; background:rgba(56,189,248,0.1); border-color:#38bdf8; color:#38bdf8;">📂 โหลดฉากที่บันทึกไว้</button>
+                <input type="file" id="scene-load-input" accept=".json" class="file-input" style="cursor:pointer;" />
+            </div>
+            <div id="scene-save-status" class="status-msg" style="margin-top:6px;"></div>
         </div>
     </div>
 
@@ -143,6 +149,48 @@
                 <button id="btn-mobile-jump" class="mobile-action-btn" style="background: rgba(0, 255, 255, 0.2); border-color: #00ffff;">🦘 Jump</button>
             </div>
         </div>
+
+        <!-- แผงข้อมูลความปลอดภัย — ลอยทับ canvas เหมือนเดิม (ไม่กินพื้นที่คอลัมน์) กว้างขึ้น และหายเองเมื่อเดินออกห่างหรือ deselect -->
+        <div id="process-panel" class="panel floating-safety-panel" style="display: none;">
+            <div class="process-header" style="flex-direction: column; align-items: stretch; gap: 8px;">
+                <div id="title-container" style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                    <span id="process-title" style="font-weight: bold; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">⚙️ ชิ้นส่วน: รอตรวจจับ...</span>
+                    <span id="detection-method" class="method-tag" style="flex-shrink: 0;">ระบบตรวจจับ</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                    <button id="btn-assign-type" class="panel-action-btn" onclick="openTypeSelectorForActive()" style="background:rgba(168,85,247,0.15);border-color:#a855f7;color:#a855f7; font-size:12px; padding:6px 10px;">🏷️ กำหนด Type</button>
+                    <button id="btn-edit-mode" class="panel-action-btn btn-edit-trigger" onclick="enableLiveEdit()" style="font-size:12px; padding:6px 10px;">✏️ แก้ไข</button>
+                    <div id="edit-actions-group" style="display: none; gap: 6px;">
+                        <button class="panel-action-btn btn-save" onclick="saveLiveEdit()" style="font-size:12px; padding:6px 10px;">💾 บันทึก</button>
+                        <button class="panel-action-btn" onclick="cancelLiveEdit()" style="font-size:12px; padding:6px 10px;">❌ ยกเลิก</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="process-grid">
+                <div>
+                    <p style="margin-top:0;"><strong>📝 มาตรฐานความปลอดภัย:</strong></p>
+                    <div id="desc-view-area" style="color: #e0e0e0; font-size: 13px; min-height: 40px;">คำอธิบาย...</div>
+                    <div id="desc-edit-area" style="display: none;">
+                        <textarea id="input-edit-desc" class="ui-edit-textarea"></textarea>
+                    </div>
+
+                    <div class="telemetry-box">
+                        <div class="telemetry-title">📊 สัญญาณเซนเซอร์จำลอง (IoT Telemetry)</div>
+                        <div class="telemetry-row"><span>สถานะอุปกรณ์:</span><span class="telemetry-val" style="color:#00ff66;">ONLINE</span></div>
+                        <div class="telemetry-row"><span>แรงดันก๊าซ (Pressure):</span><span id="iot-pressure" class="telemetry-val">0.00 bar</span></div>
+                        <div class="telemetry-row"><span>อุณหภูมิ (Temperature):</span><span id="iot-temp" class="telemetry-val">0.0 °C</span></div>
+                    </div>
+                </div>
+                <div>
+                    <p style="margin-top:0;"><strong>🛡️ ข้อกำหนดวิศวกรรม & PPE:</strong></p>
+                    <div id="steps-view-area"></div>
+                    <div id="steps-edit-area" style="display: none;">
+                        <textarea id="input-edit-steps" class="ui-edit-textarea" style="height: 120px;" placeholder="แยกขั้นตอนด้วยเครื่องหมายจุลภาค (,)"></textarea>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- แผงควบคุมด่วน HUD -->
@@ -150,7 +198,7 @@
         <div class="key-btn-item" onclick="togglePanelElement('dashboard')"><span class="key-badge">H</span> เมนูหลัก</div>
         <div class="key-btn-item" onclick="togglePanelElement('transform-panel')"><span class="key-badge">T</span> ปรับตำแหน่ง</div>
         <div class="key-btn-item" onclick="togglePanelElement('details-panel')"><span class="key-badge">M</span> รายชื่อชิ้นส่วน</div>
-        <div class="key-btn-item" onclick="togglePanelElement('process-panel')"><span class="key-badge">P</span> บอร์ดความปลอดภัย</div>
+        <!-- ปุ่ม "บอร์ดความปลอดภัย" ถูกตัดออก — ป็อปอัพนี้แสดงอัตโนมัติเมื่อคลิก/เดินชนชิ้นส่วนเท่านั้น -->
         <div class="key-btn-item" onclick="togglePanelElement('multiplayer-panel')"><span class="key-badge">U</span> Multiplayer</div>
         <div class="key-btn-item" onclick="resetCameraToAvatar()"><span class="key-badge">R</span> รีเซ็ตมุมกล้อง</div>
         <div id="freelook-btn" class="key-btn-item" onclick="document.dispatchEvent(new KeyboardEvent('keydown',{key:'f'}))"><span class="key-badge">F</span> Free Look</div>
@@ -158,61 +206,13 @@
     </div>
   </div>
 
-  <!-- RIGHT COLUMN: structure list + process/safety board -->
+  <!-- RIGHT COLUMN: structure list only (process-panel moved to floating overlay) -->
   <div id="right-col" class="side-col">
-    <!-- แถบแท็บ: สลับระหว่างลิสต์ชิ้นส่วน กับ บอร์ดความปลอดภัยของชิ้นที่เลือก -->
-    <div class="side-tabs" id="right-tabs">
-        <div class="side-tab" data-target="details-panel">📦 ชิ้นส่วน</div>
-        <div class="side-tab" data-target="process-panel">🛡️ ความปลอดภัย</div>
-    </div>
-
     <!-- แผงรายชื่อชิ้นส่วนโครงสร้าง -->
-    <div id="details-panel" class="panel" style="display: none;">
+    <div id="details-panel" class="panel">
         <h4>📦 รายการชิ้นส่วนโครงสร้าง</h4>
         <div id="model-meta"></div>
         <div id="mesh-container"></div>
-    </div>
-
-    <!-- แผงข้อมูลกระบวนการและความปลอดภัย -->
-    <div id="process-panel" class="panel" style="display: none;">
-        <div class="process-header" style="flex-direction: column; align-items: stretch; gap: 8px;">
-            <div id="title-container" style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-                <span id="process-title" style="font-weight: bold; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">⚙️ ชิ้นส่วน: รอตรวจจับ...</span>
-                <span id="detection-method" class="method-tag" style="flex-shrink: 0;">ระบบตรวจจับ</span>
-            </div>
-            <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
-                <button id="btn-assign-type" class="panel-action-btn" onclick="openTypeSelectorForActive()" style="flex:1; min-width:0; background:rgba(168,85,247,0.15);border-color:#a855f7;color:#a855f7; font-size:11px; padding:6px 8px;">🏷️ Type</button>
-                <button id="btn-edit-mode" class="panel-action-btn btn-edit-trigger" onclick="enableLiveEdit()" style="flex:1; min-width:0; font-size:11px; padding:6px 8px;">✏️ แก้ไข</button>
-                <div id="edit-actions-group" style="display: none; gap: 5px; flex: 1;">
-                    <button class="panel-action-btn btn-save" onclick="saveLiveEdit()" style="flex:1; font-size:11px; padding:6px 8px;">💾 บันทึก</button>
-                    <button class="panel-action-btn" onclick="cancelLiveEdit()" style="flex:1; font-size:11px; padding:6px 8px;">❌ ยกเลิก</button>
-                </div>
-            </div>
-        </div>
-
-        <div class="process-grid">
-            <div>
-                <p style="margin-top:0;"><strong>📝 มาตรฐานความปลอดภัย:</strong></p>
-                <div id="desc-view-area" style="color: #e0e0e0; font-size: 13px; min-height: 40px;">คำอธิบาย...</div>
-                <div id="desc-edit-area" style="display: none;">
-                    <textarea id="input-edit-desc" class="ui-edit-textarea"></textarea>
-                </div>
-
-                <div class="telemetry-box">
-                    <div class="telemetry-title">📊 สัญญาณเซนเซอร์จำลอง (IoT Telemetry)</div>
-                    <div class="telemetry-row"><span>สถานะอุปกรณ์:</span><span class="telemetry-val" style="color:#00ff66;">ONLINE</span></div>
-                    <div class="telemetry-row"><span>แรงดันก๊าซ (Pressure):</span><span id="iot-pressure" class="telemetry-val">0.00 bar</span></div>
-                    <div class="telemetry-row"><span>อุณหภูมิ (Temperature):</span><span id="iot-temp" class="telemetry-val">0.0 °C</span></div>
-                </div>
-            </div>
-            <div>
-                <p style="margin-top:0;"><strong>🛡️ ข้อกำหนดวิศวกรรม & PPE:</strong></p>
-                <div id="steps-view-area"></div>
-                <div id="steps-edit-area" style="display: none;">
-                    <textarea id="input-edit-steps" class="ui-edit-textarea" style="height: 120px;" placeholder="แยกขั้นตอนด้วยเครื่องหมายจุลภาค (,)"></textarea>
-                </div>
-            </div>
-        </div>
     </div>
   </div>
 
@@ -272,7 +272,7 @@
         }
 
         initTabs('left-tabs', ['dashboard', 'transform-panel']);
-        initTabs('right-tabs', ['details-panel', 'process-panel']);
+        // right-tabs ถูกลบแล้ว — details-panel แสดงตลอด, process-panel ลอยทับ canvas แยกต่างหาก
     })();
     </script>
 </body>
