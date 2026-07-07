@@ -1366,3 +1366,403 @@ function disposeOldFactory(model) {
     });
     scene.remove(model);
 }
+
+
+// ============================================================
+// REQUIREMENTS MODULE — 6 ข้อตาม Spec
+// ============================================================
+
+// ─────────────────────────────────────────────
+// REQ 1 & 2: Lock / Unlock Transform (Scale + Position + Rotation)
+// ─────────────────────────────────────────────
+let transformLocked = false;
+
+function toggleTransformLock() {
+    transformLocked = !transformLocked;
+    const btn = document.getElementById('btn-lock-transform');
+    const sliders = ['param-posX','param-posY','param-posZ','param-rotY','param-scale'];
+    sliders.forEach(id => { const el = document.getElementById(id); if (el) el.disabled = transformLocked; });
+    if (btn) {
+        btn.innerText = transformLocked ? '🔒 ล็อกแล้ว' : '🔓 ปลดล็อก';
+        btn.style.background = transformLocked ? 'rgba(239,68,68,0.2)' : 'rgba(34,197,94,0.1)';
+        btn.style.borderColor = transformLocked ? '#ef4444' : '#22c55e';
+        btn.style.color = transformLocked ? '#ef4444' : '#22c55e';
+    }
+}
+window.toggleTransformLock = toggleTransformLock;
+
+// Intercept slider changes when locked
+['param-posX','param-posY','param-posZ','param-rotY','param-scale'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('mousedown', (e) => { if (transformLocked) e.preventDefault(); });
+    el.addEventListener('touchstart', (e) => { if (transformLocked) e.preventDefault(); }, { passive: false });
+});
+
+// Add lock button to transform panel
+(function addLockButton() {
+    const panel = document.getElementById('transform-panel');
+    if (!panel) return;
+    const btn = document.createElement('button');
+    btn.id = 'btn-lock-transform';
+    btn.className = 'panel-action-btn';
+    btn.innerText = '🔓 ปลดล็อก';
+    btn.style.cssText = 'width:100%;margin-top:10px;background:rgba(34,197,94,0.1);border-color:#22c55e;color:#22c55e;';
+    btn.onclick = toggleTransformLock;
+    panel.appendChild(btn);
+})();
+
+// ─────────────────────────────────────────────
+// REQ 3: Avatar สัดส่วนสมจริงยิ่งขึ้น
+// แทนที่ createEngineerAvatar เดิมด้วยเวอร์ชันสัดส่วนสมจริง
+// ─────────────────────────────────────────────
+function createRealisticEngineerAvatar(helmetColor) {
+    const group = new THREE.Group();
+    const hex = helmetColor ? parseInt(String(helmetColor).replace('#',''), 16) : 0xff9900;
+
+    const skinMat   = new THREE.MeshStandardMaterial({ color: 0xf4c08a, roughness: 0.7 });
+    const suitMat   = new THREE.MeshStandardMaterial({ color: 0xff6600, roughness: 0.6 });
+    const darkMat   = new THREE.MeshStandardMaterial({ color: 0x1a1a2e, roughness: 0.8 });
+    const helmetMat = new THREE.MeshStandardMaterial({ color: hex, roughness: 0.3, metalness: 0.3 });
+    const glassMat  = new THREE.MeshStandardMaterial({ color: 0x88ccff, transparent: true, opacity: 0.45 });
+    const visibMat  = new THREE.MeshStandardMaterial({ color: 0xffff00 });
+    const bootMat   = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9 });
+
+    // สัดส่วนมนุษย์จริง: ความสูงรวม ~1.75m
+    // ─ หัว: 0.22m cube (ที่ y=1.53–1.75)
+    // ─ ลำตัว: 0.5m tall (y=0.9–1.4) + คอ 0.1m (y=1.4–1.5)
+    // ─ แขน: 0.55m each side
+    // ─ ขา: 0.5m each (y=0.38–0.88) + รองเท้า 0.1m
+
+    // ── หัว ──
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.24, 0.22), skinMat);
+    head.position.y = 1.62; group.add(head);
+
+    // คอ
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 0.1, 8), skinMat);
+    neck.position.y = 1.49; group.add(neck);
+
+    // หมวก Hard Hat
+    const helmetTop = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.12, 0.26), helmetMat);
+    helmetTop.position.y = 1.78; group.add(helmetTop);
+    const helmetBrim = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.03, 0.3), helmetMat);
+    helmetBrim.position.y = 1.72; group.add(helmetBrim);
+
+    // วีซอร์ (ด้าน -Z = หน้า)
+    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.08, 0.03), glassMat);
+    visor.position.set(0, 1.62, -0.12); group.add(visor);
+
+    // ตา
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0x111111 });
+    const eyeL = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.03, 0.02), eyeMat);
+    eyeL.position.set(-0.05, 1.63, -0.112); group.add(eyeL);
+    const eyeR = eyeL.clone(); eyeR.position.set(0.05, 1.63, -0.112); group.add(eyeR);
+
+    // ── ลำตัว ──
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.5, 0.2), suitMat);
+    torso.position.y = 1.14; group.add(torso);
+
+    // แถบ Hi-Vis 2 เส้น
+    const stripe1 = new THREE.Mesh(new THREE.BoxGeometry(0.39, 0.05, 0.21), visibMat);
+    stripe1.position.y = 1.22; group.add(stripe1);
+    const stripe2 = new THREE.Mesh(new THREE.BoxGeometry(0.39, 0.05, 0.21), visibMat);
+    stripe2.position.y = 1.08; group.add(stripe2);
+
+    // ซิปกลาง
+    const zip = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.45, 0.21), darkMat);
+    zip.position.y = 1.14; group.add(zip);
+
+    // ── แขน ── (แยกเป็น upper/lower เพื่อ animation งอข้อศอก)
+    const upperArmGeo = new THREE.BoxGeometry(0.11, 0.28, 0.13);
+    const lowerArmGeo = new THREE.BoxGeometry(0.1, 0.25, 0.12);
+    const handGeo = new THREE.BoxGeometry(0.09, 0.1, 0.05);
+
+    // แขนซ้าย
+    const uArmL = new THREE.Mesh(upperArmGeo, suitMat); uArmL.position.set(-0.265, 1.24, 0); group.add(uArmL);
+    const lArmL = new THREE.Mesh(lowerArmGeo, suitMat); lArmL.position.set(-0.265, 0.94, 0); group.add(lArmL);
+    const handL = new THREE.Mesh(handGeo, skinMat); handL.position.set(-0.265, 0.77, 0); group.add(handL);
+    // Hi-vis แขนซ้าย
+    const asL = new THREE.Mesh(new THREE.BoxGeometry(0.115, 0.04, 0.135), visibMat); asL.position.set(-0.265, 1.14, 0); group.add(asL);
+
+    // แขนขวา
+    const uArmR = new THREE.Mesh(upperArmGeo, suitMat); uArmR.position.set(0.265, 1.24, 0); group.add(uArmR);
+    const lArmR = new THREE.Mesh(lowerArmGeo, suitMat); lArmR.position.set(0.265, 0.94, 0); group.add(lArmR);
+    const handR = new THREE.Mesh(handGeo, skinMat); handR.position.set(0.265, 0.77, 0); group.add(handR);
+    const asR = asL.clone(); asR.position.set(0.265, 1.14, 0); group.add(asR);
+
+    // ── เอว/กางเกง ──
+    const waist = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.12, 0.18), darkMat);
+    waist.position.y = 0.88; group.add(waist);
+
+    // Belt
+    const belt = new THREE.Mesh(new THREE.BoxGeometry(0.37, 0.05, 0.19), new THREE.MeshStandardMaterial({color:0x8B4513, roughness:0.5}));
+    belt.position.y = 0.92; group.add(belt);
+
+    // ── ขา ──
+    const legGeo = new THREE.BoxGeometry(0.14, 0.42, 0.15);
+    const legL = new THREE.Mesh(legGeo, suitMat); legL.position.set(-0.1, 0.6, 0); group.add(legL);
+    const legR = new THREE.Mesh(legGeo, suitMat); legR.position.set(0.1, 0.6, 0); group.add(legR);
+
+    // Hi-vis ขา
+    const lsL = new THREE.Mesh(new THREE.BoxGeometry(0.145, 0.04, 0.155), visibMat); lsL.position.set(-0.1, 0.52, 0); group.add(lsL);
+    const lsR = lsL.clone(); lsR.position.set(0.1, 0.52, 0); group.add(lsR);
+
+    // ── รองเท้า ──
+    const bootGeo = new THREE.BoxGeometry(0.16, 0.1, 0.22);
+    const bootL = new THREE.Mesh(bootGeo, bootMat); bootL.position.set(-0.1, 0.33, -0.03); group.add(bootL);
+    const bootR = bootL.clone(); bootR.position.set(0.1, 0.33, -0.03); group.add(bootR);
+
+    // Shadow blob
+    const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.25, 16), new THREE.MeshBasicMaterial({color:0x000000,transparent:true,opacity:0.18}));
+    shadow.rotation.x = -Math.PI/2; shadow.position.y = 0.01; group.add(shadow);
+
+    // Store refs for walk animation
+    group.userData.armL = uArmL;
+    group.userData.armR = uArmR;
+    group.userData.lArmL = lArmL;
+    group.userData.lArmR = lArmR;
+    group.userData.legL = legL;
+    group.userData.legR = legR;
+    group.userData.walkPhase = 0;
+
+    return group;
+}
+
+// Override animateEngineerWalk ให้แกว่งทั้งแขนบน-ล่าง-ขา
+(function overrideWalkAnim() {
+    const _orig = animateEngineerWalk;
+    window.animateEngineerWalk = function(g, isMoving) {
+        if (!g || !g.userData.legL) return;
+        if (isMoving) g.userData.walkPhase += 0.1;
+        else g.userData.walkPhase *= 0.8;
+        const s = Math.sin(g.userData.walkPhase) * 0.45;
+        if (g.userData.armL) g.userData.armL.rotation.x =  s;
+        if (g.userData.armR) g.userData.armR.rotation.x = -s;
+        if (g.userData.lArmL) g.userData.lArmL.rotation.x = s * 0.5;
+        if (g.userData.lArmR) g.userData.lArmR.rotation.x = -s * 0.5;
+        if (g.userData.legL) g.userData.legL.rotation.x = -s;
+        if (g.userData.legR) g.userData.legR.rotation.x =  s;
+    };
+})();
+
+// Override createEngineerAvatar → ใช้ realistic version
+window.createEngineerAvatar = createRealisticEngineerAvatar;
+
+// Rebuild avatar ทันที
+if (avatarModel) {
+    scene.remove(avatarModel);
+    const newAvatar = createRealisticEngineerAvatar('#ff9900');
+    newAvatar.position.copy(avatarModel.position || new THREE.Vector3(0, 0.9, 8));
+    newAvatar.rotation.copy(avatarModel.rotation);
+    scene.add(newAvatar);
+    avatarModel = newAvatar;
+}
+
+// ─────────────────────────────────────────────
+// REQ 4: Safety Zone Hotspot — กำหนดจุดอุปกรณ์ด้วย Pin
+// คลิก Mesh → popup ความปลอดภัย (ยังทำงานอยู่เดิม)
+// เพิ่ม: ป้าย "!" ขนาดเล็กลอยเหนือทุก mesh ที่มี safety data
+// ─────────────────────────────────────────────
+// (ระบบนี้ทำงานผ่าน proximity tag system และ highlightAndShowWorkflow เดิม)
+
+// ─────────────────────────────────────────────
+// REQ 5: PPE Safety Zone — วงกลมรัศมี 15m รอบอุปกรณ์อันตราย
+// ─────────────────────────────────────────────
+const PPE_ZONE_RADIUS = 15;
+const PPE_ZONE_KEYS = ['tank', 'manhole', 'pvrv', 'flare']; // โซนที่ต้องสวม PPE
+const ppeZoneCircles = [];
+let ppeAlertActive = false;
+
+function buildPPEZones() {
+    // ล้างวงเก่า
+    ppeZoneCircles.forEach(c => scene.remove(c));
+    ppeZoneCircles.length = 0;
+    if (!factoryModel) return;
+
+    factoryModel.traverse(function(child) {
+        if (!child.isMesh) return;
+        const key = resolveDatabaseKey(child, child.name);
+        if (!PPE_ZONE_KEYS.includes(key)) return;
+
+        const worldPos = new THREE.Vector3();
+        child.getWorldPosition(worldPos);
+
+        // วงกลมพื้น (RingGeometry แบบ dashed ดูง่าย)
+        const ringGeo = new THREE.RingGeometry(PPE_ZONE_RADIUS - 0.15, PPE_ZONE_RADIUS + 0.15, 64);
+        const ringMat = new THREE.MeshBasicMaterial({ color: 0xffaa00, side: THREE.DoubleSide, transparent: true, opacity: 0.5 });
+        const ring = new THREE.Mesh(ringGeo, ringMat);
+        ring.rotation.x = -Math.PI / 2;
+        ring.position.set(worldPos.x, 0.05, worldPos.z);
+        ring.userData.centerX = worldPos.x;
+        ring.userData.centerZ = worldPos.z;
+        ring.userData.ppeKey = key;
+        scene.add(ring);
+        ppeZoneCircles.push(ring);
+
+        // ป้าย PPE label ลอยเหนือวง
+        const canvas = document.createElement('canvas');
+        canvas.width = 512; canvas.height = 128;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = 'rgba(255,170,0,0.88)';
+        ctx.roundRect(4, 4, 504, 120, 14); ctx.fill();
+        ctx.font = 'bold 34px Arial'; ctx.fillStyle = '#000';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('🛡️ PPE Zone — สวม 4-Gas Detector ก่อนเข้า', 256, 64);
+        const sp = new THREE.Sprite(new THREE.SpriteMaterial({map: new THREE.CanvasTexture(canvas), depthTest: false}));
+        sp.scale.set(8, 2, 1);
+        sp.position.set(worldPos.x, 1.5, worldPos.z - PPE_ZONE_RADIUS + 1);
+        scene.add(sp);
+        ppeZoneCircles.push(sp);
+    });
+}
+
+// เช็คทุกเฟรมว่า avatar อยู่ใน PPE zone ไหนไหม
+let _lastPPEAlertTime = 0;
+function checkPPEZones() {
+    if (!avatarModel || ppeZoneCircles.length === 0) return;
+    const ax = avatarModel.position.x, az = avatarModel.position.z;
+    let inside = false;
+    for (const obj of ppeZoneCircles) {
+        if (!obj.userData.centerX) continue;
+        const dx = ax - obj.userData.centerX, dz = az - obj.userData.centerZ;
+        if (Math.sqrt(dx*dx + dz*dz) <= PPE_ZONE_RADIUS) { inside = true; break; }
+    }
+    if (inside && !ppeAlertActive) {
+        ppeAlertActive = true;
+        mpAppendChat({ name:'⚠️ PPE Alert', color:'#ffaa00', text:'คุณเข้าสู่พื้นที่อันตราย! กรุณาสวม 4-Gas Detector และ PPE ทันที' });
+    } else if (!inside && ppeAlertActive) {
+        ppeAlertActive = false;
+        mpAppendChat({ name:'✅ ปลอดภัย', color:'#22c55e', text:'ออกจากพื้นที่อันตรายแล้ว' });
+    }
+}
+
+// ─────────────────────────────────────────────
+// REQ 6: ข้อมูลหายเมื่อเดินออกหรือชี้ซ้ำ (Deselect)
+// ─────────────────────────────────────────────
+let _lastSelectedUUID = null;
+let _lastInteractTime = 0;
+const DESELECT_DISTANCE = 4; // เมตร — ออกไปไกลกว่านี้ = ปิดป้าย
+const DESELECT_COOLDOWN = 300; // ms
+
+function checkAutoDeselect() {
+    if (!avatarModel || !factoryModel || !activeSelectedMeshUUID) return;
+    // หาตำแหน่ง mesh ที่ select ไว้
+    let selectedMeshPos = null;
+    factoryModel.traverse(child => {
+        if (child.isMesh && child.uuid === activeSelectedMeshUUID) {
+            selectedMeshPos = new THREE.Vector3();
+            child.getWorldPosition(selectedMeshPos);
+        }
+    });
+    if (!selectedMeshPos) return;
+    const dist = avatarModel.position.distanceTo(selectedMeshPos);
+    if (dist > DESELECT_DISTANCE) {
+        // ออกไปไกลแล้ว — ปิดป้าย
+        const panel = document.getElementById('process-panel');
+        if (panel) panel.style.display = 'none';
+        activeSelectedMeshUUID = null;
+        activeSelectedKeyKey = 'default';
+        // Reset highlight
+        if (factoryModel && currentMaterialMode === 'solid') {
+            factoryModel.traverse(child => {
+                if (child.isMesh && originalMaterials.has(child.uuid)) {
+                    child.material = originalMaterials.get(child.uuid).clone();
+                }
+            });
+        }
+    }
+}
+
+// "ชี้ซ้ำ" = คลิก mesh เดิม 2 ครั้ง → ปิดป้าย
+(function overrideHighlight() {
+    const _origHL = highlightAndShowWorkflow;
+    window.highlightAndShowWorkflow = function(targetMesh, meshName, method) {
+        const now = Date.now();
+        if (targetMesh.uuid === _lastSelectedUUID && now - _lastInteractTime < 1500 && method === 'คลิกเลือกโมเดล') {
+            // ชี้ซ้ำ → deselect
+            const panel = document.getElementById('process-panel');
+            if (panel) panel.style.display = 'none';
+            activeSelectedMeshUUID = null; activeSelectedKeyKey = 'default'; _lastSelectedUUID = null;
+            if (factoryModel && currentMaterialMode === 'solid') {
+                factoryModel.traverse(child => {
+                    if (child.isMesh && originalMaterials.has(child.uuid)) child.material = originalMaterials.get(child.uuid).clone();
+                });
+            }
+            return;
+        }
+        _lastSelectedUUID = targetMesh.uuid;
+        _lastInteractTime = now;
+        _origHL(targetMesh, meshName, method);
+    };
+})();
+
+// ─────────────────────────────────────────────
+// Hook เข้า render loop สำหรับ REQ 5 & 6
+// ─────────────────────────────────────────────
+const _origRenderReq = renderer.render.bind(renderer);
+renderer.render = function(sc, cam) {
+    checkPPEZones();
+    checkAutoDeselect();
+    _origRenderReq(sc, cam);
+};
+
+// Hook buildColliders เพื่อ rebuild PPE zones หลังโหลดโมเดล
+buildColliders = (function(origFn) {
+    return function() {
+        origFn();
+        buildPPEZones();
+    };
+})(buildColliders);
+
+// ─────────────────────────────────────────────
+// Mobile Controls — joystick + interact + jump
+// ─────────────────────────────────────────────
+(function initMobileControls() {
+    if (typeof nipplejs === 'undefined') return;
+    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.innerWidth <= 920;
+    if (!isMobile) return;
+
+    const joystickZone = document.getElementById('mobile-joystick-zone');
+    if (!joystickZone) return;
+
+    const manager = nipplejs.create({
+        zone: joystickZone, mode: 'static',
+        position: { left: '60px', bottom: '20px' },
+        color: '#00ffff', size: 100
+    });
+
+    manager.on('move', (evt, data) => {
+        const angle = data.angle.radian;
+        const force = Math.min(data.force, 1);
+        moveStatus.forward  = false; moveStatus.backward = false;
+        moveStatus.left = false; moveStatus.right = false;
+        if (force > 0.2) {
+            if (angle > 0.4 && angle < 2.7) moveStatus.forward = true;
+            if (angle > 3.6 || angle < -0.4 || (angle < 0 && angle > -2.7)) moveStatus.backward = true;
+            if (angle > 1.2 && angle < 4.3) moveStatus.left = true;
+            if (angle < -1.2 || angle > 4.3 || (angle > -0.4 && angle < 1.2)) moveStatus.right = true;
+        }
+    });
+    manager.on('end', () => {
+        moveStatus.forward = moveStatus.backward = moveStatus.left = moveStatus.right = false;
+    });
+
+    // Interact button — raycast หา mesh ใกล้ avatar ที่สุด
+    document.getElementById('btn-mobile-interact')?.addEventListener('click', () => {
+        if (!factoryModel || !avatarModel) return;
+        let closest = null; let minDist = 5;
+        factoryModel.traverse(child => {
+            if (!child.isMesh) return;
+            const p = new THREE.Vector3(); child.getWorldPosition(p);
+            const d = avatarModel.position.distanceTo(p);
+            if (d < minDist) { minDist = d; closest = child; }
+        });
+        if (closest) highlightAndShowWorkflow(closest, closest.name || 'อุปกรณ์', '📱 แตะปุ่ม Interact');
+    });
+
+    document.getElementById('btn-mobile-jump')?.addEventListener('click', triggerAvatarJump);
+})();
+
+// ============================================================
+// END REQUIREMENTS MODULE
+// ============================================================
