@@ -383,7 +383,7 @@ window.addEventListener('keydown', (e) => {
 
     if (key === 'h' || key === 'อ') togglePanelElement('dashboard');
     if (key === 'm' || key === 'ท') togglePanelElement('details-panel');
-    if (key === 'p' || key === 'ย') togglePanelElement('process-panel');
+    // ปุ่ม P ถูกตัดออก — process-panel เป็นป็อปอัพอัตโนมัติเท่านั้น (คลิก/เดินชน → แสดง, เดินออก → หาย)
     if (key === 't' || key === 'ะ') togglePanelElement('transform-panel');
     if (key === 'r' || key === 'พ') resetCameraToAvatar();
 });
@@ -737,7 +737,13 @@ async function uploadToSupabase(file) {
     return `${SUPABASE_URL}/storage/v1/object/public/${SUPABASE_BUCKET}/${fileName}`;
 }
 
+// เก็บ URL/ชื่อโมเดลปัจจุบันไว้ระดับ global เพื่อใช้ตอน Save Scene
+let currentSceneModelUrl = null;
+let currentSceneModelName = null;
+
 function loadModelFromUrl(url, fileName) {
+    currentSceneModelUrl = url;
+    currentSceneModelName = fileName;
     if (factoryModel) { scene.remove(factoryModel); originalMaterials.clear(); factoryColliders = []; }
     document.getElementById('factory-status').innerText = `⬇️ กำลังโหลดโมเดลจาก Cloud...`;
     const loader = getLoaderForFile(fileName || url);
@@ -975,6 +981,24 @@ function initMultiplayer() {
         data.others.forEach(p => addRemote(p));
         if (data.modelUrl) loadModelFromUrl(data.modelUrl, data.modelName);
         if (data.workflowDb) Object.assign(workflowDatabase, data.workflowDb);
+        // 🏷️ ผู้เล่นที่เข้าห้องทีหลังต้องได้รับ Type ที่ถูกกำหนดไว้แล้วด้วย เพื่อให้ PPE zone แสดงถูกต้อง
+        if (data.typeAssignments && typeof userDefinedTypes !== 'undefined') {
+            Object.assign(userDefinedTypes, data.typeAssignments);
+        }
+        // 💾 คืนค่าตำแหน่ง/ขนาด/หมุนของโมเดลตามที่ถูกเซฟ/โหลดไว้ล่าสุดในห้อง (ถ้ามี)
+        if (data.sceneTransform && data.modelUrl) {
+            const applyTransform = () => {
+                if (!factoryModel) { setTimeout(applyTransform, 200); return; }
+                const t = data.sceneTransform;
+                factoryModel.position.set(t.posX, t.posY, t.posZ);
+                factoryModel.rotation.y = t.rotY;
+                const sc = t.scale || 1;
+                factoryModel.scale.set(initialFactoryScale * sc, initialFactoryScale * sc, initialFactoryScale * sc);
+                if (typeof syncSlidersWithModel === 'function') syncSlidersWithModel();
+                if (typeof buildColliders === 'function') buildColliders();
+            };
+            setTimeout(applyTransform, 400);
+        }
         updateMpUI();
     });
 
@@ -1014,6 +1038,12 @@ function initMultiplayer() {
             workflowDatabase[data.targetUuid] = { name: data.name, desc: data.desc, steps: data.steps, colorClass: data.colorClass||'tag-blue' };
         }
 
+        // 🏷️ ถ้าเป็นการกำหนด Type จากผู้เล่นคนอื่น ให้บันทึกลง userDefinedTypes ด้วยชื่อ (key)
+        // เพื่อให้ resolveDatabaseKey ของเครื่องนี้จับคู่ mesh ที่ชื่อตรงกันได้ (คนละ UUID กัน)
+        if (data.assignedTypeKey && typeof userDefinedTypes !== 'undefined') {
+            userDefinedTypes[data.key] = data.assignedTypeKey;
+        }
+
         if (factoryModel) {
             factoryModel.traverse(function(child) {
                 if (child.isMesh && !child._original3DName) {
@@ -1022,12 +1052,19 @@ function initMultiplayer() {
                 
                 if (child.isMesh && (child._original3DName === data.key || child.name === data.key || child.uuid === data.key || child.uuid === data.targetUuid)) {
                     child.name = data.name; 
+                    if (data.assignedTypeKey && typeof userDefinedTypes !== 'undefined') {
+                        userDefinedTypes[child.uuid] = data.assignedTypeKey;
+                    }
                     
                     const sideListItem = document.getElementById(`mesh-item-${child.uuid}`);
                     if (sideListItem) sideListItem.innerText = `🏭 ${data.name}`;
                 }
             });
         }
+
+        // Rebuild proximity tags และ PPE zones ให้ฝั่งนี้เห็นวงกลมเตือน/ป้ายใหม่ด้วย
+        if (typeof buildProximityTags === 'function') buildProximityTags();
+        if (typeof buildPPEZones === 'function') buildPPEZones();
 
         const panel = document.getElementById('process-panel');
         if (panel && panel.style.display !== 'none' && (activeSelectedKeyKey === data.key || activeSelectedKeyKey === data.targetUuid || activeSelectedMeshUUID === data.targetUuid)) {
@@ -1833,31 +1870,50 @@ function assignMeshType(typeKey) {
     if (!_typeSelectorTargetMesh) return;
     const uuid = _typeSelectorTargetMesh.uuid;
 
-    // บันทึก mapping
-    userDefinedTypes[uuid] = typeKey;
+    // ใช้ชื่อดั้งเดิมของ mesh เป็น sync key (ใช้ได้ข้าม browser เพราะ UUID ต่างกันในแต่ละเครื่อง)
+    const nameKey = _typeSelectorTargetMesh._original3DName || _typeSelectorTargetMesh.name || uuid;
 
-    // บันทึกลง workflowDatabase ด้วย key เป็น UUID (เพื่อให้ resolveDatabaseKey เจอก่อน)
-    // แต่ชี้ไปยัง data จาก type ที่เลือก
+    // บันทึก mapping ทั้ง 2 แบบ: uuid (เร็วสำหรับเครื่องตัวเอง) และ nameKey (sync ข้าม browser)
+    userDefinedTypes[uuid] = typeKey;
+    userDefinedTypes[nameKey] = typeKey;
+
+    // บันทึกลง workflowDatabase ด้วย key เป็น nameKey (ให้ resolveDatabaseKey เจอทั้ง 2 ฝั่ง)
     const sourceData = workflowDatabase[typeKey] || workflowDatabase['default'];
-    workflowDatabase[uuid] = { ...sourceData }; // copy ข้อมูล safety มาใส่
+    const dataToApply = { ...sourceData };
+    workflowDatabase[uuid] = dataToApply;
+    workflowDatabase[nameKey] = dataToApply;
 
     // อัปเดต proximity tag ถ้ามี
     if (typeof buildProximityTags === 'function') buildProximityTags();
     // Rebuild PPE zones
     if (typeof buildPPEZones === 'function') buildPPEZones();
 
-    // แสดงข้อมูลทันที
+    // แสดงข้อมูลทันที (ฝั่งตัวเอง)
     closeTypeSelector();
     highlightAndShowWorkflow(_typeSelectorTargetMesh, _typeSelectorTargetMesh.name || 'อุปกรณ์', '🏷️ กำหนดประเภทด้วยตนเอง');
 
     // อัปชื่อใน mesh list
     const listItem = document.getElementById(`mesh-item-${uuid}`);
+    const opt = TYPE_OPTIONS.find(o => o.key === typeKey);
     if (listItem) {
-        const opt = TYPE_OPTIONS.find(o => o.key === typeKey);
         listItem.innerText = `${opt?.icon || '🏭'} ${_typeSelectorTargetMesh.name || typeKey}`;
     }
 
-    mpAppendChat({ name:'🏷️ ระบบ', color:'#00ffff', text:`กำหนด "${_typeSelectorTargetMesh.name || uuid.slice(0,8)}" เป็น "${TYPE_OPTIONS.find(o=>o.key===typeKey)?.label || typeKey}"` });
+    // 🔴 สำคัญ: broadcast ไปให้ผู้เล่นคนอื่นเห็นด้วย ผ่าน workflow_update channel เดิม
+    // ใช้ nameKey เป็น key เพื่อให้ resolveDatabaseKey ของฝั่งอื่น match เจอ (คนละ UUID กัน)
+    if (typeof mpSocket !== 'undefined' && mpSocket && mpSocket.connected) {
+        mpSocket.emit('workflow_update', {
+            key: nameKey,
+            name: dataToApply.name,
+            desc: dataToApply.desc,
+            steps: dataToApply.steps,
+            colorClass: dataToApply.colorClass || 'tag-blue',
+            targetUuid: uuid,
+            assignedTypeKey: typeKey // ส่งต้นทาง typeKey ไปด้วยเผื่อฝั่งอื่นอยากรู้ประเภทดิบ
+        });
+    }
+
+    mpAppendChat({ name:'🏷️ ระบบ', color:'#00ffff', text:`กำหนด "${_typeSelectorTargetMesh.name || uuid.slice(0,8)}" เป็น "${opt?.label || typeKey}"` });
 }
 
 function clearMeshType() {
@@ -1880,11 +1936,15 @@ document.getElementById('type-selector-overlay')?.addEventListener('click', func
     if (e.target === this) closeTypeSelector();
 });
 
-// Override resolveDatabaseKey ให้เช็ค userDefinedTypes ก่อน
+// Override resolveDatabaseKey ให้เช็ค userDefinedTypes ก่อน — ทั้งจาก uuid (เครื่องตัวเอง)
+// และจากชื่อดั้งเดิม (_original3DName) เพื่อให้ค่าที่ sync มาจากผู้เล่นอื่นถูก match ได้ด้วย
 (function() {
     const _origResolve = resolveDatabaseKey;
     window.resolveDatabaseKey = function(mesh, fallback) {
-        if (mesh && userDefinedTypes[mesh.uuid]) return userDefinedTypes[mesh.uuid];
+        if (!mesh) return _origResolve(mesh, fallback);
+        if (userDefinedTypes[mesh.uuid]) return userDefinedTypes[mesh.uuid];
+        const nameKey = mesh._original3DName || mesh.name;
+        if (nameKey && userDefinedTypes[nameKey]) return userDefinedTypes[nameKey];
         return _origResolve(mesh, fallback);
     };
 })();
@@ -1953,3 +2013,170 @@ window.openTypeSelectorForActive = function() {
     factoryModel.traverse(c => { if (c.isMesh && c.uuid === activeSelectedMeshUUID) targetMesh = c; });
     if (targetMesh) openTypeSelector(targetMesh, targetMesh._original3DName || targetMesh.name);
 };
+
+
+// ============================================================
+// SAVE / LOAD SCENE SYSTEM — เหมือน Save/Load เกม
+// เซฟ: URL โมเดล (Supabase), transform ของโมเดล, ข้อมูลที่แก้ไข/กำหนด Type ทั้งหมด
+// โหลด: คืนค่าทุกอย่างกลับมา + broadcast ให้ผู้เล่นคนอื่นในห้องเห็นตรงกัน
+// ============================================================
+
+function collectPortableSceneData() {
+    // รวบรวมเฉพาะข้อมูลที่ "พกพาข้าม browser ได้" คือ key เป็นชื่อ mesh (_original3DName)
+    // ไม่ใช่ UUID เพราะ UUID เปลี่ยนทุกครั้งที่โหลดโมเดลใหม่ในแต่ละเครื่อง
+    const workflowOverrides = {};
+    const typeAssignmentsOut = {};
+
+    if (factoryModel) {
+        factoryModel.traverse(child => {
+            if (!child.isMesh) return;
+            const nameKey = child._original3DName || child.name;
+            if (!nameKey) return;
+
+            // ข้อมูลความปลอดภัยที่ถูกแก้ไข/กำหนดไว้ (จาก saveLiveEdit หรือ assignMeshType)
+            if (workflowDatabase[nameKey]) {
+                workflowOverrides[nameKey] = workflowDatabase[nameKey];
+            }
+
+            // ประเภทดิบที่กำหนดไว้ (เช่น 'tank','flare') สำหรับ PPE zone
+            const rawType = (typeof userDefinedTypes !== 'undefined')
+                ? (userDefinedTypes[nameKey] || userDefinedTypes[child.uuid])
+                : null;
+            if (rawType) typeAssignmentsOut[nameKey] = rawType;
+        });
+    }
+
+    const transform = factoryModel ? {
+        posX: factoryModel.position.x,
+        posY: factoryModel.position.y,
+        posZ: factoryModel.position.z,
+        rotY: factoryModel.rotation.y,
+        scale: factoryModel.scale.x / (initialFactoryScale || 1)
+    } : null;
+
+    return {
+        version: 1,
+        savedAt: new Date().toISOString(),
+        modelUrl: currentSceneModelUrl,
+        modelName: currentSceneModelName,
+        transform: transform,
+        workflowOverrides: workflowOverrides,
+        typeAssignments: typeAssignmentsOut
+    };
+}
+
+window.saveScene = function() {
+    if (!currentSceneModelUrl) {
+        document.getElementById('scene-save-status').innerText = '❌ ยังไม่มีโมเดลให้บันทึก — อัปโหลดโมเดลก่อน';
+        return;
+    }
+    const saveData = collectPortableSceneData();
+    const dataStr = "data:application/json;charset=utf-8," + encodeURIComponent(JSON.stringify(saveData, null, 2));
+    const a = document.createElement('a');
+    a.setAttribute("href", dataStr);
+    const fname = `biogas_scene_save_${Date.now()}.json`;
+    a.setAttribute("download", fname);
+    document.body.appendChild(a); a.click(); a.remove();
+
+    const statusEl = document.getElementById('scene-save-status');
+    if (statusEl) statusEl.innerText = `✅ บันทึกแล้ว: ${fname} (${Object.keys(saveData.workflowOverrides).length} รายการ)`;
+};
+
+function applySceneSaveData(saveData, opts) {
+    opts = opts || {};
+    const broadcast = opts.broadcast !== false; // default true
+
+    // 1) โหลดโมเดลจาก URL ที่บันทึกไว้ (ถ้ามี และคนละโมเดลกับที่โหลดอยู่)
+    if (saveData.modelUrl) {
+        loadModelFromUrl(saveData.modelUrl, saveData.modelName);
+    }
+
+    // 2) รอให้โมเดลโหลดเสร็จก่อนค่อย apply transform + type + workflow
+    //    ใช้ polling สั้นๆ เพราะ loadModelFromUrl เป็น async (loader.load callback)
+    const applyAfterLoad = () => {
+        if (!factoryModel) { setTimeout(applyAfterLoad, 200); return; }
+
+        // Transform
+        if (saveData.transform) {
+            factoryModel.position.set(saveData.transform.posX, saveData.transform.posY, saveData.transform.posZ);
+            factoryModel.rotation.y = saveData.transform.rotY;
+            const sc = saveData.transform.scale || 1;
+            factoryModel.scale.set(initialFactoryScale * sc, initialFactoryScale * sc, initialFactoryScale * sc);
+            if (typeof syncSlidersWithModel === 'function') syncSlidersWithModel();
+            if (typeof buildColliders === 'function') buildColliders();
+        }
+
+        // Workflow overrides (ข้อมูลที่แก้ไข/กำหนด Type)
+        if (saveData.workflowOverrides) {
+            Object.assign(workflowDatabase, saveData.workflowOverrides);
+        }
+        if (saveData.typeAssignments && typeof userDefinedTypes !== 'undefined') {
+            Object.assign(userDefinedTypes, saveData.typeAssignments);
+        }
+
+        // อัปเดตชื่อ mesh list ตาม override ที่มี name เปลี่ยน
+        factoryModel.traverse(child => {
+            if (!child.isMesh) return;
+            const nameKey = child._original3DName || child.name;
+            const data = saveData.workflowOverrides ? saveData.workflowOverrides[nameKey] : null;
+            if (data && data.name) {
+                child.name = data.name;
+                const item = document.getElementById(`mesh-item-${child.uuid}`);
+                if (item) item.innerText = `🏭 ${data.name}`;
+            }
+        });
+
+        if (typeof buildProximityTags === 'function') buildProximityTags();
+        if (typeof buildPPEZones === 'function') buildPPEZones();
+
+        document.getElementById('scene-save-status').innerText = `✅ โหลดฉากสำเร็จ (${Object.keys(saveData.workflowOverrides || {}).length} รายการ)`;
+        mpAppendChat({ name:'💾 ระบบ', color:'#38bdf8', text:`โหลดฉากที่บันทึกไว้แล้ว — ข้อมูล ${Object.keys(saveData.workflowOverrides || {}).length} รายการถูกคืนค่า` });
+
+        // 3) Broadcast ให้ผู้เล่นคนอื่นในห้องเห็นเหมือนกันทั้งหมด
+        if (broadcast && typeof mpSocket !== 'undefined' && mpSocket && mpSocket.connected) {
+            mpSocket.emit('scene_load', saveData);
+        }
+    };
+
+    if (saveData.modelUrl) {
+        setTimeout(applyAfterLoad, 300); // รอ loader เริ่มทำงานก่อน
+    } else {
+        applyAfterLoad(); // ไม่มีโมเดลใหม่ ใช้โมเดลปัจจุบัน apply ข้อมูลได้เลย
+    }
+}
+
+window.loadScene = function(file) {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const saveData = JSON.parse(e.target.result);
+            if (!saveData || typeof saveData !== 'object') throw new Error('ไฟล์ไม่ถูกต้อง');
+            document.getElementById('scene-save-status').innerText = '⏳ กำลังโหลดฉาก...';
+            applySceneSaveData(saveData, { broadcast: true });
+        } catch (err) {
+            document.getElementById('scene-save-status').innerText = `❌ โหลดไฟล์ไม่สำเร็จ: ${err.message}`;
+        }
+    };
+    reader.readAsText(file);
+};
+
+document.getElementById('scene-load-input')?.addEventListener('change', function(e) {
+    const file = e.target.files[0];
+    if (file) window.loadScene(file);
+});
+
+// รับ scene_load ที่ผู้เล่นคนอื่นแชร์มา — apply ให้ตรงกันโดยไม่ broadcast ซ้ำ
+(function hookSceneLoadReceiver() {
+    const trySetup = () => {
+        if (typeof mpSocket === 'undefined' || !mpSocket) { setTimeout(trySetup, 300); return; }
+        mpSocket.on('scene_load', data => {
+            document.getElementById('scene-save-status').innerText = '⏳ ผู้เล่นอื่นโหลดฉากใหม่...';
+            applySceneSaveData(data, { broadcast: false });
+        });
+    };
+    trySetup();
+})();
+
+// ============================================================
+// END SAVE / LOAD SCENE SYSTEM
+// ============================================================
