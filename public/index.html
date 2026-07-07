@@ -21,16 +21,15 @@
 <body>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
 
-<div id="mobile-controls-container">
-    <div id="mobile-joystick-zone"></div>
-    
-    <div id="mobile-action-zone">
-        <button id="btn-mobile-interact" class="mobile-action-btn">🔍 Interact</button>
-        <button id="btn-mobile-jump" class="mobile-action-btn" style="background: rgba(0, 255, 255, 0.2); border-color: #00ffff;">🦘 Jump</button>
+<div id="viewer-shell">
+
+  <!-- LEFT COLUMN: model upload + transform tools -->
+  <div id="left-col" class="side-col">
+    <!-- แถบแท็บ: สลับดูทีละแผง แทนการกองซ้อนกันทั้ง 3 แผงพร้อมกัน -->
+    <div class="side-tabs" id="left-tabs">
+        <div class="side-tab" data-target="dashboard">📦 โมเดล</div>
+        <div class="side-tab" data-target="transform-panel">🛠️ ปรับตำแหน่ง</div>
     </div>
-</div>
-    <!-- Canvas สำหรับแสดงผล 3D -->
-    <div id="canvas-container"></div>
 
     <!-- แผงซ้าย: อัปโหลดโมเดลโรงงานหลัก -->
     <div id="dashboard" class="panel">
@@ -51,8 +50,8 @@
 
     <!-- แผงปรับตำแหน่งโมเดลโรงงาน -->
     <div id="transform-panel" class="panel" style="display: none;">
-        <h4 style="color: #ffaa00; margin-bottom: 12px;">🛠️ เครื่องมือปรับตำแหน่งวัตถุ</h4>
-        
+        <h4 style="margin-bottom: 12px;">🛠️ เครื่องมือปรับตำแหน่งวัตถุ</h4>
+
         <div class="control-group">
             <label>ตำแหน่งแกน X (ซ้าย - ขวา)</label>
             <div class="slider-row">
@@ -74,7 +73,7 @@
                 <span id="val-posZ" class="slider-val">0.0</span>
             </div>
         </div>
-        
+
         <div class="control-group">
             <label>หมุนโมเดล (แนวราบ Y)</label>
             <div class="slider-row">
@@ -91,8 +90,8 @@
             </div>
         </div>
 
-        <div class="control-group" style="margin-top: 15px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 10px;">
-            <label style="color:#00ffff; font-weight: bold; margin-bottom: 8px;">👁️ โหมดโครงสร้างพื้นผิว</label>
+        <div class="control-group" style="margin-top: 10px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 8px;">
+            <label style="color:#00ffff; font-weight: bold; margin-bottom: 6px;">👁️ โหมดโครงสร้างพื้นผิว</label>
             <div class="mode-container">
                 <button id="mode-solid" class="mode-btn active" onclick="setFactoryMaterialMode('solid')">Solid</button>
                 <button id="mode-wireframe" class="mode-btn" onclick="setFactoryMaterialMode('wireframe')">Wireframe</button>
@@ -101,14 +100,80 @@
         </div>
     </div>
 
-    <!-- แผงขวาบน: โครงสร้างชิ้นส่วนวัตถุ -->
+    <!-- MULTIPLAYER PANEL -->
+    <div id="multiplayer-panel" class="panel">
+        <h3 style="margin-bottom: 10px;">🌐 Multiplayer</h3>
+
+        <div id="mp-status" style="display:flex; align-items:center; gap:6px; margin-bottom:10px; font-size:12px; color:#64748b;">
+            <span id="mp-dot" style="width:8px;height:8px;border-radius:50%;background:#64748b;display:inline-block;"></span>
+            <span id="mp-status-text">กำลังเชื่อมต่อ...</span>
+        </div>
+
+        <div style="margin-bottom:10px;">
+            <label class="section-label">ชื่อผู้เล่น</label>
+            <div style="display:flex;gap:6px;">
+                <input type="text" id="mp-name-input" class="ui-edit-input" placeholder="ตั้งชื่อของคุณ" style="flex:1;" maxlength="20">
+                <button class="panel-action-btn btn-save" onclick="setMyName()" style="white-space:nowrap;">ตั้งชื่อ</button>
+            </div>
+        </div>
+
+        <div>
+            <label class="section-label">ผู้เล่นออนไลน์ (<span id="mp-player-count">1</span>)</label>
+            <div id="mp-player-list" style="max-height:100px;overflow-y:auto;"></div>
+        </div>
+
+        <div style="margin-top:10px;">
+            <label class="section-label">แชท</label>
+            <div id="mp-chat-log" style="max-height:100px;overflow-y:auto;background:rgba(0,0,0,0.25);border-radius:6px;padding:6px;margin-bottom:6px;font-size:11px;font-family:monospace;"></div>
+            <div style="display:flex;gap:6px;">
+                <input type="text" id="mp-chat-input" class="ui-edit-input" placeholder="พิมพ์ข้อความ..." style="flex:1;" maxlength="200">
+                <button class="panel-action-btn" onclick="sendChat()" style="white-space:nowrap;">ส่ง</button>
+            </div>
+        </div>
+    </div>
+  </div>
+
+  <!-- CENTER COLUMN: pure 3D viewport + HUD strip underneath -->
+  <div id="center-col">
+    <div id="canvas-container">
+        <div id="mobile-controls-container">
+            <div id="mobile-joystick-zone"></div>
+            <div id="mobile-action-zone">
+                <button id="btn-mobile-interact" class="mobile-action-btn">🔍 Interact</button>
+                <button id="btn-mobile-jump" class="mobile-action-btn" style="background: rgba(0, 255, 255, 0.2); border-color: #00ffff;">🦘 Jump</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- แผงควบคุมด่วน HUD -->
+    <div id="keybind-hud">
+        <div class="key-btn-item" onclick="togglePanelElement('dashboard')"><span class="key-badge">H</span> เมนูหลัก</div>
+        <div class="key-btn-item" onclick="togglePanelElement('transform-panel')"><span class="key-badge">T</span> ปรับตำแหน่ง</div>
+        <div class="key-btn-item" onclick="togglePanelElement('details-panel')"><span class="key-badge">M</span> รายชื่อชิ้นส่วน</div>
+        <div class="key-btn-item" onclick="togglePanelElement('process-panel')"><span class="key-badge">P</span> บอร์ดความปลอดภัย</div>
+        <div class="key-btn-item" onclick="togglePanelElement('multiplayer-panel')"><span class="key-badge">U</span> Multiplayer</div>
+        <div class="key-btn-item" onclick="resetCameraToAvatar()"><span class="key-badge">R</span> รีเซ็ตมุมกล้อง</div>
+        <div id="freelook-btn" class="key-btn-item" onclick="document.dispatchEvent(new KeyboardEvent('keydown',{key:'f'}))"><span class="key-badge">F</span> Free Look</div>
+        <div class="key-btn-item" onclick="triggerAvatarJump()"><span class="key-badge">Space</span> กระโดด</div>
+    </div>
+  </div>
+
+  <!-- RIGHT COLUMN: structure list + process/safety board -->
+  <div id="right-col" class="side-col">
+    <!-- แถบแท็บ: สลับระหว่างลิสต์ชิ้นส่วน กับ บอร์ดความปลอดภัยของชิ้นที่เลือก -->
+    <div class="side-tabs" id="right-tabs">
+        <div class="side-tab" data-target="details-panel">📦 ชิ้นส่วน</div>
+        <div class="side-tab" data-target="process-panel">🛡️ ความปลอดภัย</div>
+    </div>
+
+    <!-- แผงรายชื่อชิ้นส่วนโครงสร้าง -->
     <div id="details-panel" class="panel" style="display: none;">
         <h4>📦 รายการชิ้นส่วนโครงสร้าง</h4>
         <div id="model-meta"></div>
         <div id="mesh-container"></div>
     </div>
 
-    <!-- แผงล่างขวา: ข้อมูลกระบวนการและความปลอดภัย -->
+    <!-- แผงข้อมูลกระบวนการและความปลอดภัย -->
     <div id="process-panel" class="panel" style="display: none;">
         <div class="process-header">
             <div id="title-container" style="display: flex; align-items: center; gap: 8px;">
@@ -148,57 +213,47 @@
             </div>
         </div>
     </div>
+  </div>
 
-    <!-- ========================== -->
-    <!-- MULTIPLAYER PANEL (NEW)    -->
-    <!-- ========================== -->
-    <div id="multiplayer-panel" class="panel">
-        <h3 style="margin-bottom: 10px;">🌐 Multiplayer</h3>
-
-        <!-- Connection status -->
-        <div id="mp-status" style="display:flex; align-items:center; gap:6px; margin-bottom:10px; font-size:12px; color:#64748b;">
-            <span id="mp-dot" style="width:8px;height:8px;border-radius:50%;background:#64748b;display:inline-block;"></span>
-            <span id="mp-status-text">กำลังเชื่อมต่อ...</span>
-        </div>
-
-        <!-- My name -->
-        <div style="margin-bottom:10px;">
-            <label class="section-label">ชื่อผู้เล่น</label>
-            <div style="display:flex;gap:6px;">
-                <input type="text" id="mp-name-input" class="ui-edit-input" placeholder="ตั้งชื่อของคุณ" style="flex:1;" maxlength="20">
-                <button class="panel-action-btn btn-save" onclick="setMyName()" style="white-space:nowrap;">ตั้งชื่อ</button>
-            </div>
-        </div>
-
-        <!-- Player list -->
-        <div>
-            <label class="section-label">ผู้เล่นออนไลน์ (<span id="mp-player-count">1</span>)</label>
-            <div id="mp-player-list" style="max-height:100px;overflow-y:auto;"></div>
-        </div>
-
-        <!-- Chat -->
-        <div style="margin-top:10px;">
-            <label class="section-label">แชท</label>
-            <div id="mp-chat-log" style="max-height:100px;overflow-y:auto;background:rgba(0,0,0,0.25);border-radius:6px;padding:6px;margin-bottom:6px;font-size:11px;font-family:monospace;"></div>
-            <div style="display:flex;gap:6px;">
-                <input type="text" id="mp-chat-input" class="ui-edit-input" placeholder="พิมพ์ข้อความ..." style="flex:1;" maxlength="200">
-                <button class="panel-action-btn" onclick="sendChat()" style="white-space:nowrap;">ส่ง</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- แผงควบคุมด่วน HUD ด้านล่าง -->
-    <div id="keybind-hud">
-        <div class="key-btn-item" onclick="togglePanelElement('dashboard')"><span class="key-badge">H</span> เมนูหลัก</div>
-        <div class="key-btn-item" onclick="togglePanelElement('transform-panel')"><span class="key-badge">T</span> ปรับตำแหน่ง</div>
-        <div class="key-btn-item" onclick="togglePanelElement('details-panel')"><span class="key-badge">M</span> รายชื่อชิ้นส่วน</div>
-        <div class="key-btn-item" onclick="togglePanelElement('process-panel')"><span class="key-badge">P</span> บอร์ดความปลอดภัย</div>
-        <div class="key-btn-item" onclick="togglePanelElement('multiplayer-panel')"><span class="key-badge">U</span> Multiplayer</div>
-        <div class="key-btn-item" onclick="resetCameraToAvatar()"><span class="key-badge">R</span> รีเซ็ตมุมกล้อง</div>
-        <div id="freelook-btn" class="key-btn-item" onclick="document.dispatchEvent(new KeyboardEvent('keydown',{key:'f'}))"><span class="key-badge">F</span> Free Look</div>
-        <div class="key-btn-item" onclick="triggerAvatarJump()"><span class="key-badge">Space</span> กระโดด</div>
-    </div>
+</div>
 
     <script src="app.js"></script>
+
+    <!--
+      สคริปต์เสริมสำหรับแท็บซ้าย/ขวา — ไม่ได้แก้ app.js เดิมแม้แต่บรรทัดเดียว
+      แค่คุมว่าใน 1 คอลัมน์ให้เห็นแผงเดียวพร้อมกัน (แทนที่จะเห็นทั้ง 3 แผงกองกัน)
+      หมายเหตุ: ปุ่มลัดคีย์บอร์ด (H/T/M/P/U) เดิมยังทำงานได้ตามปกติ เพราะเรียก
+      togglePanelElement() ตัวเดิม แค่ถ้ากดสลับตอนอยู่แท็บอื่น จะเห็น 2 แผงซ้อนกัน
+      ชั่วคราว — เป็นพฤติกรรมที่ตั้งใจให้ยังใช้คีย์ลัดแบบเดิมได้อยู่
+    -->
+    <script>
+    (function () {
+        function initTabs(tabBarId, panelIds) {
+            const tabBar = document.getElementById(tabBarId);
+            if (!tabBar) return;
+
+            function activate(targetId) {
+                panelIds.forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) el.style.display = (id === targetId) ? 'block' : 'none';
+                });
+                tabBar.querySelectorAll('.side-tab').forEach(btn => {
+                    btn.classList.toggle('active', btn.dataset.target === targetId);
+                });
+            }
+
+            tabBar.querySelectorAll('.side-tab').forEach(btn => {
+                btn.addEventListener('click', () => activate(btn.dataset.target));
+            });
+
+            // ตั้งค่าเริ่มต้น: โชว์แผงแรกของแท็บเท่านั้น
+            // (ทำงานหลัง app.js โหลดเสร็จ จึงชนะการที่ app.js สั่งเปิด transform-panel ไว้ตอนเริ่มต้น)
+            activate(panelIds[0]);
+        }
+
+        initTabs('left-tabs', ['dashboard', 'transform-panel']);
+        initTabs('right-tabs', ['details-panel', 'process-panel']);
+    })();
+    </script>
 </body>
 </html>
