@@ -13,9 +13,8 @@
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/FBXLoader.js"></script>
 
-    <!-- Socket.IO Client — CDN first, fallback to local server -->
+    <!-- Socket.IO Client -->
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-    <!-- ✏️ ใส่ Railway URL ของคุณตรงนี้ -->
     <script>window.RAILWAY_SERVER_URL = "https://aecmultiplayertest-production.up.railway.app";</script>
 </head>
 <body>
@@ -25,13 +24,12 @@
 
   <!-- LEFT COLUMN: model upload + transform tools -->
   <div id="left-col" class="side-col">
-    <!-- แถบแท็บ: สลับดูทีละแผง แทนการกองซ้อนกันทั้ง 3 แผงพร้อมกัน -->
     <div class="side-tabs" id="left-tabs">
         <div class="side-tab" data-target="dashboard">📦 โมเดล</div>
         <div class="side-tab" data-target="transform-panel">🛠️ ปรับตำแหน่ง</div>
     </div>
 
-    <!-- แผงซ้าย: อัปโหลดโมเดลโรงงานหลัก -->
+    <!-- Dashboard Panel -->
     <div id="dashboard" class="panel">
         <h3>⚡ Biogas Digital Twin</h3>
         <div class="upload-section">
@@ -48,7 +46,7 @@
         </div>
     </div>
 
-    <!-- แผงปรับตำแหน่งโมเดลโรงงาน -->
+    <!-- Transform Panel -->
     <div id="transform-panel" class="panel" style="display: none;">
         <h4 style="margin-bottom: 12px;">🛠️ เครื่องมือปรับตำแหน่งวัตถุ</h4>
 
@@ -100,7 +98,7 @@
         </div>
     </div>
 
-    <!-- MULTIPLAYER PANEL -->
+    <!-- Multiplayer Panel -->
     <div id="multiplayer-panel" class="panel">
         <h3 style="margin-bottom: 10px;">🌐 Multiplayer</h3>
 
@@ -133,7 +131,7 @@
     </div>
   </div>
 
-  <!-- CENTER COLUMN: pure 3D viewport + HUD strip underneath -->
+  <!-- CENTER COLUMN: 3D viewport -->
   <div id="center-col">
     <div id="canvas-container">
         <div id="mobile-controls-container">
@@ -145,7 +143,7 @@
         </div>
     </div>
 
-    <!-- แผงควบคุมด่วน HUD -->
+    <!-- HUD Controls -->
     <div id="keybind-hud">
         <div class="key-btn-item" onclick="togglePanelElement('dashboard')"><span class="key-badge">H</span> เมนูหลัก</div>
         <div class="key-btn-item" onclick="togglePanelElement('transform-panel')"><span class="key-badge">T</span> ปรับตำแหน่ง</div>
@@ -158,52 +156,51 @@
     </div>
   </div>
 
-  <!-- RIGHT COLUMN: structure list + process/safety board -->
+  <!-- RIGHT COLUMN: structure list + process board -->
   <div id="right-col" class="side-col">
-    <!-- แถบแท็บ: สลับระหว่างลิสต์ชิ้นส่วน กับ บอร์ดความปลอดภัยของชิ้นที่เลือก -->
     <div class="side-tabs" id="right-tabs">
         <div class="side-tab" data-target="details-panel">📦 ชิ้นส่วน</div>
         <div class="side-tab" data-target="process-panel">🛡️ ความปลอดภัย</div>
     </div>
 
-    <!-- แผงรายชื่อชิ้นส่วนโครงสร้าง -->
+    <!-- Details Panel -->
     <div id="details-panel" class="panel" style="display: none;">
         <h4>📦 รายการชิ้นส่วนโครงสร้าง</h4>
         <div id="model-meta"></div>
         <div id="mesh-container"></div>
-        
-        <!-- Modal: เลือก Type สำหรับ mesh ที่คลิกเลือก -->
-        <div id="type-selector-modal" class="type-selector-modal" style="display: none;">
-            <div class="type-selector-content">
-                <h4 style="margin-top: 0;">🔧 กำหนดประเภท (Type)</h4>
-                <p id="modal-mesh-name" style="font-size: 12px; color: #94a3b8; margin-bottom: 12px;"></p>
-                
-                <label class="section-label">เลือกประเภทของชิ้นส่วน:</label>
-                <select id="type-selector-dropdown" class="type-selector-dropdown">
-                    <option value="">-- เลือกประเภท --</option>
-                    <option value="tank">🔴 Tank (บ่อหมัก)</option>
-                    <option value="manhole">🔴 Manhole (ประตูท่อ)</option>
-                    <option value="pvrv">🔴 PVRV (จุดเชื่อมต่อ)</option>
-                    <option value="flare">🟢 Flare (หอเผา)</option>
-                    <option value="flame_arrester">🟠 Flame Arrester (ดักไฟ)</option>
-                    <option value="pipe">🟠 Pipe (ท่อ)</option>
-                    <option value="lightning_rod">🟠 Lightning Rod (เสาล่อฟ้า)</option>
-                    <option value="loto">🔵 LOTO (ตู้ควบคุม)</option>
-                    <option value="ppe_checkpoint">🔵 PPE Checkpoint (จุดตรวจ)</option>
-                    <option value="esd">🟢 ESD (ปุ่มฉุกเฉิน)</option>
-                    <option value="utilization">🟢 Utilization (ระบบใช้ประโยชน์)</option>
-                    <option value="default">🔷 Default (ทั่วไป)</option>
-                </select>
+    </div>
 
-                <div class="type-selector-actions">
-                    <button class="panel-action-btn btn-save" onclick="confirmTypeSelection()">✓ ยืนยัน</button>
-                    <button class="panel-action-btn" onclick="closeTypeSelector()">✕ ยกเลิก</button>
-                </div>
+    <!-- Type Selector Modal -->
+    <div id="type-selector-modal" class="type-selector-modal">
+        <div class="type-selector-content">
+            <h4 style="margin-top: 0; color: #00ffff;">🔧 กำหนดประเภท (Type)</h4>
+            <p id="modal-mesh-name" style="font-size: 12px; color: #94a3b8; margin: 0 0 12px 0;"></p>
+            
+            <label class="section-label">เลือกประเภทของชิ้นส่วน:</label>
+            <select id="type-selector-dropdown" class="type-selector-dropdown">
+                <option value="">-- เลือกประเภท --</option>
+                <option value="tank">🔴 Tank (บ่อหมัก)</option>
+                <option value="manhole">🔴 Manhole (ประตูท่อ)</option>
+                <option value="pvrv">🔴 PVRV (จุดเชื่อมต่อ)</option>
+                <option value="flare">🟢 Flare (หอเผา)</option>
+                <option value="flame_arrester">🟠 Flame Arrester (ดักไฟ)</option>
+                <option value="pipe">🟠 Pipe (ท่อ)</option>
+                <option value="lightning_rod">🟠 Lightning Rod (เสาล่อฟ้า)</option>
+                <option value="loto">🔵 LOTO (ตู้ควบคุม)</option>
+                <option value="ppe_checkpoint">🔵 PPE Checkpoint (จุดตรวจ)</option>
+                <option value="esd">🟢 ESD (ปุ่มฉุกเฉิน)</option>
+                <option value="utilization">🟢 Utilization (ระบบใช้ประโยชน์)</option>
+                <option value="default">🔷 Default (ทั่วไป)</option>
+            </select>
+
+            <div class="type-selector-actions">
+                <button class="panel-action-btn btn-save" onclick="confirmTypeSelection()">✓ ยืนยัน</button>
+                <button class="panel-action-btn" onclick="closeTypeSelector()">✕ ยกเลิก</button>
             </div>
         </div>
     </div>
 
-    <!-- แผงข้อมูลกระบวนการและความปลอดภัย -->
+    <!-- Process Panel -->
     <div id="process-panel" class="panel" style="display: none;">
         <div class="process-header">
             <div id="title-container" style="display: flex; align-items: center; gap: 8px;">
@@ -247,100 +244,34 @@
 
 </div>
 
-    <script src="app.js"></script>
+<script src="app.js"></script>
 
-    <script>
-    (function () {
-        function initTabs(tabBarId, panelIds) {
-            const tabBar = document.getElementById(tabBarId);
-            if (!tabBar) return;
+<script>
+(function () {
+    function initTabs(tabBarId, panelIds) {
+        const tabBar = document.getElementById(tabBarId);
+        if (!tabBar) return;
 
-            function activate(targetId) {
-                panelIds.forEach(id => {
-                    const el = document.getElementById(id);
-                    if (el) el.style.display = (id === targetId) ? 'block' : 'none';
-                });
-                tabBar.querySelectorAll('.side-tab').forEach(btn => {
-                    btn.classList.toggle('active', btn.dataset.target === targetId);
-                });
-            }
-
-            tabBar.querySelectorAll('.side-tab').forEach(btn => {
-                btn.addEventListener('click', () => activate(btn.dataset.target));
+        function activate(targetId) {
+            panelIds.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.style.display = (id === targetId) ? 'block' : 'none';
             });
-
-            activate(panelIds[0]);
+            tabBar.querySelectorAll('.side-tab').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.target === targetId);
+            });
         }
 
-        initTabs('left-tabs', ['dashboard', 'transform-panel']);
-        initTabs('right-tabs', ['details-panel', 'process-panel']);
-    })();
-
-    // ฟังก์ชัน Type Selector
-    window.meshTypeDatabase = window.meshTypeDatabase || {};
-    let currentSelectedMeshName = null;
-
-    window.showTypeSelector = function(meshName) {
-        currentSelectedMeshName = meshName;
-        const modal = document.getElementById('type-selector-modal');
-        const meshNameDisplay = document.getElementById('modal-mesh-name');
-        const dropdown = document.getElementById('type-selector-dropdown');
-        
-        meshNameDisplay.textContent = 'ชิ้นส่วน: ' + meshName;
-        
-        if (window.meshTypeDatabase[meshName]) {
-            dropdown.value = window.meshTypeDatabase[meshName];
-        } else {
-            dropdown.value = '';
-        }
-        
-        modal.style.display = 'flex';
-    };
-
-    window.confirmTypeSelection = function() {
-        if (!currentSelectedMeshName) return;
-        
-        const dropdown = document.getElementById('type-selector-dropdown');
-        const selectedType = dropdown.value;
-        
-        if (selectedType === '') {
-            alert('กรุณาเลือกประเภท');
-            return;
-        }
-        
-        window.meshTypeDatabase[currentSelectedMeshName] = selectedType;
-        
-        const meshItems = document.querySelectorAll('.mesh-item');
-        meshItems.forEach(item => {
-            if (item.textContent.includes(currentSelectedMeshName)) {
-                const typeTag = item.querySelector('.mesh-type-tag');
-                if (typeTag) {
-                    typeTag.textContent = selectedType;
-                } else {
-                    const tag = document.createElement('span');
-                    tag.className = 'mesh-type-tag';
-                    tag.textContent = selectedType;
-                    item.appendChild(tag);
-                }
-            }
+        tabBar.querySelectorAll('.side-tab').forEach(btn => {
+            btn.addEventListener('click', () => activate(btn.dataset.target));
         });
-        
-        closeTypeSelector();
-        console.log('บันทึก Type:', currentSelectedMeshName, '=', selectedType);
-    };
 
-    window.closeTypeSelector = function() {
-        const modal = document.getElementById('type-selector-modal');
-        modal.style.display = 'none';
-        currentSelectedMeshName = null;
-    };
+        activate(panelIds[0]);
+    }
 
-    document.addEventListener('click', function(e) {
-        const modal = document.getElementById('type-selector-modal');
-        if (modal && e.target === modal) {
-            closeTypeSelector();
-        }
-    });
-    </script>
+    initTabs('left-tabs', ['dashboard', 'transform-panel']);
+    initTabs('right-tabs', ['details-panel', 'process-panel']);
+})();
+</script>
 </body>
 </html>
