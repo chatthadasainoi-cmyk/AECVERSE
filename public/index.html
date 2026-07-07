@@ -249,13 +249,6 @@
 
     <script src="app.js"></script>
 
-    <!--
-      สคริปต์เสริมสำหรับแท็บซ้าย/ขวา — ไม่ได้แก้ app.js เดิมแม้แต่บรรทัดเดียว
-      แค่คุมว่าใน 1 คอลัมน์ให้เห็นแผงเดียวพร้อมกัน (แทนที่จะเห็นทั้ง 3 แผงกองซ้อน)
-      หมายเหตุ: ปุ่มลัดคีย์บอร์ด (H/T/M/P/U) เดิมยังทำงานได้ตามปกติ เพราะเรียก
-      togglePanelElement() ตัวเดิม แค่ถ้ากดสลับตอนอยู่แท็บอื่น จะเห็น 2 แผงซ้อนกัน
-      ชั่วคราว — เป็นพฤติกรรมที่ตั้งใจให้ยังใช้คีย์ลัดแบบเดิมได้อยู่
-    -->
     <script>
     (function () {
         function initTabs(tabBarId, panelIds) {
@@ -276,14 +269,78 @@
                 btn.addEventListener('click', () => activate(btn.dataset.target));
             });
 
-            // ตั้งค่าเริ่มต้น: โชว์แผงแรกของแท็บเท่านั้น
-            // (ทำงานหลัง app.js โหลดเสร็จ จึงชนะการที่ app.js สั่งเปิด transform-panel ไว้ตอนเริ่มต้น)
             activate(panelIds[0]);
         }
 
         initTabs('left-tabs', ['dashboard', 'transform-panel']);
         initTabs('right-tabs', ['details-panel', 'process-panel']);
     })();
+
+    // ฟังก์ชัน Type Selector
+    window.meshTypeDatabase = window.meshTypeDatabase || {};
+    let currentSelectedMeshName = null;
+
+    window.showTypeSelector = function(meshName) {
+        currentSelectedMeshName = meshName;
+        const modal = document.getElementById('type-selector-modal');
+        const meshNameDisplay = document.getElementById('modal-mesh-name');
+        const dropdown = document.getElementById('type-selector-dropdown');
+        
+        meshNameDisplay.textContent = 'ชิ้นส่วน: ' + meshName;
+        
+        if (window.meshTypeDatabase[meshName]) {
+            dropdown.value = window.meshTypeDatabase[meshName];
+        } else {
+            dropdown.value = '';
+        }
+        
+        modal.style.display = 'flex';
+    };
+
+    window.confirmTypeSelection = function() {
+        if (!currentSelectedMeshName) return;
+        
+        const dropdown = document.getElementById('type-selector-dropdown');
+        const selectedType = dropdown.value;
+        
+        if (selectedType === '') {
+            alert('กรุณาเลือกประเภท');
+            return;
+        }
+        
+        window.meshTypeDatabase[currentSelectedMeshName] = selectedType;
+        
+        const meshItems = document.querySelectorAll('.mesh-item');
+        meshItems.forEach(item => {
+            if (item.textContent.includes(currentSelectedMeshName)) {
+                const typeTag = item.querySelector('.mesh-type-tag');
+                if (typeTag) {
+                    typeTag.textContent = selectedType;
+                } else {
+                    const tag = document.createElement('span');
+                    tag.className = 'mesh-type-tag';
+                    tag.textContent = selectedType;
+                    item.appendChild(tag);
+                }
+            }
+        });
+        
+        closeTypeSelector();
+        console.log('บันทึก Type:', currentSelectedMeshName, '=', selectedType);
+    };
+
+    window.closeTypeSelector = function() {
+        const modal = document.getElementById('type-selector-modal');
+        modal.style.display = 'none';
+        currentSelectedMeshName = null;
+    };
+
+    document.addEventListener('click', function(e) {
+        const modal = document.getElementById('type-selector-modal');
+        if (modal && e.target === modal) {
+            closeTypeSelector();
+        }
+    });
     </script>
 </body>
 </html>
