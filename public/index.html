@@ -175,17 +175,17 @@
 
     <!-- แผงข้อมูลกระบวนการและความปลอดภัย -->
     <div id="process-panel" class="panel" style="display: none;">
-        <div class="process-header">
-            <div id="title-container" style="display: flex; align-items: center; gap: 8px;">
-                <span id="process-title" style="font-weight: bold; font-size: 15px;">⚙️ ชิ้นส่วน: รอตรวจจับ...</span>
+        <div class="process-header" style="flex-direction: column; align-items: stretch; gap: 8px;">
+            <div id="title-container" style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                <span id="process-title" style="font-weight: bold; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">⚙️ ชิ้นส่วน: รอตรวจจับ...</span>
+                <span id="detection-method" class="method-tag" style="flex-shrink: 0;">ระบบตรวจจับ</span>
             </div>
-            <div style="display: flex; align-items: center; gap: 8px;">
-                <span id="detection-method" class="method-tag">ระบบตรวจจับ</span>
-                <button id="btn-assign-type" class="panel-action-btn" onclick="openTypeSelectorForActive()" style="background:rgba(168,85,247,0.15);border-color:#a855f7;color:#a855f7;">🏷️ กำหนด Type</button>
-                <button id="btn-edit-mode" class="panel-action-btn btn-edit-trigger" onclick="enableLiveEdit()">✏️ แก้ไข</button>
-                <div id="edit-actions-group" style="display: none; gap: 5px;">
-                    <button class="panel-action-btn btn-save" onclick="saveLiveEdit()">💾 บันทึก</button>
-                    <button class="panel-action-btn" onclick="cancelLiveEdit()">❌ ยกเลิก</button>
+            <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                <button id="btn-assign-type" class="panel-action-btn" onclick="openTypeSelectorForActive()" style="flex:1; min-width:0; background:rgba(168,85,247,0.15);border-color:#a855f7;color:#a855f7; font-size:11px; padding:6px 8px;">🏷️ Type</button>
+                <button id="btn-edit-mode" class="panel-action-btn btn-edit-trigger" onclick="enableLiveEdit()" style="flex:1; min-width:0; font-size:11px; padding:6px 8px;">✏️ แก้ไข</button>
+                <div id="edit-actions-group" style="display: none; gap: 5px; flex: 1;">
+                    <button class="panel-action-btn btn-save" onclick="saveLiveEdit()" style="flex:1; font-size:11px; padding:6px 8px;">💾 บันทึก</button>
+                    <button class="panel-action-btn" onclick="cancelLiveEdit()" style="flex:1; font-size:11px; padding:6px 8px;">❌ ยกเลิก</button>
                 </div>
             </div>
         </div>
