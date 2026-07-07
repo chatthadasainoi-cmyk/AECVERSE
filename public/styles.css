@@ -73,6 +73,7 @@ body, html {
    กว้างกว่าเดิมมาก เพราะไม่ถูกบีบด้วยความกว้าง side-col (300px) อีกต่อไป */
 .floating-safety-panel {
     position: absolute;
+    width: auto;
     bottom: 16px;
     right: 16px;
     left: 16px;
