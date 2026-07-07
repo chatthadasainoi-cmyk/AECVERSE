@@ -65,8 +65,25 @@ body, html {
 #details-panel { max-height: 45vh; overflow-y: auto; }
 
 #process-panel {
-    background: rgba(10, 20, 30, 0.88); border: 1px solid rgba(0, 255, 255, 0.2);
-    box-shadow: 0 0 20px rgba(0,255,255,0.15);
+    background: rgba(10, 20, 30, 0.92); border: 1px solid rgba(0, 255, 255, 0.25);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5), 0 0 24px rgba(0,255,255,0.15);
+}
+
+/* ลอยทับ canvas เหมือน UI เดิม — ไม่กินพื้นที่คอลัมน์ซ้าย-ขวา
+   กว้างกว่าเดิมมาก เพราะไม่ถูกบีบด้วยความกว้าง side-col (300px) อีกต่อไป */
+.floating-safety-panel {
+    position: absolute;
+    bottom: 16px;
+    right: 16px;
+    left: 16px;
+    max-width: 720px;
+    margin-left: auto;
+    z-index: 30;
+    max-height: 55vh;
+    overflow-y: auto;
+}
+@media (max-width: 900px) {
+    .floating-safety-panel { left: 16px; right: 16px; max-width: none; }
 }
 
 /* HUD คำสั่งด่วน — แถบล่างใต้ canvas เหมือนเดิม โชว์ตลอดเวลา ไม่ทับมุมมอง 3D */
@@ -152,7 +169,10 @@ h4 { color: #00ffff; }
 .mode-btn.active { border-color: #00ffff; color: #00ffff; background: rgba(0,255,255,0.1); font-weight: bold; }
 
 .process-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 8px; }
-.process-grid { display: grid; grid-template-columns: 1fr; gap: 16px; }
+.process-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 16px; }
+@media (max-width: 700px) {
+    .process-grid { grid-template-columns: 1fr; }
+}
 .method-tag { font-size: 10px; background: #00ffff; color:#000; padding:2px 6px; border-radius:4px; font-weight: bold; }
 
 .ui-edit-input { background: #0f172a; border: 1px solid #334155; color: #fff; padding: 6px; border-radius: 6px; width: 100%; box-sizing: border-box; font-size: 13px; }
