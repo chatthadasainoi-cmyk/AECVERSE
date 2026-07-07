@@ -72,19 +72,26 @@ body, html {
 /* ลอยทับ canvas เหมือน UI เดิม — ไม่กินพื้นที่คอลัมน์ซ้าย-ขวา
    กว้างกว่าเดิมมาก เพราะไม่ถูกบีบด้วยความกว้าง side-col (300px) อีกต่อไป */
 .floating-safety-panel {
-    position: absolute;
+    position: fixed;
+    bottom: 90px; /* เว้นเหนือแถบ keybind-hud ด้านล่างพอดี */
+    left: 316px;  /* = side-col 300px + gutter 16px */
+    right: 316px;
     width: auto;
-    bottom: 16px;
-    right: 16px;
-    left: 16px;
-    max-width: 720px;
-    margin-left: auto;
-    z-index: 30;
-    max-height: 55vh;
+    max-width: 640px;
+    margin: 0 auto;
+    z-index: 500; /* ต้องสูงกว่า keybind-hud (z-index:20) แน่นอน */
+    max-height: 50vh;
     overflow-y: auto;
 }
-@media (max-width: 900px) {
+@media (max-width: 1100px) {
     .floating-safety-panel { left: 16px; right: 16px; max-width: none; }
+}
+@media (max-width: 900px) {
+    .floating-safety-panel { bottom: 100px; }
+}
+@media screen and (max-width: 920px) and (orientation: landscape) {
+    /* จอมือถือแนวนอน: side-col เหลือ 200px และ keybind-hud ถูกซ่อนไปแล้ว */
+    .floating-safety-panel { left: 16px; right: 16px; bottom: 16px; max-height: 40vh; }
 }
 
 /* HUD คำสั่งด่วน — แถบล่างใต้ canvas เหมือนเดิม โชว์ตลอดเวลา ไม่ทับมุมมอง 3D */
