@@ -8,6 +8,7 @@ body, html {
     height: 100%;
 }
 
+/* ---------- 3-column fixed shell: no page scroll, canvas stays pure ---------- */
 #viewer-shell {
     display: flex;
     width: 100%;
@@ -44,6 +45,7 @@ body, html {
 }
 #canvas-container canvas { display: block; }
 
+/* กล่องควบคุมแบบกระจกโปร่งแสง (Glassmorphism) — ตอนนี้อยู่ในคอลัมน์ปกติ ไม่ลอยทับ canvas อีกต่อไป */
 .panel {
     position: relative;
     width: 100%;
@@ -57,6 +59,8 @@ body, html {
     box-sizing: border-box;
 }
 
+/* เดิมแต่ละแผงมีสีขอบต่างกัน (ฟ้า/ส้ม/เขียว) ทำให้ดูมั่ว รวมเป็นสีเดียวให้ทั้งชุด
+   สีที่มีความหมาย (ป้ายเตือนความปลอดภัย tag-red/orange/blue/green) ยังคงไว้เหมือนเดิมด้านล่าง ไม่ได้แตะ */
 .panel { border-left: 3px solid rgba(0, 255, 255, 0.35); }
 #details-panel { max-height: 45vh; overflow-y: auto; }
 
@@ -65,6 +69,7 @@ body, html {
     box-shadow: 0 0 20px rgba(0,255,255,0.15);
 }
 
+/* HUD คำสั่งด่วน — แถบล่างใต้ canvas เหมือนเดิม โชว์ตลอดเวลา ไม่ทับมุมมอง 3D */
 #keybind-hud {
     flex-shrink: 0;
     width: 100%;
@@ -90,6 +95,7 @@ h3, h4 { margin: 0 0 12px 0; font-size: 15px; letter-spacing: 0.5px; display: fl
 h3 { color: #00ffff; }
 h4 { color: #00ffff; }
 
+/* ---------- แถบแท็บด้านบนคอลัมน์ซ้าย/ขวา — โชว์ทีละแผงแทนการกองซ้อนกันหมด ---------- */
 .side-tabs {
     display: flex;
     gap: 4px;
@@ -125,44 +131,8 @@ h4 { color: #00ffff; }
 
 .status-msg { color: #64748b; margin-top: 5px; font-size: 11px; font-family: monospace; }
 .info-tag { display: inline-block; background: rgba(0,255,255,0.1); border: 1px solid rgba(0,255,255,0.2); padding: 3px 8px; border-radius: 4px; font-size: 11px; color: #00ffff; margin-bottom: 10px; }
-
-.mesh-item { 
-    padding: 8px 10px; 
-    border-bottom: 1px solid rgba(255,255,255,0.04); 
-    font-size: 12px; 
-    cursor: pointer; 
-    color: #cbd5e1; 
-    transition: 0.15s;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 8px;
-}
-.mesh-item:hover { 
-    background: rgba(0, 255, 255, 0.08); 
-    color: #00ffff; 
-    padding-left: 14px; 
-}
-
-.mesh-item-name {
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.mesh-type-tag {
-    display: inline-block;
-    background: rgba(0, 255, 255, 0.2);
-    color: #00ffff;
-    padding: 3px 8px;
-    border-radius: 12px;
-    font-size: 10px;
-    font-weight: 600;
-    white-space: nowrap;
-    flex-shrink: 0;
-    border: 1px solid rgba(0, 255, 255, 0.3);
-}
+.mesh-item { padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.04); font-size: 12px; cursor: pointer; color: #cbd5e1; transition: 0.15s; }
+.mesh-item:hover { background: rgba(0, 255, 255, 0.08); color: #00ffff; padding-left: 14px; }
 
 .badge { background: #38bdf8; color: #000; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 10px; margin-right: 6px; inline-size: max-content; }
 .step-box { background: rgba(255,255,255,0.03); padding: 8px 12px; border-radius: 6px; margin-top: 6px; border-left: 3px solid #38bdf8; font-size: 12px; display: flex; align-items: flex-start; }
@@ -207,131 +177,20 @@ h4 { color: #00ffff; }
 .tag-green { border-left-color: #22c55e !important; }
 .tag-green .badge { background: #22c55e; color: black; }
 
+/* ตกแต่ง Scrollbar ประจำกล่องข้อมูล */
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); }
 ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
-
-/* === TYPE SELECTOR MODAL === */
-.type-selector-modal {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.8);
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
-    display: none;
-    align-items: center;
-    justify-content: center;
-    z-index: 9999;
-}
-
-.type-selector-modal.show {
-    display: flex;
-}
-
-.type-selector-content {
-    background: linear-gradient(135deg, rgba(10, 16, 26, 0.95) 0%, rgba(10, 20, 35, 0.95) 100%);
-    border: 2px solid rgba(0, 255, 255, 0.4);
-    border-radius: 14px;
-    padding: 28px;
-    box-shadow: 0 8px 32px rgba(0, 255, 255, 0.3), 0 0 20px rgba(0, 255, 255, 0.1);
-    min-width: 360px;
-    max-width: 420px;
-}
-
-.type-selector-content h4 {
-    margin: 0 0 16px 0;
-    font-size: 18px;
-    color: #00ffff;
-    text-shadow: 0 0 10px rgba(0, 255, 255, 0.3);
-}
-
-#modal-mesh-name {
-    font-size: 12px;
-    color: #94a3b8;
-    margin: 0 0 16px 0;
-    padding: 8px;
-    background: rgba(0, 255, 255, 0.1);
-    border-radius: 6px;
-    border-left: 3px solid #00ffff;
-}
-
-.type-selector-dropdown {
-    width: 100%;
-    background: #0f172a;
-    border: 2px solid rgba(0, 255, 255, 0.3);
-    color: #00ffff;
-    padding: 10px 12px;
-    border-radius: 8px;
-    font-size: 13px;
-    margin-bottom: 20px;
-    box-sizing: border-box;
-    cursor: pointer;
-    transition: all 0.3s ease;
-}
-
-.type-selector-dropdown:hover {
-    border-color: #00ffff;
-    box-shadow: 0 0 10px rgba(0, 255, 255, 0.2);
-}
-
-.type-selector-dropdown:focus {
-    outline: none;
-    border-color: #00ffff;
-    box-shadow: 0 0 15px rgba(0, 255, 255, 0.3);
-}
-
-.type-selector-dropdown option {
-    background: #0f172a;
-    color: #00ffff;
-    padding: 8px;
-}
-
-.type-selector-actions {
-    display: flex;
-    gap: 10px;
-}
-
-.type-selector-actions .panel-action-btn {
-    flex: 1;
-    padding: 10px;
-    font-size: 13px;
-    font-weight: 600;
-    border-radius: 8px;
-    transition: all 0.3s ease;
-}
-
-.type-selector-actions .btn-save {
-    background: rgba(0, 255, 255, 0.15);
-    color: #00ffff;
-    border: 2px solid rgba(0, 255, 255, 0.4);
-}
-
-.type-selector-actions .btn-save:hover {
-    background: rgba(0, 255, 255, 0.25);
-    box-shadow: 0 0 15px rgba(0, 255, 255, 0.3);
-    transform: translateY(-2px);
-}
-
-.type-selector-actions .panel-action-btn:last-child {
-    background: rgba(239, 68, 68, 0.1);
-    color: #ef4444;
-    border: 2px solid rgba(239, 68, 68, 0.3);
-}
-
-.type-selector-actions .panel-action-btn:last-child:hover {
-    background: rgba(239, 68, 68, 0.2);
-    box-shadow: 0 0 15px rgba(239, 68, 68, 0.2);
-    transform: translateY(-2px);
-}
-
+/* === MULTIPLAYER PANEL === */
+/* ซ่อนออกจาก UI ตามที่ขอ — คง element ไว้ในหน้าเพจเหมือนเดิม (ไม่ลบทิ้ง)
+   เพื่อไม่ให้โค้ด socket/chat ใน app.js ที่อ้างอิง id พวกนี้ error */
 #multiplayer-panel {
     display: none !important;
 }
+/* --- CSS บังคับและปรับแต่งให้รองรับโทรศัพท์แนวนอนโดยเฉพาะ --- */
 
+/* 1. ซ่อนระบบจอยสติ๊กและปุ่มแอคชันไว้เป็นค่าเริ่มต้น */
 #mobile-controls-container {
     display: none;
     position: absolute;
@@ -357,7 +216,7 @@ h4 { color: #00ffff; }
     right: 40px;
     bottom: 10px;
     display: flex;
-    flex-direction: row;
+    flex-direction: row; /* จัดเรียงปุ่มแนวนอนบนโหมด Landscape เพื่อไม่ให้บังจอ */
     gap: 16px;
     pointer-events: auto;
 }
@@ -381,17 +240,19 @@ h4 { color: #00ffff; }
     -webkit-user-select: none;
 }
 
+/* 2. เปิดใช้งานกลไกทั้งหมดเฉพาะเมื่อหน้าจอเป็นแนวราบ/แนวนอนบนอุปกรณ์เคลื่อนที่ (Landscape Mode) */
 @media screen and (max-width: 920px) and (orientation: landscape) {
     #mobile-controls-container {
-        display: block;
+        display: block; /* เปิดให้จอยและปุ่มกดเฉพาะแนวนอนเท่านั้น */
     }
 
     #keybind-hud {
-        display: none !important;
+        display: none !important; /* ซ่อนแถบปุ่มคีย์บอร์ดคอมพิวเตอร์ออกไป (ใช้จอยสติ๊ก/ปุ่มมือถือแทน) */
     }
 
+    /* จัดระเบียบหน้าต่างสเตตัสซ้าย-ขวาบนมือถือแนวนอนไม่ให้บังตรงกลางฉาก */
     .side-col {
-        width: 200px;
+        width: 200px; /* ลดความกว้างเมนูด้านข้างลงเพื่อให้เห็นตัวละครตรงกลางชัดเจน */
     }
     .panel {
         max-height: 110px;
@@ -399,10 +260,11 @@ h4 { color: #00ffff; }
         padding: 8px;
     }
     #details-panel, #transform-panel {
-        display: none !important;
+        display: none !important; /* ซ่อนเมนูจัดตำแหน่งขนาดใหญ่เพื่อคืนพื้นที่จอภาพ */
     }
 }
 
+/* 3. ส่วนเสริม الاختياري: หากเปิดในแนวตั้ง (Portrait) บนมือถือ จะแสดงคำเตือนให้หมุนจออัตโนมัติ */
 @media screen and (max-width: 600px) and (orientation: portrait) {
     body::before {
         content: "🔄 โปรดหมุนโทรศัพท์เป็นแนวนอน (Landscape Mode) เพื่อเริ่มควบคุมพนักงาน";
@@ -421,7 +283,9 @@ h4 { color: #00ffff; }
         z-index: 99999;
     }
 }
+/* --- สไตล์ปุ่มกากบาทปิดหน้าต่างบนมือถือ --- */
 
+/* ซ่อนไว้เป็นค่าเริ่มต้นเมื่อเปิดบน PC */
 .mobile-close-panel-btn {
     display: none;
     position: absolute;
@@ -429,7 +293,7 @@ h4 { color: #00ffff; }
     right: 8px;
     width: 28px;
     height: 28px;
-    background: #ef4444;
+    background: #ef4444; /* สีแดงสว่างสังเกตง่าย */
     color: #ffffff;
     border: none;
     border-radius: 50%;
@@ -443,16 +307,17 @@ h4 { color: #00ffff; }
 }
 
 .mobile-close-panel-btn:active {
-    background: #dc2626;
+    background: #dc2626; /* สีแดงเข้มขึ้นเล็กน้อยตอนเอานิ้วกด */
     transform: scale(0.95);
 }
 
+/* แสดงผลและจัดตำแหน่งให้ปุ่มกดง่ายขึ้น เฉพาะบนมือถือแนวนอน (Landscape) */
 @media screen and (max-width: 920px) and (orientation: landscape) {
     .panel {
-        padding-top: 32px !important;
+        padding-top: 32px !important; /* เว้นพื้นที่ด้านบนหลบปุ่มกากบาทไม่ให้ทับเนื้อหา */
     }
 
     .mobile-close-panel-btn {
-        display: flex;
+        display: flex; /* เปิดใช้งานปุ่มสีแดงเฉพาะบนมือถือ */
     }
 }
