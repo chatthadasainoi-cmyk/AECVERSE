@@ -990,20 +990,6 @@ function initMultiplayer() {
         if (data.typeAssignments && typeof userDefinedTypes !== 'undefined') {
             Object.assign(userDefinedTypes, data.typeAssignments);
         }
-        // 💾 คืนค่าตำแหน่ง/ขนาด/หมุนของโมเดลตามที่ถูกเซฟ/โหลดไว้ล่าสุดในห้อง (ถ้ามี)
-        if (data.sceneTransform && data.modelUrl) {
-            const applyTransform = () => {
-                if (!factoryModel) { setTimeout(applyTransform, 200); return; }
-                const t = data.sceneTransform;
-                factoryModel.position.set(t.posX, t.posY, t.posZ);
-                factoryModel.rotation.y = t.rotY;
-                const sc = t.scale || 1;
-                factoryModel.scale.set(initialFactoryScale * sc, initialFactoryScale * sc, initialFactoryScale * sc);
-                if (typeof syncSlidersWithModel === 'function') syncSlidersWithModel();
-                if (typeof buildColliders === 'function') buildColliders();
-            };
-            setTimeout(applyTransform, 400);
-        }
         updateMpUI();
     });
 
@@ -2020,15 +2006,16 @@ window.openTypeSelectorForActive = function() {
 };
 
 
+
 // ============================================================
-// SAVE / LOAD SCENE SYSTEM — เหมือน Save/Load เกม
-// เซฟ: URL โมเดล (Supabase), transform ของโมเดล, ข้อมูลที่แก้ไข/กำหนด Type ทั้งหมด
-// โหลด: คืนค่าทุกอย่างกลับมา + broadcast ให้ผู้เล่นคนอื่นในห้องเห็นตรงกัน
+// SAVE / LOAD SCENE SYSTEM (v2) — เซฟ "ตัวโมเดลจริง" + ข้อมูลชิ้นส่วนทั้งหมด
+// รวมเป็นไฟล์เดียว .zip (model.glb + data.json) เหมือนเซฟเกม
+// ไม่ใช่แค่ URL อ้างอิง — โหลดกลับมาได้แม้ไม่มีเน็ต/ไฟล์ต้นทางบน Supabase หายไปแล้ว
 // ============================================================
 
-function collectPortableSceneData() {
-    // รวบรวมเฉพาะข้อมูลที่ "พกพาข้าม browser ได้" คือ key เป็นชื่อ mesh (_original3DName)
-    // ไม่ใช่ UUID เพราะ UUID เปลี่ยนทุกครั้งที่โหลดโมเดลใหม่ในแต่ละเครื่อง
+function collectPartMetadata() {
+    // เก็บข้อมูลความปลอดภัย/ประเภทของทุกชิ้นส่วน โดยใช้ "ชื่อดั้งเดิม" เป็น key
+    // (ชื่อดั้งเดิมจะถูกฝังกลับเข้าไปในไฟล์ .glb ตอน export ด้วย ทำให้ round-trip ตรงกันเป๊ะ)
     const workflowOverrides = {};
     const typeAssignmentsOut = {};
 
@@ -2038,12 +2025,9 @@ function collectPortableSceneData() {
             const nameKey = child._original3DName || child.name;
             if (!nameKey) return;
 
-            // ข้อมูลความปลอดภัยที่ถูกแก้ไข/กำหนดไว้ (จาก saveLiveEdit หรือ assignMeshType)
             if (workflowDatabase[nameKey]) {
                 workflowOverrides[nameKey] = workflowDatabase[nameKey];
             }
-
-            // ประเภทดิบที่กำหนดไว้ (เช่น 'tank','flare') สำหรับ PPE zone
             const rawType = (typeof userDefinedTypes !== 'undefined')
                 ? (userDefinedTypes[nameKey] || userDefinedTypes[child.uuid])
                 : null;
@@ -2051,118 +2035,222 @@ function collectPortableSceneData() {
         });
     }
 
-    const transform = factoryModel ? {
-        posX: factoryModel.position.x,
-        posY: factoryModel.position.y,
-        posZ: factoryModel.position.z,
-        rotY: factoryModel.rotation.y,
-        scale: factoryModel.scale.x / (initialFactoryScale || 1)
-    } : null;
-
-    return {
-        version: 1,
-        savedAt: new Date().toISOString(),
-        modelUrl: currentSceneModelUrl,
-        modelName: currentSceneModelName,
-        transform: transform,
-        workflowOverrides: workflowOverrides,
-        typeAssignments: typeAssignmentsOut
-    };
+    return { workflowOverrides, typeAssignments: typeAssignmentsOut };
 }
 
-window.saveScene = function() {
-    if (!currentSceneModelUrl) {
-        document.getElementById('scene-save-status').innerText = '❌ ยังไม่มีโมเดลให้บันทึก — อัปโหลดโมเดลก่อน';
+function exportFactoryModelAsGLB() {
+    return new Promise((resolve, reject) => {
+        if (!factoryModel) { reject(new Error('ไม่มีโมเดลให้บันทึก')); return; }
+        if (typeof THREE.GLTFExporter === 'undefined') { reject(new Error('ไม่พบ GLTFExporter')); return; }
+
+        // สลับชื่อ mesh กลับเป็น "ชื่อดั้งเดิม" ชั่วคราวก่อน export
+        // เพื่อให้ไฟล์ .glb ที่ได้มีชื่อชิ้นส่วนตรงกับ key ใน data.json เป๊ะๆ (ไม่ใช่ชื่อที่ผู้ใช้แก้ไข)
+        const backupNames = [];
+        factoryModel.traverse(child => {
+            if (child.isMesh) {
+                backupNames.push({ mesh: child, displayName: child.name });
+                child.name = child._original3DName || child.name;
+            }
+        });
+
+        const exporter = new THREE.GLTFExporter();
+        exporter.parse(factoryModel, function(result) {
+            // คืนชื่อที่ผู้ใช้แก้ไขกลับเข้าไปที่ scene เหมือนเดิม (export เสร็จแล้ว)
+            backupNames.forEach(b => { b.mesh.name = b.displayName; });
+
+            if (result instanceof ArrayBuffer) {
+                resolve(result);
+            } else {
+                // กรณี exporter คืนเป็น JSON object (.gltf) แทน binary — แปลงเป็น ArrayBuffer ของ JSON string
+                const jsonStr = JSON.stringify(result);
+                const buf = new TextEncoder().encode(jsonStr).buffer;
+                resolve(buf);
+            }
+        }, function(err) {
+            backupNames.forEach(b => { b.mesh.name = b.displayName; });
+            reject(err);
+        }, { binary: true }); // บังคับ export เป็น .glb (binary) ไฟล์เดียวกะทัดรัด
+    });
+}
+
+window.saveScene = async function() {
+    const statusEl = document.getElementById('scene-save-status');
+    if (!factoryModel) {
+        if (statusEl) statusEl.innerText = '❌ ยังไม่มีโมเดลให้บันทึก — อัปโหลดโมเดลก่อน';
         return;
     }
-    const saveData = collectPortableSceneData();
-    const dataStr = "data:application/json;charset=utf-8," + encodeURIComponent(JSON.stringify(saveData, null, 2));
-    const a = document.createElement('a');
-    a.setAttribute("href", dataStr);
-    const fname = `biogas_scene_save_${Date.now()}.json`;
-    a.setAttribute("download", fname);
-    document.body.appendChild(a); a.click(); a.remove();
 
-    const statusEl = document.getElementById('scene-save-status');
-    if (statusEl) statusEl.innerText = `✅ บันทึกแล้ว: ${fname} (${Object.keys(saveData.workflowOverrides).length} รายการ)`;
+    try {
+        if (statusEl) statusEl.innerText = '⏳ กำลัง export โมเดล...';
+        const glbBuffer = await exportFactoryModelAsGLB();
+
+        const { workflowOverrides, typeAssignments } = collectPartMetadata();
+        const metadata = {
+            version: 2,
+            savedAt: new Date().toISOString(),
+            workflowOverrides,
+            typeAssignments
+        };
+
+        if (statusEl) statusEl.innerText = '⏳ กำลังรวมไฟล์...';
+        const zip = new JSZip();
+        zip.file('model.glb', glbBuffer);
+        zip.file('data.json', JSON.stringify(metadata, null, 2));
+
+        const zipBlob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+
+        const fname = `biogas_scene_${Date.now()}.zip`;
+        const url = URL.createObjectURL(zipBlob);
+        const a = document.createElement('a');
+        a.href = url; a.download = fname;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+
+        const partCount = Object.keys(workflowOverrides).length;
+        if (statusEl) statusEl.innerText = `✅ บันทึกแล้ว: ${fname} (โมเดล + ข้อมูล ${partCount} ชิ้นส่วน)`;
+    } catch (err) {
+        console.error(err);
+        if (statusEl) statusEl.innerText = `❌ บันทึกล้มเหลว: ${err.message}`;
+    }
 };
 
-function applySceneSaveData(saveData, opts) {
-    opts = opts || {};
-    const broadcast = opts.broadcast !== false; // default true
+// โหลดโมเดลจาก Blob (ไฟล์ .glb ที่แตกออกมาจาก .zip) — คล้าย loadModelFromUrl แต่รับ Blob URL ตรงๆ
+function loadModelFromBlobUrl(blobUrl, onDone) {
+    if (factoryModel) { scene.remove(factoryModel); originalMaterials.clear(); factoryColliders = []; }
+    document.getElementById('factory-status').innerText = `⬇️ กำลังโหลดโมเดลจากไฟล์เซฟ...`;
 
-    // 1) โหลดโมเดลจาก URL ที่บันทึกไว้ (ถ้ามี และคนละโมเดลกับที่โหลดอยู่)
-    if (saveData.modelUrl) {
-        loadModelFromUrl(saveData.modelUrl, saveData.modelName);
-    }
+    const loader = new THREE.GLTFLoader();
+    loader.load(blobUrl, function(obj) {
+        factoryModel = obj.scene ? obj.scene : obj;
+        let meshCount = 0;
+        const container = document.getElementById('mesh-container');
+        container.innerHTML = '';
+        factoryModel.traverse(function(child) {
+            if (child.isMesh) {
+                meshCount++;
+                originalMaterials.set(child.uuid, child.material.clone());
+                if (!child._original3DName) { child._original3DName = child.name || `Object_${meshCount}`; }
 
-    // 2) รอให้โมเดลโหลดเสร็จก่อนค่อย apply transform + type + workflow
-    //    ใช้ polling สั้นๆ เพราะ loadModelFromUrl เป็น async (loader.load callback)
-    const applyAfterLoad = () => {
-        if (!factoryModel) { setTimeout(applyAfterLoad, 200); return; }
+                const item = document.createElement('div');
+                item.className = 'mesh-item';
+                const mName = child.name || child._original3DName;
+                item.innerText = `🏭 ${mName}`;
+                item.id = `mesh-item-${child.uuid}`;
+                item.addEventListener('click', () => highlightAndShowWorkflow(child, mName, 'คลิกเลือกโมเดล'));
+                container.appendChild(item);
+            }
+        });
+        document.getElementById('model-meta').innerHTML = `<span class="info-tag">ตรวจพบชิ้นส่วน: ${meshCount} รายการ</span>`;
+        document.getElementById('details-panel').style.display = 'block';
 
-        // Transform
-        if (saveData.transform) {
-            factoryModel.position.set(saveData.transform.posX, saveData.transform.posY, saveData.transform.posZ);
-            factoryModel.rotation.y = saveData.transform.rotY;
-            const sc = saveData.transform.scale || 1;
-            factoryModel.scale.set(initialFactoryScale * sc, initialFactoryScale * sc, initialFactoryScale * sc);
-            if (typeof syncSlidersWithModel === 'function') syncSlidersWithModel();
-            if (typeof buildColliders === 'function') buildColliders();
-        }
+        // โมเดลที่ export กลับมาเก็บ transform เดิมไว้ในตัวเองแล้ว (baked-in)
+        // จึงไม่ auto-fit ขนาด/ตำแหน่งใหม่ ให้คงตามที่บันทึกไว้เป๊ะ
+        initialFactoryScale = factoryModel.scale.x || 1;
 
-        // Workflow overrides (ข้อมูลที่แก้ไข/กำหนด Type)
-        if (saveData.workflowOverrides) {
-            Object.assign(workflowDatabase, saveData.workflowOverrides);
-        }
-        if (saveData.typeAssignments && typeof userDefinedTypes !== 'undefined') {
-            Object.assign(userDefinedTypes, saveData.typeAssignments);
-        }
+        scene.add(factoryModel);
+        document.getElementById('factory-status').innerText = `✓ โหลดจากไฟล์เซฟสำเร็จ`;
+        buildColliders();
+        setFactoryMaterialMode(currentMaterialMode);
+        syncSlidersWithModel();
+        if (onDone) onDone();
+    }, undefined, err => {
+        document.getElementById('factory-status').innerText = `❌ โหลดโมเดลจากไฟล์เซฟล้มเหลว`;
+        console.error(err);
+    });
+}
 
-        // อัปเดตชื่อ mesh list ตาม override ที่มี name เปลี่ยน
+function applyPartMetadata(metadata) {
+    if (metadata.workflowOverrides) Object.assign(workflowDatabase, metadata.workflowOverrides);
+    if (metadata.typeAssignments && typeof userDefinedTypes !== 'undefined') Object.assign(userDefinedTypes, metadata.typeAssignments);
+
+    // อัปเดตชื่อ mesh list ตาม override ที่มี name เปลี่ยน
+    if (factoryModel) {
         factoryModel.traverse(child => {
             if (!child.isMesh) return;
             const nameKey = child._original3DName || child.name;
-            const data = saveData.workflowOverrides ? saveData.workflowOverrides[nameKey] : null;
+            const data = metadata.workflowOverrides ? metadata.workflowOverrides[nameKey] : null;
             if (data && data.name) {
                 child.name = data.name;
                 const item = document.getElementById(`mesh-item-${child.uuid}`);
                 if (item) item.innerText = `🏭 ${data.name}`;
             }
         });
+    }
 
-        if (typeof buildProximityTags === 'function') buildProximityTags();
-        if (typeof buildPPEZones === 'function') buildPPEZones();
+    if (typeof buildProximityTags === 'function') buildProximityTags();
+    if (typeof buildPPEZones === 'function') buildPPEZones();
+}
 
-        document.getElementById('scene-save-status').innerText = `✅ โหลดฉากสำเร็จ (${Object.keys(saveData.workflowOverrides || {}).length} รายการ)`;
-        mpAppendChat({ name:'💾 ระบบ', color:'#38bdf8', text:`โหลดฉากที่บันทึกไว้แล้ว — ข้อมูล ${Object.keys(saveData.workflowOverrides || {}).length} รายการถูกคืนค่า` });
+// หลังโหลดฉากสำเร็จในเครื่องตัวเอง — ถ้าต่อ multiplayer อยู่ ให้อัปโหลดโมเดลขึ้น Supabase
+// แล้ว broadcast URL + ข้อมูลทุกชิ้นส่วนให้ผู้เล่นคนอื่นเห็นเหมือนกันทันที
+async function broadcastLoadedSceneToRoom(glbBlob, metadata) {
+    if (typeof mpSocket === 'undefined' || !mpSocket || !mpSocket.connected) return;
 
-        // 3) Broadcast ให้ผู้เล่นคนอื่นในห้องเห็นเหมือนกันทั้งหมด
-        if (broadcast && typeof mpSocket !== 'undefined' && mpSocket && mpSocket.connected) {
-            mpSocket.emit('scene_load', saveData);
-        }
-    };
+    try {
+        const statusEl = document.getElementById('scene-save-status');
+        if (statusEl) statusEl.innerText = '⏳ กำลังอัปโหลดโมเดลขึ้น Cloud เพื่อแชร์ให้ผู้เล่นอื่น...';
 
-    if (saveData.modelUrl) {
-        setTimeout(applyAfterLoad, 300); // รอ loader เริ่มทำงานก่อน
-    } else {
-        applyAfterLoad(); // ไม่มีโมเดลใหม่ ใช้โมเดลปัจจุบัน apply ข้อมูลได้เลย
+        const glbFile = new File([glbBlob], `scene_loaded_${Date.now()}.glb`, { type: 'model/gltf-binary' });
+        const publicUrl = await uploadToSupabase(glbFile);
+
+        mpSocket.emit('model_shared', { url: publicUrl, fileName: glbFile.name });
+
+        // ส่งข้อมูลของทุกชิ้นส่วนตามหลัง ผ่าน channel workflow_update เดิม (ใช้ได้ชัวร์อยู่แล้ว)
+        const overrides = metadata.workflowOverrides || {};
+        Object.keys(overrides).forEach(nameKey => {
+            const data = overrides[nameKey];
+            mpSocket.emit('workflow_update', {
+                key: nameKey,
+                name: data.name,
+                desc: data.desc,
+                steps: data.steps,
+                colorClass: data.colorClass || 'tag-blue',
+                assignedTypeKey: (metadata.typeAssignments || {})[nameKey] || null
+            });
+        });
+
+        if (statusEl) statusEl.innerText = `✅ แชร์ฉากให้ผู้เล่นในห้องแล้ว (${Object.keys(overrides).length} ชิ้นส่วน)`;
+        mpAppendChat({ name:'💾 ระบบ', color:'#38bdf8', text:`โหลดฉากใหม่และแชร์ให้ทุกคนในห้องแล้ว` });
+    } catch (err) {
+        console.error(err);
+        const statusEl = document.getElementById('scene-save-status');
+        if (statusEl) statusEl.innerText = `⚠️ โหลดสำเร็จ แต่แชร์ให้ผู้เล่นอื่นไม่สำเร็จ: ${err.message}`;
     }
 }
 
-window.loadScene = function(file) {
-    const reader = new FileReader();
-    reader.onload = function(e) {
-        try {
-            const saveData = JSON.parse(e.target.result);
-            if (!saveData || typeof saveData !== 'object') throw new Error('ไฟล์ไม่ถูกต้อง');
-            document.getElementById('scene-save-status').innerText = '⏳ กำลังโหลดฉาก...';
-            applySceneSaveData(saveData, { broadcast: true });
-        } catch (err) {
-            document.getElementById('scene-save-status').innerText = `❌ โหลดไฟล์ไม่สำเร็จ: ${err.message}`;
-        }
-    };
-    reader.readAsText(file);
+window.loadScene = async function(file) {
+    const statusEl = document.getElementById('scene-save-status');
+    try {
+        if (statusEl) statusEl.innerText = '⏳ กำลังเปิดไฟล์เซฟ...';
+        const zip = await JSZip.loadAsync(file);
+
+        const glbEntry = zip.file('model.glb');
+        const jsonEntry = zip.file('data.json');
+        if (!glbEntry || !jsonEntry) throw new Error('ไฟล์เซฟไม่ถูกต้อง (ไม่พบ model.glb หรือ data.json)');
+
+        const glbArrayBuffer = await glbEntry.async('arraybuffer');
+        const jsonText = await jsonEntry.async('string');
+        const metadata = JSON.parse(jsonText);
+
+        const glbBlob = new Blob([glbArrayBuffer], { type: 'model/gltf-binary' });
+        const blobUrl = URL.createObjectURL(glbBlob);
+
+        if (statusEl) statusEl.innerText = '⏳ กำลังโหลดโมเดล...';
+        loadModelFromBlobUrl(blobUrl, () => {
+            applyPartMetadata(metadata);
+            const partCount = Object.keys(metadata.workflowOverrides || {}).length;
+            if (statusEl) statusEl.innerText = `✅ โหลดฉากสำเร็จ (โมเดล + ข้อมูล ${partCount} ชิ้นส่วน)`;
+            mpAppendChat({ name:'💾 ระบบ', color:'#38bdf8', text:`โหลดฉากที่บันทึกไว้แล้ว — ${partCount} ชิ้นส่วน` });
+
+            // แชร์ให้ผู้เล่นคนอื่นในห้อง (ถ้าต่อ multiplayer อยู่)
+            broadcastLoadedSceneToRoom(glbBlob, metadata);
+
+            URL.revokeObjectURL(blobUrl);
+        });
+    } catch (err) {
+        console.error(err);
+        if (statusEl) statusEl.innerText = `❌ โหลดไฟล์ไม่สำเร็จ: ${err.message}`;
+    }
 };
 
 document.getElementById('scene-load-input')?.addEventListener('change', function(e) {
@@ -2170,18 +2258,6 @@ document.getElementById('scene-load-input')?.addEventListener('change', function
     if (file) window.loadScene(file);
 });
 
-// รับ scene_load ที่ผู้เล่นคนอื่นแชร์มา — apply ให้ตรงกันโดยไม่ broadcast ซ้ำ
-(function hookSceneLoadReceiver() {
-    const trySetup = () => {
-        if (typeof mpSocket === 'undefined' || !mpSocket) { setTimeout(trySetup, 300); return; }
-        mpSocket.on('scene_load', data => {
-            document.getElementById('scene-save-status').innerText = '⏳ ผู้เล่นอื่นโหลดฉากใหม่...';
-            applySceneSaveData(data, { broadcast: false });
-        });
-    };
-    trySetup();
-})();
-
 // ============================================================
-// END SAVE / LOAD SCENE SYSTEM
+// END SAVE / LOAD SCENE SYSTEM (v2)
 // ============================================================
