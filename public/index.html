@@ -59,24 +59,40 @@
     <div id="transform-panel" class="panel" style="display: none;">
         <h4 style="margin-bottom: 12px;">🛠️ เครื่องมือปรับตำแหน่งวัตถุ</h4>
 
+        <!-- REQ 1&2: Admin auth + Lock — เฉพาะ Admin ที่ปลดล็อกแล้วเท่านั้นที่ปรับ slider ด้านล่างได้ -->
+        <div id="admin-auth-section" style="margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.1);">
+            <label class="section-label">🔑 โหมดผู้ดูแลระบบ (Admin)</label>
+            <div id="admin-login-row" style="display:flex; gap:6px;">
+                <input type="password" id="admin-password-input" class="ui-edit-input" placeholder="รหัสผ่าน Admin" style="flex:1;">
+                <button class="panel-action-btn btn-save" onclick="adminLogin()" style="white-space:nowrap;">เข้าสู่ระบบ</button>
+            </div>
+            <div id="admin-status-row" style="display:none; align-items:center; justify-content:space-between; gap:8px;">
+                <span style="color:#22c55e; font-size:12px;">✅ คุณคือ Admin</span>
+                <button class="panel-action-btn" onclick="adminLogout()" style="font-size:11px;">ออกจากโหมด Admin</button>
+            </div>
+            <div id="lock-status-badge" style="margin-top:8px; font-size:11.5px; padding:6px 10px; border-radius:6px; text-align:center;"></div>
+            <button id="btn-toggle-lock" class="panel-action-btn" onclick="toggleModelLock()" style="width:100%; margin-top:8px; display:none;"></button>
+            <div style="font-size:10.5px; color:#64748b; margin-top:6px;">ผู้ใช้ทั่วไปจะเห็นตำแหน่งโมเดลแบบอ่านอย่างเดียว ปรับได้เฉพาะ Admin ที่ปลดล็อกไว้เท่านั้น</div>
+        </div>
+
         <div class="control-group">
             <label>ตำแหน่งแกน X (ซ้าย - ขวา)</label>
             <div class="slider-row">
-                <input type="range" id="param-posX" min="-50" max="50" step="0.1" value="0">
+                <input type="range" id="param-posX" min="-50" max="50" step="0.1" value="0" disabled>
                 <span id="val-posX" class="slider-val">0.0</span>
             </div>
         </div>
         <div class="control-group">
             <label>ตำแหน่งแกน Y (ขึ้น - ลง)</label>
             <div class="slider-row">
-                <input type="range" id="param-posY" min="-10" max="20" step="0.05" value="0">
+                <input type="range" id="param-posY" min="-10" max="20" step="0.05" value="0" disabled>
                 <span id="val-posY" class="slider-val">0.0</span>
             </div>
         </div>
         <div class="control-group">
             <label>ตำแหน่งแกน Z (หน้า - หลัง)</label>
             <div class="slider-row">
-                <input type="range" id="param-posZ" min="-50" max="50" step="0.1" value="0">
+                <input type="range" id="param-posZ" min="-50" max="50" step="0.1" value="0" disabled>
                 <span id="val-posZ" class="slider-val">0.0</span>
             </div>
         </div>
@@ -84,7 +100,7 @@
         <div class="control-group">
             <label>หมุนโมเดล (แนวราบ Y)</label>
             <div class="slider-row">
-                <input type="range" id="param-rotY" min="-180" max="180" step="1" value="0">
+                <input type="range" id="param-rotY" min="-180" max="180" step="1" value="0" disabled>
                 <span id="val-rotY" class="slider-val">0°</span>
             </div>
         </div>
@@ -92,7 +108,7 @@
         <div class="control-group">
             <label>ขนาดโมเดล (Scale)</label>
             <div class="slider-row">
-                <input type="range" id="param-scale" min="0.1" max="5" step="0.05" value="1">
+                <input type="range" id="param-scale" min="0.1" max="5" step="0.05" value="1" disabled>
                 <span id="val-scale" class="slider-val">1.0x</span>
             </div>
         </div>
@@ -121,6 +137,7 @@
         <div id="mp-status" style="display:flex; align-items:center; gap:6px; margin-bottom:10px; font-size:12px; color:#64748b;">
             <span id="mp-dot" style="width:8px;height:8px;border-radius:50%;background:#64748b;display:inline-block;"></span>
             <span id="mp-status-text">กำลังเชื่อมต่อ...</span>
+            <span style="margin-left:auto;">👑 Admin: <span id="mp-admin-count">0</span></span>
         </div>
 
         <div style="margin-bottom:10px;">
