@@ -1,12 +1,37 @@
-// --- 1. SETUP THREE.JS SCENE ---
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0a0f14); // เปลี่ยนสีพื้นหลังให้เข้าธีมดาร์กโหมด
+// ════════════════════════════════════════════════════════════════════════
+// BIOGAS DIGITAL TWIN — REWORK PROTOTYPE (v2)
+// ────────────────────────────────────────────────────────────────────────
+// สถาปัตยกรรมใหม่: ทุกฟังก์ชันถูกประกาศ "ครั้งเดียว" เรียงลำดับตามการทำงานจริง
+// ไม่มีการ monkey-patch ทับ renderer.render / buildColliders / highlightAndShowWorkflow
+// ซ้ำหลายชั้นแบบเวอร์ชันเดิม (ซึ่งเป็นสาเหตุหลักที่ทำให้ระบบ "ค้าง/ติดขัด" —
+// เพราะถ้าฟังก์ชันที่ถูกห่อไว้ชั้นในสุด throw error หนึ่งจุด การ render เฟรมนั้นทั้งเฟรมจะพังทันที)
+// แทนที่ด้วย animate() loop เดียว เรียกแต่ละระบบย่อยผ่าน safeCall() ที่ดัก error
+// ไม่ให้ระบบหนึ่งล้มแล้วลากทั้งแอปตายไปด้วย
+// ════════════════════════════════════════════════════════════════════════
 
-// 💡 แก้บั๊กภาพเอียง/บิดเบี้ยว: เลย์เอาต์ใหม่มี panel ซ้าย-ขวากินพื้นที่ ทำให้ canvas-container
-// ไม่ได้กว้างเท่า window เต็มจอ ต้องอ้างอิงขนาดจริงของ container แทน window.innerWidth/Height
-const canvasContainer = document.getElementById('canvas-container');
+// ============================================================
+// 0. UTIL
+// ============================================================
+function safeCall(fn, label) {
+    try { fn(); } catch (err) {
+        console.error(`[SAFE-CALL FAIL] ${label}:`, err);
+    }
+}
+function $(id) { return document.getElementById(id); }
+function hexToRgb(hex) {
+    const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
+    return `${r},${g},${b}`;
+}
+
+// ============================================================
+// 1. SCENE / CAMERA / RENDERER
+// ============================================================
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0a0f14);
+
+const canvasContainer = $('canvas-container');
 const camera = new THREE.PerspectiveCamera(60, canvasContainer.clientWidth / canvasContainer.clientHeight, 0.1, 1000);
-camera.position.set(0, 6, 12); 
+camera.position.set(0, 6, 12);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
@@ -16,706 +41,15 @@ canvasContainer.appendChild(renderer.domElement);
 const controls = new THREE.OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.05;
-controls.minDistance = 0.5; 
-controls.maxDistance = 60;  
+controls.minDistance = 0.5;
+controls.maxDistance = 60;
 
 scene.add(new THREE.AmbientLight(0xffffff, 0.8));
 const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
 dirLight.position.set(10, 20, 10);
 scene.add(dirLight);
 
-const gridHelper = new THREE.GridHelper(60, 60, 0x00ffff, 0x1e293b);
-scene.add(gridHelper);
-
-let factoryModel = null;
-let avatarModel = null;
-let originalMaterials = new Map();
-let currentMaterialMode = 'solid'; 
-let initialFactoryScale = 1;
-
-let activeSelectedMeshUUID = null; 
-let activeSelectedKeyKey = "default";
-let factoryColliders = [];
-
-const moveStatus = { forward: false, backward: false, left: false, right: false };
-const avatarConfig = { speed: 0.12, turnSpeed: 0.045, radius: 0.35 };
-const jumpConfig = { velocity: 0, gravity: -0.012, jumpForce: 0.24, isJumping: false, groundY: 0.9 };
-const defaultCameraOffset = new THREE.Vector3(0, 2.5, 5);
-
-let isFreeLook = false; 
-const freeLookSpeed = 0.2; 
-
-// ============================================================
-// ระบบ Tag สี 6 กลุ่ม ตามคู่มือ "Interactive Biogas Safety Standard Metaverse"
-// แต่ละจุดมี: name (ชื่อโซน), desc (รายละเอียดเต็ม), tagText (ข้อความบนป้าย),
-// colorClass (กลุ่มสี), steps (รายการข้อกำหนด PPE/วิศวกรรม)
-// ============================================================
-const workflowDatabase = {
-    "default": {
-        "name": "โครงสร้างทั่วไป",
-        "desc": "พื้นที่ส่วนสนับสนุนและโครงสร้างทั่วไปภายในสถานประกอบการแก๊สชีวภาพ",
-        "tagText": "🛡️ พื้นที่ทั่วไป — โปรดปฏิบัติตามป้ายเตือนใกล้เคียง",
-        "colorClass": "tag-blue",
-        "steps": ["🛡️ สวมใส่เครื่องตรวจวัดก๊าซรั่วพกพา (4-Gas Detector)", "🔒 ปฏิบัติตามระบบ LOTO อย่างเคร่งครัดก่อนเปิดฝาบำรุงรักษา"]
-    },
-
-    // 🔴 แดง — อันตรายร้ายแรง/ข้อห้าม: ปากบ่อแมนโฮล
-    "manhole": {
-        "name": "ปากบ่อแมนโฮล (Manhole) — หลังคาถังหมัก",
-        "desc": "จุดเข้าออกของพื้นที่อับอากาศบนหลังคาถังหมัก ห้ามเปิดหรือเข้าโดยไม่ได้รับอนุญาตจากผู้ควบคุมงานเด็ดขาด",
-        "tagText": "⚠️ อันตราย! ที่อับอากาศ ห้ามเข้าโดยไม่ได้รับอนุญาต",
-        "colorClass": "tag-red",
-        "steps": ["⚠️ พื้นที่อับอากาศอันตรายสูงสุด (Confined Space) ต้องมีใบอนุญาตทำงานเท่านั้น", "🪪 ต้องผ่านการอบรม Confined Space Entry และมีผู้เฝ้าระวัง (Standby Man)", "🚫 ห้ามเปิดฝาแมนโฮลโดยไม่มีการตรวจวัดก๊าซก่อนเข้า"]
-    },
-
-    // 🔴 แดง — พื้นที่อันตราย Ex-Zone: โดมผ้าใบ
-    "tank": {
-        "name": "บ่อหมักและโดมเก็บก๊าซ (Digester Tank)",
-        "desc": "ระบบถังหมักแบบ CSTR ปิดคลุมด้วยผ้าใบแรงดันสูง (HDPE Layer) ภายในเป็นพื้นที่ Ex-Zone 0 ที่มีก๊าซไวไฟสะสมตลอดเวลา",
-        "tagText": "🔴 EX-ZONE 0: พื้นที่มีก๊าซไวไฟตลอดเวลา ห้ามเกิดประกายไฟเด็ดขาด",
-        "colorClass": "tag-red",
-        "steps": ["🔴 EX-ZONE 0: ห้ามประกายไฟ อุปกรณ์ไฟฟ้าต้องเป็นชนิด Explosion-Proof", "📏 ระยะร่น 30 เมตรจากแนวเขตที่ดินตามข้อกำหนด", "🧯 ห้ามนำแหล่งกำเนิดประกายไฟทุกชนิดเข้าใกล้พื้นที่"]
-    },
-
-    // 🔴 แดง — ข้อห้ามเชิงวิศวกรรม: รอยต่อท่อ PVRV
-    "pvrv": {
-        "name": "จุดเชื่อมต่อ PVRV (Pressure/Vacuum Relief Valve)",
-        "desc": "รอยต่อท่อระหว่างฐานหลังคาบ่อหมักกับอุปกรณ์นิรภัย PVRV ซึ่งเป็นอุปกรณ์ป้องกันแรงดันเกินของระบบ ห้ามมีสิ่งกีดขวางทางออกของก๊าซเด็ดขาด",
-        "tagText": "❌ ห้ามติดตั้งวาล์วปิดกั้น (Isolation Valve) คั่นกลางบ่อหมักกับ PVRV โดยเด็ดขาด!",
-        "colorClass": "tag-red",
-        "steps": ["❌ ห้ามปิดวาล์วทางออกระหว่างโดมหมักกับอุปกรณ์นิรภัย PVRV เด็ดขาด", "🔍 ตรวจสอบ PVRV ตามรอบบำรุงรักษาเพื่อป้องกันการอุดตัน", "📋 บันทึกผลตรวจสอบทุกครั้งลงในใบ Checklist"]
-    },
-
-    // 🟠 ส้ม/เหลือง — Process Safety: Flame Arrester
-    "flame_arrester": {
-        "name": "Flame Arrester — จุดดักเปลวไฟย้อนกลับ",
-        "desc": "อุปกรณ์ป้องกันเปลวไฟย้อนกลับเข้าสู่ระบบ ติดตั้งก่อนเข้าหอเผาก๊าซและเครื่องยนต์ ต้องบำรุงรักษาสม่ำเสมอเพื่อป้องกันการอุดตัน",
-        "tagText": "🔥 Flame Arrester: ป้องกันเปลวไฟย้อนกลับ ต้องล้างไส้กรองสม่ำเสมอ",
-        "colorClass": "tag-orange",
-        "steps": ["🔥 Flame Arrester: อุปกรณ์ดักเปลวไฟย้อนกลับ ต้องถอดล้างไส้กรองตามรอบ", "📅 กำหนดรอบการตรวจสอบและล้างไส้กรองอย่างน้อยทุก 3 เดือน", "🧤 สวมถุงมือกันสารเคมีขณะถอดล้างไส้กรอง"]
-    },
-
-    // 🟠 ส้ม/เหลือง — ระบบท่อ
-    "pipe": {
-        "name": "ระบบท่อส่งแก๊สชีวภาพ (Biogas Piping)",
-        "desc": "แนวเส้นท่อสำหรับส่งผ่านก๊าซมีเทนดิบผ่านจุดดักน้ำและชุดกรองเพื่อเตรียมใช้งาน ต้องลาดเอียงตามมาตรฐานเพื่อป้องกันน้ำขัง",
-        "tagText": "ท่อก๊าซชีวภาพ (Biogas) ➡ [ความลาดเอียง 2% เพื่อดักน้ำ]",
-        "colorClass": "tag-orange",
-        "steps": ["➡ แนวท่อต้องลาดเอียงไม่น้อยกว่า 2% มุ่งสู่ถังดักน้ำเพื่อป้องกันน้ำขังขวางทางก๊าซ", "🔧 ตรวจสอบจุดเชื่อมต่อท่อไม่ให้มีการรั่วซึมเป็นประจำ", "🟡 ทาสีท่อก๊าซชีวภาพเป็นสีเหลืองตามมาตรฐานเพื่อความชัดเจน"]
-    },
-
-    // 🟠 ส้ม/เหลือง — ระบบกันฟ้าผ่า
-    "lightning_rod": {
-        "name": "เสาล่อฟ้าแบบแยกอิสระ",
-        "desc": "ระบบป้องกันฟ้าผ่าที่ติดตั้งแยกอิสระจากโครงสร้างถังหมัก ต้องครอบคลุมรัศมีป้องกันโดมก๊าซได้ทั้งหมด 100%",
-        "tagText": "⚡ เสาล่อฟ้าแบบแยกอิสระ (ครอบคลุมโดมก๊าซ 100%)",
-        "colorClass": "tag-orange",
-        "steps": ["⚡ เสาล่อฟ้าต้องคลุมรัศมีโดมเก็บก๊าซทั้งหมด 100%", "🔌 ตรวจสอบค่าความต้านทานดิน (Grounding) ตามรอบประจำปี", "📏 ระยะห่างจากโดมก๊าซต้องเป็นไปตามมาตรฐานป้องกันฟ้าผ่า"]
-    },
-
-    // 🔵 ฟ้า — ข้อบังคับ LOTO
-    "loto": {
-        "name": "จุดทำ LOTO — ตู้ควบคุมไฟฟ้าหลัก (MCC)",
-        "desc": "จุดติดตั้งระบบ Lockout/Tagout บริเวณหน้าตู้ควบคุมไฟฟ้าหลัก (MCC) และพวงมาลัยวาล์วก๊าซหลัก ต้องคล้องกุญแจทุกครั้งก่อนซ่อมบำรุง",
-        "tagText": "🔒 จุดทำ LOTO: คล้องกุญแจและแขวนป้ายก่อนซ่อมบำรุง",
-        "colorClass": "tag-blue",
-        "steps": ["🔒 คล้องกุญแจ Lockout และแขวนป้าย Tagout ก่อนเริ่มงานซ่อมบำรุงทุกครั้ง", "🪪 ผู้ปฏิบัติงานต้องถือกุญแจส่วนตัวเท่านั้น ห้ามใช้กุญแจร่วมกัน", "✅ ตรวจสอบศูนย์พลังงานเป็นศูนย์ (Zero Energy) ก่อนเริ่มงาน"]
-    },
-
-    // 🔵 ฟ้า — ข้อบังคับ PPE
-    "ppe_checkpoint": {
-        "name": "จุดตรวจ PPE — ทางเข้าลานบ่อหมัก",
-        "desc": "จุดตรวจสอบอุปกรณ์ป้องกันส่วนบุคคลก่อนเข้าพื้นที่ปฏิบัติงาน บริเวณหน้าประตูทางเข้าลานบ่อหมักและอาคารเครื่องยนต์",
-        "tagText": "🛡️ สวมใส่เครื่องวัดก๊าซพกพา (4-Gas Detector) ก่อนเข้าพื้นที่",
-        "colorClass": "tag-blue",
-        "steps": ["🛡️ สวมใส่เครื่องตรวจวัดก๊าซรั่วพกพา (4-Gas Detector) ก่อนเข้าพื้นที่ทุกครั้ง", "🥾 สวมรองเท้านิรภัยและหมวกนิรภัยตลอดเวลาที่อยู่ในพื้นที่", "👓 สวมแว่นตานิรภัยเมื่อปฏิบัติงานใกล้อุปกรณ์แรงดัน"]
-    },
-
-    // 🟢 เขียว — ฉุกเฉิน ESD
-    "esd": {
-        "name": "ปุ่มหยุดฉุกเฉิน (ESD) — หน้าอาคารเครื่องยนต์",
-        "desc": "ปุ่มฉุกเฉินสีแดงติดตั้งหน้าอาคารเครื่องยนต์ ใช้สำหรับตัดการทำงานของเครื่องยนต์และวาล์วทันทีในกรณีฉุกเฉิน",
-        "tagText": "🚨 ESD Button: กดเพื่อตัดการทำงานเครื่องยนต์และวาล์วทันที",
-        "colorClass": "tag-green",
-        "steps": ["🚨 ติดตั้งปุ่มหยุดฉุกเฉิน (ESD) นอกห้องเครื่องยนต์ในตำแหน่งเข้าถึงง่าย", "🔴 ทดสอบการทำงานของปุ่ม ESD ตามรอบที่กำหนด", "📢 ผู้ปฏิบัติงานทุกคนต้องทราบตำแหน่งปุ่ม ESD ใกล้ที่สุด"]
-    },
-
-    // 🟢 เขียว — ระยะปลอดภัย เครื่องยนต์
-    "utilization": {
-        "name": "ระบบใช้ประโยชน์ก๊าซ & เครื่องยนต์ (Genset)",
-        "desc": "อาคารติดตั้งเครื่องยนต์ผลิตกระแสไฟฟ้าจากก๊าซชีวภาพและแผงควบคุมไฟแรงดันสูง ต้องอยู่ห่างจากบ่อหมักตามระยะที่กำหนด",
-        "tagText": "📏 ระยะห่างเครื่องยนต์: ต้องห่างจากบ่อหมักอย่างน้อย 15 เมตร",
-        "colorClass": "tag-green",
-        "steps": ["📏 ระยะห่างอาคารเครื่องกำเนิดไฟฟ้าต้องอยู่ห่างบ่อหมักไม่น้อยกว่า 15 เมตร", "🔒 ตัดสับคัตเอาต์พร้อมลงกลอน Lockout/Tagout ก่อนเอื้อมมือซ่อมห้องเครื่อง", "🔇 ติดตั้งระบบลดเสียงดังตามมาตรฐานความปลอดภัยในการทำงาน"]
-    },
-
-    // 🟢 เขียว — ระยะปลอดภัย Flare
-    "flare": {
-        "name": "หอเผาก๊าซทิ้งฉุกเฉิน (Enclosed Flare)",
-        "desc": "ระบบเผาทำลายก๊าซชีวภาพส่วนเกินอัตโนมัติ เพื่อป้องกันแรงดันสะสมในระบบมากเกินไป ต้องตั้งห่างจากอาคารหรือถนนสาธารณะตามระยะที่กำหนด",
-        "tagText": "📏 ระยะปลอดภัย: หอเผาก๊าซต้องห่างอาคาร/ถนนอย่างน้อย 7.5 เมตร",
-        "colorClass": "tag-green",
-        "steps": ["📏 ตัวหอเผาต้องเว้นระยะห่างอย่างปลอดภัยจากถนนและอาคารอื่นไม่ต่ำกว่า 7.5 เมตร", "🔥 ชุดหัวจุดประกายไฟต้องเชื่อมระบบอัตโนมัติกับเซนเซอร์วัดแรงดันบ่อหมัก", "🌡️ ตรวจสอบอุณหภูมิการเผาไหม้ให้สมบูรณ์ตามมาตรฐานสิ่งแวดล้อม"]
-    }
-};
-
-// --- 2. AVATAR วิศวกร Low-poly หันหลังให้กล้องเสมอ ---
-function createEngineerAvatar(helmetColor) {
-    const group = new THREE.Group();
-    const hex = helmetColor ? parseInt(String(helmetColor).replace('#',''), 16) : 0xff9900;
-
-    const skinMat   = new THREE.MeshStandardMaterial({ color: 0xf4c08a, roughness: 0.8 });
-    const suitMat   = new THREE.MeshStandardMaterial({ color: 0xff6600, roughness: 0.6 });
-    const helmetMat = new THREE.MeshStandardMaterial({ color: hex, roughness: 0.3, metalness: 0.4 });
-    const bootMat   = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.9 });
-    const glassMat  = new THREE.MeshStandardMaterial({ color: 0x88ccff, transparent: true, opacity: 0.5 });
-    const visibMat  = new THREE.MeshStandardMaterial({ color: 0xffff00, roughness: 0.5 });
-
-    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.65, 0.3), suitMat);
-    torso.position.y = 0.95; group.add(torso);
-    const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.07, 0.31), visibMat);
-    stripe.position.y = 0.95; group.add(stripe);
-
-    const head = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.36, 0.35), skinMat);
-    head.position.y = 1.44; group.add(head);
-
-    const helmet = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.18, 0.41), helmetMat);
-    helmet.position.y = 1.65; group.add(helmet);
-    const brim = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.04, 0.48), helmetMat);
-    brim.position.y = 1.56; group.add(brim);
-
-    // วีซอร์อยู่ด้าน -Z (ด้านหน้าตัวละคร) — กล้องอยู่ +Z จะเห็นด้านหลังหมวกพอดี
-    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.1, 0.04), glassMat);
-    visor.position.set(0, 1.43, -0.178); group.add(visor);
-
-    const armGeo = new THREE.BoxGeometry(0.18, 0.52, 0.2);
-    const armL = new THREE.Mesh(armGeo, suitMat); armL.position.set(-0.37, 0.88, 0); group.add(armL);
-    const armR = new THREE.Mesh(armGeo, suitMat); armR.position.set( 0.37, 0.88, 0); group.add(armR);
-    const asL = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.06, 0.21), visibMat); asL.position.set(-0.37, 0.88, 0); group.add(asL);
-    const asR = asL.clone(); asR.position.set(0.37, 0.88, 0); group.add(asR);
-
-    const handGeo = new THREE.BoxGeometry(0.14, 0.13, 0.13);
-    const handL = new THREE.Mesh(handGeo, skinMat); handL.position.set(-0.37, 0.6, 0); group.add(handL);
-    const handR = handL.clone(); handR.position.set(0.37, 0.6, 0); group.add(handR);
-
-    const legGeo = new THREE.BoxGeometry(0.22, 0.52, 0.24);
-    const legL = new THREE.Mesh(legGeo, suitMat); legL.position.set(-0.15, 0.34, 0); group.add(legL);
-    const legR = new THREE.Mesh(legGeo, suitMat); legR.position.set( 0.15, 0.34, 0); group.add(legR);
-
-    const bootGeo = new THREE.BoxGeometry(0.24, 0.16, 0.3);
-    const bootL = new THREE.Mesh(bootGeo, bootMat); bootL.position.set(-0.15, 0.05, -0.03); group.add(bootL);
-    const bootR = bootL.clone(); bootR.position.set(0.15, 0.05, -0.03); group.add(bootR);
-
-    // ลูกศรบอกทิศ ชี้ไปด้าน -Z (ด้านหน้าตัวละคร)
-    const ptr = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.3), new THREE.MeshBasicMaterial({color:0x00ffff}));
-    ptr.position.set(0, 0.9, -0.5); group.add(ptr);
-
-    const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.3,16), new THREE.MeshBasicMaterial({color:0x000000,transparent:true,opacity:0.2}));
-    shadow.rotation.x = -Math.PI/2; shadow.position.y = 0.01; group.add(shadow);
-
-    group.userData.armL = armL;
-    group.userData.armR = armR;
-    group.userData.legL = legL;
-    group.userData.legR = legR;
-    group.userData.walkPhase = 0;
-
-    return group;
-}
-
-function animateEngineerWalk(g, isMoving) {
-    if (!g || !g.userData.armL) return;
-    if (isMoving) g.userData.walkPhase += 0.12;
-    else g.userData.walkPhase *= 0.8;
-    const s = Math.sin(g.userData.walkPhase) * 0.4;
-    g.userData.armL.rotation.x =  s;
-    g.userData.armR.rotation.x = -s;
-    g.userData.legL.rotation.x = -s;
-    g.userData.legR.rotation.x =  s;
-}
-
-function createProceduralAvatar() {
-    const avatarGroup = createEngineerAvatar('#ff9900');
-    avatarGroup.position.set(0, jumpConfig.groundY, 8);
-    scene.add(avatarGroup);
-    avatarModel = avatarGroup;
-    document.getElementById('transform-panel').style.display = 'block'; 
-}
-
-createProceduralAvatar();
-
-function getLoaderForFile(fileName) {
-    const ext = fileName.split('.').pop().toLowerCase();
-    return (ext === 'fbx') ? new THREE.FBXLoader() : new THREE.GLTFLoader();
-}
-
-function togglePanelElement(elementId) {
-    const targetEl = document.getElementById(elementId);
-    if (targetEl) targetEl.style.display = (targetEl.style.display === 'none') ? 'block' : 'none';
-}
-
-function triggerAvatarJump() {
-    if (avatarModel && !jumpConfig.isJumping) {
-        jumpConfig.velocity = jumpConfig.jumpForce;
-        jumpConfig.isJumping = true;
-    }
-}
-
-// --- 3. FACTORY FILE LOADER ---
-document.getElementById('factory-input').addEventListener('change', function (event) {
-    const files = event.target.files;
-    if (files.length === 0) return;
-    document.getElementById('factory-status').innerText = 'กำลังประมวลผลโครงสร้างโรงงาน...';
-
-    let modelFile = null; const textureFiles = {};
-    for (let i = 0; i < files.length; i++) {
-        const file = files[i]; const ext = file.name.split('.').pop().toLowerCase();
-        if (ext === 'gltf' || ext === 'glb' || ext === 'fbx') modelFile = file;
-        else if (ext === 'jpg' || ext === 'png') textureFiles[file.name] = file;
-    }
-    if (!modelFile) { document.getElementById('factory-status').innerText = '❌ ผิดพลาด: ไม่พบไฟล์ 3D หลัก'; return; }
-
-    if (factoryModel) { scene.remove(factoryModel); originalMaterials.clear(); factoryColliders = []; }
-
-    const manager = new THREE.LoadingManager();
-    manager.setURLModifier((url) => {
-        const baseName = url.split('/').pop();
-        if (textureFiles[baseName]) return URL.createObjectURL(textureFiles[baseName]);
-        return url;
-    });
-
-    const loader = getLoaderForFile(modelFile.name);
-    loader.load(URL.createObjectURL(modelFile), function (loadedObject) {
-        factoryModel = loadedObject.scene ? loadedObject.scene : loadedObject;
-        
-        let meshCount = 0;
-        const container = document.getElementById('mesh-container');
-        container.innerHTML = '';
-
-        let uploadedTexture = null;
-        const texKeys = Object.keys(textureFiles);
-        if (texKeys.length > 0) uploadedTexture = new THREE.TextureLoader().load(URL.createObjectURL(textureFiles[texKeys[0]]));
-
-        factoryModel.traverse(function (child) {
-            if (child.isMesh) {
-                meshCount++;
-                originalMaterials.set(child.uuid, child.material.clone());
-                if (uploadedTexture) { child.material.map = uploadedTexture; child.material.needsUpdate = true; }
-                if (!child._original3DName) { child._original3DName = child.name || `Object_${meshCount}`; }
-
-                const item = document.createElement('div');
-                item.className = 'mesh-item';
-                const mName = child.name || child._original3DName;
-                item.innerText = `🏭 ${mName}`;
-                item.id = `mesh-item-${child.uuid}`; 
-                item.addEventListener('click', () => { highlightAndShowWorkflow(child, mName, "คลิกเลือกโมเดล"); });
-                container.appendChild(item);
-            }
-        });
-
-        document.getElementById('model-meta').innerHTML = `<span class="info-tag">ตรวจพบชิ้นส่วน: ${meshCount} รายการ</span>`;
-        document.getElementById('details-panel').style.display = 'block';
-
-        const box = new THREE.Box3().setFromObject(factoryModel);
-        const size = box.getSize(new THREE.Vector3());
-        initialFactoryScale = 12 / Math.max(size.x, size.y, size.z);
-        factoryModel.scale.set(initialFactoryScale, initialFactoryScale, initialFactoryScale);
-        
-        const center = box.getCenter(new THREE.Vector3());
-        factoryModel.position.set(-center.x * initialFactoryScale, 0, -center.z * initialFactoryScale);
-
-        scene.add(factoryModel);
-        document.getElementById('factory-status').innerText = `✓ โหลดสำเร็จ: ${modelFile.name}`;
-        
-        buildColliders();
-        setFactoryMaterialMode(currentMaterialMode);
-        syncSlidersWithModel();
-    });
-});
-
-// 💡 HITBOX ปรับใหม่: ขยาย collider ให้ใหญ่กว่าตัว mesh จริง (padding) เพื่อให้ชนง่ายขึ้น ไม่ต้องตามขนาดโมเดลเป๊ะๆ
-const HITBOX_PADDING = 0.6; // ขยายกล่องชนออกทุกด้านเพิ่ม 0.6 หน่วย
-function buildColliders() {
-    factoryColliders = [];
-    if (!factoryModel) return;
-    factoryModel.updateMatrixWorld(true);
-    factoryModel.traverse(function (child) {
-        if (child.isMesh) {
-            const meshBox = new THREE.Box3().setFromObject(child);
-            // ขยาย hitbox ออกทุกทิศทาง ทำให้ตัวละครชนได้ง่ายขึ้นแม้โมเดลจะเล็กหรือบาง
-            meshBox.expandByScalar(HITBOX_PADDING);
-            factoryColliders.push({ uuid: child.uuid, mesh: child, box: meshBox });
-        }
-    });
-}
-
-function resetCameraToAvatar() {
-    if (!avatarModel) return;
-    const targetOffset = defaultCameraOffset.clone().applyMatrix4(avatarModel.matrixWorld);
-    camera.position.copy(targetOffset);
-    controls.target.set(avatarModel.position.x, avatarModel.position.y + 0.6, avatarModel.position.z);
-    controls.update();
-}
-
-// --- 4. KEYBOARD CONTROL ---
-window.addEventListener('keydown', (e) => {
-    if(document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
-    const key = e.key.toLowerCase();
-    
-    if (key === 'f' || key === 'ด') {
-        isFreeLook = !isFreeLook;
-        if (!isFreeLook) {
-            resetCameraToAvatar();
-        }
-        mpAppendChat({
-            name: 'ระบบกล้อง', 
-            color: '#00ffff', 
-            text: isFreeLook ? '🎥 โหมด Free Look (ใช้ W A S D / ไ ฟ ห ก บินกล้องอิสระ)' : '👤 กลับสู่โหมดติดตามตัวละคร'
-        });
-        return;
-    }
-
-    if (e.key === 'ArrowUp' || key === 'w' || key === 'ฟ' || key === 'ไ') moveStatus.forward = true;
-    if (e.key === 'ArrowDown' || key === 's' || key === 'ห') moveStatus.backward = true;
-    if (e.key === 'ArrowLeft' || key === 'a' || key === 'ฟ' || key === 'ภ' || key === 'ไ') moveStatus.left = true;
-    if (e.key === 'ArrowRight' || key === 'd' || key === 'ด' || key === 'ก') moveStatus.right = true;
-    
-    if (e.key === ' ' && !jumpConfig.isJumping && !isFreeLook) triggerAvatarJump();
-
-    if (key === 'h' || key === 'อ') togglePanelElement('dashboard');
-    if (key === 'm' || key === 'ท') togglePanelElement('details-panel');
-    // ปุ่ม P ถูกตัดออก — process-panel เป็นป็อปอัพอัตโนมัติเท่านั้น (คลิก/เดินชน → แสดง, เดินออก → หาย)
-    if (key === 't' || key === 'ะ') togglePanelElement('transform-panel');
-    if (key === 'r' || key === 'พ') resetCameraToAvatar();
-});
-
-window.addEventListener('keyup', (e) => {
-    const key = e.key.toLowerCase();
-    if (e.key === 'ArrowUp' || key === 'w' || key === 'ฟ' || key === 'ไ') moveStatus.forward = false;
-    if (e.key === 'ArrowDown' || key === 's' || key === 'ห') moveStatus.backward = false;
-    if (e.key === 'ArrowLeft' || key === 'a' || key === 'ฟ' || key === 'ภ' || key === 'ไ') moveStatus.left = false;
-    if (e.key === 'ArrowRight' || key === 'd' || key === 'ด' || key === 'ก') moveStatus.right = false;
-});
-
-// --- 5. IOT & DATA SIMULATION ---
-function loopIotSimulation() {
-    if(!activeSelectedMeshUUID) return;
-    let pressureVal = 0, tempVal = 25.0;
-
-    if (activeSelectedKeyKey === "pipe") {
-        pressureVal = 1.5 + Math.random() * 0.5; tempVal = 31.2 + Math.random() * 1.5;
-        document.getElementById('iot-pressure').innerText = pressureVal.toFixed(2) + " bar";
-        document.getElementById('iot-temp').innerText = tempVal.toFixed(1) + " °C";
-    } else if (activeSelectedKeyKey === "tank") {
-        pressureVal = 0.04 + Math.random() * 0.03; tempVal = 37.5 + Math.random() * 0.8;
-        document.getElementById('iot-pressure').innerText = pressureVal.toFixed(3) + " bar";
-        document.getElementById('iot-temp').innerText = tempVal.toFixed(1) + " °C";
-    } else {
-        document.getElementById('iot-pressure').innerText = "0.00 bar";
-        document.getElementById('iot-temp').innerText = "28.5 °C";
-    }
-}
-setInterval(loopIotSimulation, 1500); 
-
-function exportWorkflowDatabase() {
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(workflowDatabase, null, 2));
-    const downloadAnchor = document.createElement('a');
-    downloadAnchor.setAttribute("href", dataStr);
-    downloadAnchor.setAttribute("download", "biogas_safety_db.json");
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click(); downloadAnchor.remove();
-}
-
-function syncSlidersWithModel() {
-    if (!factoryModel) return;
-    document.getElementById('param-posX').value = factoryModel.position.x;
-    document.getElementById('param-posY').value = factoryModel.position.y;
-    document.getElementById('param-posZ').value = factoryModel.position.z;
-    document.getElementById('param-rotY').value = Math.round(factoryModel.rotation.y * (180 / Math.PI));
-    document.getElementById('param-scale').value = (factoryModel.scale.x / initialFactoryScale).toFixed(2);
-    updateSliderLabels();
-}
-
-function updateSliderLabels() {
-    document.getElementById('val-posX').innerText = parseFloat(document.getElementById('param-posX').value).toFixed(1);
-    document.getElementById('val-posY').innerText = parseFloat(document.getElementById('param-posY').value).toFixed(2);
-    document.getElementById('val-posZ').innerText = parseFloat(document.getElementById('param-posZ').value).toFixed(1);
-    document.getElementById('val-rotY').innerText = document.getElementById('param-rotY').value + "°";
-    document.getElementById('val-scale').innerText = document.getElementById('param-scale').value + "x";
-}
-
-['param-posX', 'param-posY', 'param-posZ', 'param-rotY', 'param-scale'].forEach(id => {
-    document.getElementById(id).addEventListener('input', () => {
-        if (!factoryModel) return;
-        const px = parseFloat(document.getElementById('param-posX').value);
-        const py = parseFloat(document.getElementById('param-posY').value);
-        const pz = parseFloat(document.getElementById('param-posZ').value);
-        const ry = parseFloat(document.getElementById('param-rotY').value) * (Math.PI / 180);
-        const sc = parseFloat(document.getElementById('param-scale').value);
-
-        factoryModel.position.set(px, py, pz);
-        factoryModel.rotation.y = ry;
-        factoryModel.scale.set(initialFactoryScale * sc, initialFactoryScale * sc, initialFactoryScale * sc);
-        
-        updateSliderLabels();
-        buildColliders();
-    });
-});
-
-function setFactoryMaterialMode(mode) {
-    currentMaterialMode = mode;
-    ['mode-solid', 'mode-wireframe', 'mode-xray'].forEach(m => document.getElementById(m).className = `mode-btn ${m==='mode-'+mode?'active':''}`);
-    if (!factoryModel) return;
-    factoryModel.traverse(function (child) {
-        if (child.isMesh) {
-            const origMat = originalMaterials.get(child.uuid);
-            if (!origMat) return;
-            child.material.dispose();
-            if (mode === 'solid') child.material = origMat.clone();
-            else if (mode === 'wireframe') child.material = new THREE.MeshStandardMaterial({ color: 0x00ffff, wireframe: true });
-            else if (mode === 'xray') child.material = new THREE.MeshStandardMaterial({ color: 0x00aaff, transparent: true, opacity: 0.2, depthWrite: false });
-        }
-    });
-}
-
-// --- 6. WORKFLOW RENDERING ---
-function resolveDatabaseKey(targetMesh, fallbackName) {
-    const origName = targetMesh._original3DName || targetMesh.name || fallbackName;
-    let databaseKey = "default";
-
-    if (workflowDatabase[origName]) databaseKey = origName;
-    else if (workflowDatabase[targetMesh.name]) databaseKey = targetMesh.name;
-    else if (workflowDatabase[targetMesh.uuid]) databaseKey = targetMesh.uuid;
-    else {
-        const nameLower = origName.toLowerCase();
-        if (nameLower.includes("manhole") || nameLower.includes("แมนโฮล")) databaseKey = "manhole";
-        else if (nameLower.includes("pvrv")) databaseKey = "pvrv";
-        else if (nameLower.includes("flame") || nameLower.includes("arrester") || nameLower.includes("ดักไฟ")) databaseKey = "flame_arrester";
-        else if (nameLower.includes("lightning") || nameLower.includes("ล่อฟ้า") || nameLower.includes("rod")) databaseKey = "lightning_rod";
-        else if (nameLower.includes("loto") || nameLower.includes("mcc") || nameLower.includes("ควบคุมไฟฟ้า")) databaseKey = "loto";
-        else if (nameLower.includes("ppe") || nameLower.includes("checkpoint") || nameLower.includes("ตรวจ")) databaseKey = "ppe_checkpoint";
-        else if (nameLower.includes("esd") || nameLower.includes("ฉุกเฉิน") && nameLower.includes("ปุ่ม")) databaseKey = "esd";
-        else if (nameLower.includes("tank") || nameLower.includes("ถัง") || nameLower.includes("บ่อหมัก") || nameLower.includes("digester")) databaseKey = "tank";
-        else if (nameLower.includes("pipe") || nameLower.includes("ท่อ") || nameLower.includes("line")) databaseKey = "pipe";
-        else if (nameLower.includes("engine") || nameLower.includes("อาคาร") || nameLower.includes("generator") || nameLower.includes("utilization") || nameLower.includes("genset")) databaseKey = "utilization";
-        else if (nameLower.includes("flare") || nameLower.includes("เผา")) databaseKey = "flare";
-    }
-    return databaseKey;
-}
-
-function highlightAndShowWorkflow(targetMesh, meshName, method) {
-    if(!factoryModel) return;
-    activeSelectedMeshUUID = targetMesh.uuid; 
-
-    if (currentMaterialMode === 'solid') {
-        factoryModel.traverse(function (child) {
-            if (child.isMesh) {
-                if (child.uuid === targetMesh.uuid) child.material = new THREE.MeshStandardMaterial({ color: 0x00ffff, emissive: 0x001a1a });
-                else if (originalMaterials.has(child.uuid)) child.material = originalMaterials.get(child.uuid).clone();
-            }
-        });
-    }
-
-    const databaseKey = resolveDatabaseKey(targetMesh, meshName);
-    activeSelectedKeyKey = databaseKey;
-
-    const matchedData = workflowDatabase[databaseKey] || workflowDatabase["default"];
-    renderWorkflowUI(matchedData.name || meshName, matchedData.desc, matchedData.steps, method, matchedData.colorClass || 'tag-blue');
-    
-    cancelLiveEdit();
-    document.getElementById('process-panel').style.display = 'block';
-}
-
-function renderWorkflowUI(name, desc, stepsArray, method, colorClass) {
-    document.getElementById('process-panel').className = `panel floating-safety-panel ${colorClass}`;
-    document.getElementById('title-container').innerHTML = `
-        <span id="process-title" style="font-weight: bold; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">⚙️ โซน: ${name}</span>
-        <span id="detection-method" class="method-tag" style="flex-shrink: 0;"></span>
-    `;
-    document.getElementById('desc-view-area').innerText = desc;
-    document.getElementById('detection-method').innerText = method;
-
-    const stepsContainer = document.getElementById('steps-view-area');
-    stepsContainer.innerHTML = '';
-    stepsArray.forEach(step => {
-        const stepBox = document.createElement('div');
-        stepBox.className = 'step-box';
-        stepBox.innerHTML = `<span class="badge">REGULATION</span><span>${step}</span>`;
-        stepsContainer.appendChild(stepBox);
-    });
-}
-
-// --- 7. LIVE EDITOR ---
-function enableLiveEdit() {
-    if (!activeSelectedMeshUUID) return;
-    const currentData = workflowDatabase[activeSelectedKeyKey] || workflowDatabase["default"];
-    const currentTitleText = document.getElementById('process-title').innerText.replace("⚙️ โซน: ", "");
-    const currentMethodText = document.getElementById('detection-method') ? document.getElementById('detection-method').innerText : '';
-
-    document.getElementById('title-container').innerHTML = `
-        <input type="text" id="input-edit-title" class="ui-edit-input" style="font-weight:bold; flex:1;" value="${currentData.name !== "โครงสร้างทั่วไป" ? currentData.name : currentTitleText}">
-        <span id="detection-method" class="method-tag" style="flex-shrink: 0;">${currentMethodText}</span>
-    `;
-    document.getElementById('input-edit-desc').value = currentData.desc;
-    document.getElementById('input-edit-steps').value = currentData.steps.join(', ');
-
-    document.getElementById('desc-view-area').style.display = 'none';
-    document.getElementById('steps-view-area').style.display = 'none';
-    document.getElementById('desc-edit-area').style.display = 'block';
-    document.getElementById('steps-edit-area').style.display = 'block';
-    document.getElementById('btn-edit-mode').style.display = 'none';
-    document.getElementById('edit-actions-group').style.display = 'flex';
-}
-
-function saveLiveEdit() {
-    if (!activeSelectedMeshUUID) return;
-    const newTitle = document.getElementById('input-edit-title').value.trim();
-    const newDesc = document.getElementById('input-edit-desc').value.trim();
-    const newStepsArray = document.getElementById('input-edit-steps').value.split(',').map(s => s.trim()).filter(s => s.length > 0);
-
-    workflowDatabase[activeSelectedMeshUUID] = { "name": newTitle, "desc": newDesc, "steps": newStepsArray, "colorClass": "tag-blue" };
-    activeSelectedKeyKey = activeSelectedMeshUUID;
-
-    if (factoryModel) {
-        factoryModel.traverse(function(child) {
-            if (child.isMesh && child.uuid === activeSelectedMeshUUID) {
-                child.name = newTitle;
-                const sideListItem = document.getElementById(`mesh-item-${child.uuid}`);
-                if (sideListItem) {
-                    const existingType = (typeof userDefinedTypes !== 'undefined') ? userDefinedTypes[child.uuid] : null;
-                    const icon = (typeof getIconForType === 'function') ? getIconForType(existingType) : '🏭';
-                    sideListItem.innerText = `${icon} ${newTitle}`;
-                }
-            }
-        });
-    }
-    renderWorkflowUI(newTitle, newDesc, newStepsArray, "✏️ บันทึกโดยผู้ใช้", "tag-blue");
-    closeLiveEditFields();
-}
-
-function cancelLiveEdit() {
-    closeLiveEditFields();
-    if (activeSelectedMeshUUID) {
-        const currentData = workflowDatabase[activeSelectedKeyKey] || workflowDatabase["default"];
-        renderWorkflowUI(currentData.name, currentData.desc, currentData.steps, document.getElementById('detection-method').innerText, currentData.colorClass || 'tag-blue');
-    }
-}
-
-function closeLiveEditFields() {
-    document.getElementById('desc-view-area').style.display = 'block';
-    document.getElementById('steps-view-area').style.display = 'block';
-    document.getElementById('desc-edit-area').style.display = 'none';
-    document.getElementById('steps-edit-area').style.display = 'none';
-    document.getElementById('btn-edit-mode').style.display = 'block';
-    document.getElementById('edit-actions-group').style.display = 'none';
-}
-
-// --- 8. AVATAR PHYSICS & COLLISION + FREE LOOK CAMERA ---
-function updateAvatarPhysics() {
-    if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
-
-    if (isFreeLook) {
-        const camDirection = new THREE.Vector3();
-        camera.getWorldDirection(camDirection);
-        
-        const camRight = new THREE.Vector3();
-        camRight.crossVectors(camera.up, camDirection).normalize();
-
-        if (moveStatus.forward) {
-            camera.position.addScaledVector(camDirection, freeLookSpeed);
-            controls.target.addScaledVector(camDirection, freeLookSpeed);
-        }
-        if (moveStatus.backward) {
-            camera.position.addScaledVector(camDirection, -freeLookSpeed);
-            controls.target.addScaledVector(camDirection, -freeLookSpeed);
-        }
-        if (moveStatus.left) {
-            camera.position.addScaledVector(camRight, freeLookSpeed);
-            controls.target.addScaledVector(camRight, freeLookSpeed);
-        }
-        if (moveStatus.right) {
-            camera.position.addScaledVector(camRight, -freeLookSpeed);
-            controls.target.addScaledVector(camRight, -freeLookSpeed);
-        }
-        return;
-    }
-
-    if (!avatarModel) return;
-
-    if (jumpConfig.isJumping) {
-        avatarModel.position.y += jumpConfig.velocity;
-        jumpConfig.velocity += jumpConfig.gravity;
-        if (avatarModel.position.y <= jumpConfig.groundY) {
-            avatarModel.position.y = jumpConfig.groundY;
-            jumpConfig.isJumping = false;
-        }
-    } else {
-        if(avatarModel.position.y > jumpConfig.groundY) {
-            avatarModel.position.y += jumpConfig.gravity;
-            if(avatarModel.position.y < jumpConfig.groundY) avatarModel.position.y = jumpConfig.groundY;
-        }
-    }
-
-    if (moveStatus.left) avatarModel.rotation.y += avatarConfig.turnSpeed;
-    if (moveStatus.right) avatarModel.rotation.y -= avatarConfig.turnSpeed;
-
-    let moveVector = new THREE.Vector3(0, 0, 0);
-    if (moveStatus.forward) moveVector.z = -avatarConfig.speed;
-    if (moveStatus.backward) moveVector.z = avatarConfig.speed;
-    moveVector.applyQuaternion(avatarModel.quaternion);
-
-    const isMoving = moveVector.lengthSq() > 0;
-    animateEngineerWalk(avatarModel, isMoving);
-
-    if (isMoving) {
-        // 💡 ไม่มีกำแพงกั้นอีกต่อไป — เดินทะลุได้อิสระ
-        // แต่ถ้าเดินเข้าไปใน hitbox ของชิ้นส่วนใด จะ trigger แสดง workflow ทันที (ไม่บล็อกการเดิน)
-        const nextX = avatarModel.position.x + moveVector.x;
-        const nextZ = avatarModel.position.z + moveVector.z;
-        const currentY = avatarModel.position.y - jumpConfig.groundY;
-
-        avatarModel.position.x = nextX;
-        avatarModel.position.z = nextZ;
-
-        // เช็คว่าชนเข้ากับ hitbox ไหนไหม (เพื่อโชว์ popup ทันทีที่แตะ ไม่ต้องรอ minDistance loop ด้านล่าง)
-        for (let i = 0; i < factoryColliders.length; i++) {
-            const col = factoryColliders[i];
-            const box = col.box;
-            if (nextX + avatarConfig.radius > box.min.x && nextX - avatarConfig.radius < box.max.x &&
-                nextZ + avatarConfig.radius > box.min.z && nextZ - avatarConfig.radius < box.max.z &&
-                currentY < box.max.y && currentY + 1.6 > box.min.y) {
-                highlightAndShowWorkflow(col.mesh, col.mesh.name || "พื้นที่อับอากาศ", "🚶 ตัวละครเดินชนวัตถุ");
-                break; // โชว์อันแรกที่เจอพอ
-            }
-        }
-    }
-
-    const targetCamOffset = defaultCameraOffset.clone().applyMatrix4(avatarModel.matrixWorld);
-    camera.position.lerp(targetCamOffset, 0.08);
-    controls.target.set(avatarModel.position.x, avatarModel.position.y + 0.3, avatarModel.position.z);
-
-    if (factoryModel && isMoving) {
-        let closestMesh = null; let minDistance = 2.5; 
-        factoryModel.traverse(function (child) {
-            if (child.isMesh) {
-                const meshWorldPos = new THREE.Vector3(); child.getWorldPosition(meshWorldPos);
-                const dist = avatarModel.position.distanceTo(meshWorldPos);
-                if (dist < minDistance) { minDistance = dist; closestMesh = child; }
-            }
-        });
-        if (closestMesh) {
-            highlightAndShowWorkflow(closestMesh, closestMesh.name || "พื้นที่อับอากาศ", "🚶 ตัวละครเดินเข้าใกล้ตำแหน่ง");
-        }
-    }
-}
-
-// --- 9. ANIMATION LOOP ---
-function animate() {
-    requestAnimationFrame(animate);
-    updateAvatarPhysics();
-    controls.update();
-    renderer.render(scene, camera);
-}
-animate();
+scene.add(new THREE.GridHelper(60, 60, 0x00ffff, 0x1e293b));
 
 window.addEventListener('resize', () => {
     camera.aspect = canvasContainer.clientWidth / canvasContainer.clientHeight;
@@ -723,12 +57,489 @@ window.addEventListener('resize', () => {
     renderer.setSize(canvasContainer.clientWidth, canvasContainer.clientHeight);
 });
 
+// ============================================================
+// 2. SAFETY DATABASE — ตามคู่มือ "Interactive Biogas Safety Standard Metaverse"
+// requiresPPE: true  => จุดนี้จะมีวงกลมเตือน PPE รัศมี 15 เมตร (REQ 5)
+// ============================================================
+const workflowDatabase = {
+    "default": {
+        name: "โครงสร้างทั่วไป",
+        desc: "พื้นที่ส่วนสนับสนุนและโครงสร้างทั่วไปภายในสถานประกอบการแก๊สชีวภาพ",
+        tagText: "🛡️ พื้นที่ทั่วไป — โปรดปฏิบัติตามป้ายเตือนใกล้เคียง",
+        colorClass: "tag-blue", requiresPPE: false,
+        steps: ["🛡️ สวมใส่เครื่องตรวจวัดก๊าซรั่วพกพา (4-Gas Detector)", "🔒 ปฏิบัติตามระบบ LOTO อย่างเคร่งครัดก่อนเปิดฝาบำรุงรักษา"]
+    },
+    "manhole": {
+        name: "ปากบ่อแมนโฮล (Manhole) — หลังคาถังหมัก",
+        desc: "จุดเข้าออกของพื้นที่อับอากาศบนหลังคาถังหมัก ห้ามเปิดหรือเข้าโดยไม่ได้รับอนุญาตจากผู้ควบคุมงานเด็ดขาด",
+        tagText: "⚠️ อันตราย! ที่อับอากาศ ห้ามเข้าโดยไม่ได้รับอนุญาต",
+        colorClass: "tag-red", requiresPPE: true,
+        steps: ["⚠️ พื้นที่อับอากาศอันตรายสูงสุด (Confined Space) ต้องมีใบอนุญาตทำงานเท่านั้น", "🪪 ต้องผ่านการอบรม Confined Space Entry และมีผู้เฝ้าระวัง (Standby Man)", "🚫 ห้ามเปิดฝาแมนโฮลโดยไม่มีการตรวจวัดก๊าซก่อนเข้า"]
+    },
+    "tank": {
+        name: "บ่อหมักและโดมเก็บก๊าซ (Digester Tank)",
+        desc: "ระบบถังหมักแบบ CSTR ปิดคลุมด้วยผ้าใบแรงดันสูง (HDPE Layer) ภายในเป็นพื้นที่ Ex-Zone 0 ที่มีก๊าซไวไฟสะสมตลอดเวลา",
+        tagText: "🔴 EX-ZONE 0: พื้นที่มีก๊าซไวไฟตลอดเวลา ห้ามเกิดประกายไฟเด็ดขาด",
+        colorClass: "tag-red", requiresPPE: true,
+        steps: ["🔴 EX-ZONE 0: ห้ามประกายไฟ อุปกรณ์ไฟฟ้าต้องเป็นชนิด Explosion-Proof", "📏 ระยะร่น 30 เมตรจากแนวเขตที่ดินตามข้อกำหนด", "🧯 ห้ามนำแหล่งกำเนิดประกายไฟทุกชนิดเข้าใกล้พื้นที่"]
+    },
+    "pvrv": {
+        name: "จุดเชื่อมต่อ PVRV (Pressure/Vacuum Relief Valve)",
+        desc: "รอยต่อท่อระหว่างฐานหลังคาบ่อหมักกับอุปกรณ์นิรภัย PVRV ห้ามมีสิ่งกีดขวางทางออกของก๊าซเด็ดขาด",
+        tagText: "❌ ห้ามติดตั้งวาล์วปิดกั้น (Isolation Valve) คั่นกลางบ่อหมักกับ PVRV โดยเด็ดขาด!",
+        colorClass: "tag-red", requiresPPE: true,
+        steps: ["❌ ห้ามปิดวาล์วทางออกระหว่างโดมหมักกับอุปกรณ์นิรภัย PVRV เด็ดขาด", "🔍 ตรวจสอบ PVRV ตามรอบบำรุงรักษาเพื่อป้องกันการอุดตัน", "📋 บันทึกผลตรวจสอบทุกครั้งลงในใบ Checklist"]
+    },
+    "flame_arrester": {
+        name: "Flame Arrester — จุดดักเปลวไฟย้อนกลับ",
+        desc: "อุปกรณ์ป้องกันเปลวไฟย้อนกลับเข้าสู่ระบบ ติดตั้งก่อนเข้าหอเผาก๊าซและเครื่องยนต์",
+        tagText: "🔥 Flame Arrester: ป้องกันเปลวไฟย้อนกลับ ต้องล้างไส้กรองสม่ำเสมอ",
+        colorClass: "tag-orange", requiresPPE: false,
+        steps: ["🔥 Flame Arrester: อุปกรณ์ดักเปลวไฟย้อนกลับ ต้องถอดล้างไส้กรองตามรอบ", "📅 กำหนดรอบการตรวจสอบและล้างไส้กรองอย่างน้อยทุก 3 เดือน", "🧤 สวมถุงมือกันสารเคมีขณะถอดล้างไส้กรอง"]
+    },
+    "pipe": {
+        name: "ระบบท่อส่งแก๊สชีวภาพ (Biogas Piping)",
+        desc: "แนวเส้นท่อสำหรับส่งผ่านก๊าซมีเทนดิบผ่านจุดดักน้ำและชุดกรองเพื่อเตรียมใช้งาน",
+        tagText: "ท่อก๊าซชีวภาพ (Biogas) ➡ [ความลาดเอียง 2% เพื่อดักน้ำ]",
+        colorClass: "tag-orange", requiresPPE: false,
+        steps: ["➡ แนวท่อต้องลาดเอียงไม่น้อยกว่า 2% มุ่งสู่ถังดักน้ำเพื่อป้องกันน้ำขังขวางทางก๊าซ", "🔧 ตรวจสอบจุดเชื่อมต่อท่อไม่ให้มีการรั่วซึมเป็นประจำ", "🟡 ทาสีท่อก๊าซชีวภาพเป็นสีเหลืองตามมาตรฐานเพื่อความชัดเจน"]
+    },
+    "lightning_rod": {
+        name: "เสาล่อฟ้าแบบแยกอิสระ",
+        desc: "ระบบป้องกันฟ้าผ่าที่ติดตั้งแยกอิสระจากโครงสร้างถังหมัก ต้องครอบคลุมรัศมีป้องกันโดมก๊าซได้ทั้งหมด 100%",
+        tagText: "⚡ เสาล่อฟ้าแบบแยกอิสระ (ครอบคลุมโดมก๊าซ 100%)",
+        colorClass: "tag-orange", requiresPPE: false,
+        steps: ["⚡ เสาล่อฟ้าต้องคลุมรัศมีโดมเก็บก๊าซทั้งหมด 100%", "🔌 ตรวจสอบค่าความต้านทานดิน (Grounding) ตามรอบประจำปี", "📏 ระยะห่างจากโดมก๊าซต้องเป็นไปตามมาตรฐานป้องกันฟ้าผ่า"]
+    },
+    "loto": {
+        name: "จุดทำ LOTO — ตู้ควบคุมไฟฟ้าหลัก (MCC)",
+        desc: "จุดติดตั้งระบบ Lockout/Tagout บริเวณหน้าตู้ควบคุมไฟฟ้าหลัก (MCC) และพวงมาลัยวาล์วก๊าซหลัก",
+        tagText: "🔒 จุดทำ LOTO: คล้องกุญแจและแขวนป้ายก่อนซ่อมบำรุง",
+        colorClass: "tag-blue", requiresPPE: false,
+        steps: ["🔒 คล้องกุญแจ Lockout และแขวนป้าย Tagout ก่อนเริ่มงานซ่อมบำรุงทุกครั้ง", "🪪 ผู้ปฏิบัติงานต้องถือกุญแจส่วนตัวเท่านั้น ห้ามใช้กุญแจร่วมกัน", "✅ ตรวจสอบศูนย์พลังงานเป็นศูนย์ (Zero Energy) ก่อนเริ่มงาน"]
+    },
+    "ppe_checkpoint": {
+        name: "จุดตรวจ PPE — ทางเข้าลานบ่อหมัก",
+        desc: "จุดตรวจสอบอุปกรณ์ป้องกันส่วนบุคคลก่อนเข้าพื้นที่ปฏิบัติงาน",
+        tagText: "🛡️ สวมใส่เครื่องวัดก๊าซพกพา (4-Gas Detector) ก่อนเข้าพื้นที่",
+        colorClass: "tag-blue", requiresPPE: false,
+        steps: ["🛡️ สวมใส่เครื่องตรวจวัดก๊าซรั่วพกพา (4-Gas Detector) ก่อนเข้าพื้นที่ทุกครั้ง", "🥾 สวมรองเท้านิรภัยและหมวกนิรภัยตลอดเวลาที่อยู่ในพื้นที่", "👓 สวมแว่นตานิรภัยเมื่อปฏิบัติงานใกล้อุปกรณ์แรงดัน"]
+    },
+    "esd": {
+        name: "ปุ่มหยุดฉุกเฉิน (ESD) — หน้าอาคารเครื่องยนต์",
+        desc: "ปุ่มฉุกเฉินสีแดงติดตั้งหน้าอาคารเครื่องยนต์ ใช้สำหรับตัดการทำงานของเครื่องยนต์และวาล์วทันทีในกรณีฉุกเฉิน",
+        tagText: "🚨 ESD Button: กดเพื่อตัดการทำงานเครื่องยนต์และวาล์วทันที",
+        colorClass: "tag-green", requiresPPE: false,
+        steps: ["🚨 ติดตั้งปุ่มหยุดฉุกเฉิน (ESD) นอกห้องเครื่องยนต์ในตำแหน่งเข้าถึงง่าย", "🔴 ทดสอบการทำงานของปุ่ม ESD ตามรอบที่กำหนด", "📢 ผู้ปฏิบัติงานทุกคนต้องทราบตำแหน่งปุ่ม ESD ใกล้ที่สุด"]
+    },
+    "utilization": {
+        name: "ระบบใช้ประโยชน์ก๊าซ & เครื่องยนต์ (Genset)",
+        desc: "อาคารติดตั้งเครื่องยนต์ผลิตกระแสไฟฟ้าจากก๊าซชีวภาพและแผงควบคุมไฟแรงดันสูง",
+        tagText: "📏 ระยะห่างเครื่องยนต์: ต้องห่างจากบ่อหมักอย่างน้อย 15 เมตร",
+        colorClass: "tag-green", requiresPPE: false,
+        steps: ["📏 ระยะห่างอาคารเครื่องกำเนิดไฟฟ้าต้องอยู่ห่างบ่อหมักไม่น้อยกว่า 15 เมตร", "🔒 ตัดสับคัตเอาต์พร้อมลงกลอน Lockout/Tagout ก่อนเอื้อมมือซ่อมห้องเครื่อง", "🔇 ติดตั้งระบบลดเสียงดังตามมาตรฐานความปลอดภัยในการทำงาน"]
+    },
+    "flare": {
+        name: "หอเผาก๊าซทิ้งฉุกเฉิน (Enclosed Flare)",
+        desc: "ระบบเผาทำลายก๊าซชีวภาพส่วนเกินอัตโนมัติ เพื่อป้องกันแรงดันสะสมในระบบมากเกินไป",
+        tagText: "📏 ระยะปลอดภัย: หอเผาก๊าซต้องห่างอาคาร/ถนนอย่างน้อย 7.5 เมตร",
+        colorClass: "tag-green", requiresPPE: true,
+        steps: ["📏 ตัวหอเผาต้องเว้นระยะห่างอย่างปลอดภัยจากถนนและอาคารอื่นไม่ต่ำกว่า 7.5 เมตร", "🔥 ชุดหัวจุดประกายไฟต้องเชื่อมระบบอัตโนมัติกับเซนเซอร์วัดแรงดันบ่อหมัก", "🌡️ ตรวจสอบอุณหภูมิการเผาไหม้ให้สมบูรณ์ตามมาตรฐานสิ่งแวดล้อม"]
+    }
+};
 
+const TYPE_OPTIONS = [
+    { key: 'tank', icon: '🟤', label: 'บ่อหมัก / Digester Tank', color: 'tag-red' },
+    { key: 'manhole', icon: '🔴', label: 'ปากบ่อ Manhole', color: 'tag-red' },
+    { key: 'pvrv', icon: '🔴', label: 'วาล์วนิรภัย PVRV', color: 'tag-red' },
+    { key: 'flame_arrester', icon: '🟠', label: 'Flame Arrester', color: 'tag-orange' },
+    { key: 'pipe', icon: '🟠', label: 'ท่อก๊าซชีวภาพ', color: 'tag-orange' },
+    { key: 'lightning_rod', icon: '🟠', label: 'เสาล่อฟ้า', color: 'tag-orange' },
+    { key: 'loto', icon: '🔵', label: 'จุด LOTO / MCC', color: 'tag-blue' },
+    { key: 'ppe_checkpoint', icon: '🔵', label: 'จุดตรวจ PPE', color: 'tag-blue' },
+    { key: 'esd', icon: '🟢', label: 'ปุ่มฉุกเฉิน ESD', color: 'tag-green' },
+    { key: 'utilization', icon: '🟢', label: 'อาคารเครื่องยนต์ Genset', color: 'tag-green' },
+    { key: 'flare', icon: '🟢', label: 'หอเผาก๊าซ Flare', color: 'tag-green' },
+    { key: 'default', icon: '⚪', label: 'โครงสร้างทั่วไป (Default)', color: 'tag-blue' }
+];
+function getIconForType(typeKeyOrColorClass) {
+    if (!typeKeyOrColorClass) return '🏭';
+    let opt = TYPE_OPTIONS.find(o => o.key === typeKeyOrColorClass);
+    if (!opt) opt = TYPE_OPTIONS.find(o => o.color === typeKeyOrColorClass);
+    return opt ? opt.icon : '🏭';
+}
+
+// mapping ที่ admin กำหนดเอง: meshUUID / originalName -> typeKey
+const userDefinedTypes = {};
+
+function resolveDatabaseKey(mesh, fallbackName) {
+    if (!mesh) return 'default';
+    if (userDefinedTypes[mesh.uuid]) return userDefinedTypes[mesh.uuid];
+    const nameKey = mesh._original3DName || mesh.name;
+    if (nameKey && userDefinedTypes[nameKey]) return userDefinedTypes[nameKey];
+
+    if (workflowDatabase[nameKey]) return nameKey;
+    if (workflowDatabase[mesh.name]) return mesh.name;
+    if (workflowDatabase[mesh.uuid]) return mesh.uuid;
+
+    const n = (nameKey || fallbackName || '').toLowerCase();
+    if (n.includes('manhole') || n.includes('แมนโฮล')) return 'manhole';
+    if (n.includes('pvrv')) return 'pvrv';
+    if (n.includes('flame') || n.includes('arrester') || n.includes('ดักไฟ')) return 'flame_arrester';
+    if (n.includes('lightning') || n.includes('ล่อฟ้า') || n.includes('rod')) return 'lightning_rod';
+    if (n.includes('loto') || n.includes('mcc') || n.includes('ควบคุมไฟฟ้า')) return 'loto';
+    if (n.includes('ppe') || n.includes('checkpoint') || n.includes('ตรวจ')) return 'ppe_checkpoint';
+    if (n.includes('esd') || (n.includes('ฉุกเฉิน') && n.includes('ปุ่ม'))) return 'esd';
+    if (n.includes('tank') || n.includes('ถัง') || n.includes('บ่อหมัก') || n.includes('digester')) return 'tank';
+    if (n.includes('pipe') || n.includes('ท่อ') || n.includes('line')) return 'pipe';
+    if (n.includes('engine') || n.includes('อาคาร') || n.includes('generator') || n.includes('utilization') || n.includes('genset')) return 'utilization';
+    if (n.includes('flare') || n.includes('เผา')) return 'flare';
+    return 'default';
+}
 
 // ============================================================
-// MULTIPLAYER MODULE (Clean Version)
+// 3. AVATAR — สัดส่วนมนุษย์จริง (~1.75m) ประกาศครั้งเดียว ไม่มี override ซ้อน
 // ============================================================
+function createEngineerAvatar(helmetColor) {
+    const group = new THREE.Group();
+    const hex = helmetColor ? parseInt(String(helmetColor).replace('#', ''), 16) : 0xff9900;
 
+    const skinMat = new THREE.MeshStandardMaterial({ color: 0xf4c08a, roughness: 0.7 });
+    const suitMat = new THREE.MeshStandardMaterial({ color: 0xff6600, roughness: 0.6 });
+    const darkMat = new THREE.MeshStandardMaterial({ color: 0x1a1a2e, roughness: 0.8 });
+    const helmetMat = new THREE.MeshStandardMaterial({ color: hex, roughness: 0.3, metalness: 0.3 });
+    const glassMat = new THREE.MeshStandardMaterial({ color: 0x88ccff, transparent: true, opacity: 0.45 });
+    const visibMat = new THREE.MeshStandardMaterial({ color: 0xffff00 });
+    const bootMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9 });
+
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.24, 0.22), skinMat);
+    head.position.y = 1.62; group.add(head);
+
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 0.1, 8), skinMat);
+    neck.position.y = 1.49; group.add(neck);
+
+    const helmetTop = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.12, 0.26), helmetMat);
+    helmetTop.position.y = 1.78; group.add(helmetTop);
+    const helmetBrim = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.03, 0.3), helmetMat);
+    helmetBrim.position.y = 1.72; group.add(helmetBrim);
+
+    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.08, 0.03), glassMat);
+    visor.position.set(0, 1.62, -0.12); group.add(visor);
+
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0x111111 });
+    const eyeL = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.03, 0.02), eyeMat);
+    eyeL.position.set(-0.05, 1.63, -0.112); group.add(eyeL);
+    const eyeR = eyeL.clone(); eyeR.position.set(0.05, 1.63, -0.112); group.add(eyeR);
+
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.5, 0.2), suitMat);
+    torso.position.y = 1.14; group.add(torso);
+
+    const stripe1 = new THREE.Mesh(new THREE.BoxGeometry(0.39, 0.05, 0.21), visibMat);
+    stripe1.position.y = 1.22; group.add(stripe1);
+    const stripe2 = new THREE.Mesh(new THREE.BoxGeometry(0.39, 0.05, 0.21), visibMat);
+    stripe2.position.y = 1.08; group.add(stripe2);
+
+    const zip = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.45, 0.21), darkMat);
+    zip.position.y = 1.14; group.add(zip);
+
+    const upperArmGeo = new THREE.BoxGeometry(0.11, 0.28, 0.13);
+    const lowerArmGeo = new THREE.BoxGeometry(0.1, 0.25, 0.12);
+    const handGeo = new THREE.BoxGeometry(0.09, 0.1, 0.05);
+
+    const uArmL = new THREE.Mesh(upperArmGeo, suitMat); uArmL.position.set(-0.265, 1.24, 0); group.add(uArmL);
+    const lArmL = new THREE.Mesh(lowerArmGeo, suitMat); lArmL.position.set(-0.265, 0.94, 0); group.add(lArmL);
+    const handL = new THREE.Mesh(handGeo, skinMat); handL.position.set(-0.265, 0.77, 0); group.add(handL);
+    const asL = new THREE.Mesh(new THREE.BoxGeometry(0.115, 0.04, 0.135), visibMat); asL.position.set(-0.265, 1.14, 0); group.add(asL);
+
+    const uArmR = new THREE.Mesh(upperArmGeo, suitMat); uArmR.position.set(0.265, 1.24, 0); group.add(uArmR);
+    const lArmR = new THREE.Mesh(lowerArmGeo, suitMat); lArmR.position.set(0.265, 0.94, 0); group.add(lArmR);
+    const handR = new THREE.Mesh(handGeo, skinMat); handR.position.set(0.265, 0.77, 0); group.add(handR);
+    const asR = asL.clone(); asR.position.set(0.265, 1.14, 0); group.add(asR);
+
+    const waist = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.12, 0.18), darkMat);
+    waist.position.y = 0.88; group.add(waist);
+    const belt = new THREE.Mesh(new THREE.BoxGeometry(0.37, 0.05, 0.19), new THREE.MeshStandardMaterial({ color: 0x8B4513, roughness: 0.5 }));
+    belt.position.y = 0.92; group.add(belt);
+
+    const legGeo = new THREE.BoxGeometry(0.14, 0.42, 0.15);
+    const legL = new THREE.Mesh(legGeo, suitMat); legL.position.set(-0.1, 0.6, 0); group.add(legL);
+    const legR = new THREE.Mesh(legGeo, suitMat); legR.position.set(0.1, 0.6, 0); group.add(legR);
+
+    const lsL = new THREE.Mesh(new THREE.BoxGeometry(0.145, 0.04, 0.155), visibMat); lsL.position.set(-0.1, 0.52, 0); group.add(lsL);
+    const lsR = lsL.clone(); lsR.position.set(0.1, 0.52, 0); group.add(lsR);
+
+    const bootGeo = new THREE.BoxGeometry(0.16, 0.1, 0.22);
+    const bootL = new THREE.Mesh(bootGeo, bootMat); bootL.position.set(-0.1, 0.33, -0.03); group.add(bootL);
+    const bootR = bootL.clone(); bootR.position.set(0.1, 0.33, -0.03); group.add(bootR);
+
+    const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.25, 16), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.18 }));
+    shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.01; group.add(shadow);
+
+    group.userData.armL = uArmL; group.userData.armR = uArmR;
+    group.userData.lArmL = lArmL; group.userData.lArmR = lArmR;
+    group.userData.legL = legL; group.userData.legR = legR;
+    group.userData.walkPhase = 0;
+    return group;
+}
+
+function animateEngineerWalk(g, isMoving) {
+    if (!g || !g.userData.legL) return;
+    if (isMoving) g.userData.walkPhase += 0.1;
+    else g.userData.walkPhase *= 0.8;
+    const s = Math.sin(g.userData.walkPhase) * 0.45;
+    if (g.userData.armL) g.userData.armL.rotation.x = s;
+    if (g.userData.armR) g.userData.armR.rotation.x = -s;
+    if (g.userData.lArmL) g.userData.lArmL.rotation.x = s * 0.5;
+    if (g.userData.lArmR) g.userData.lArmR.rotation.x = -s * 0.5;
+    if (g.userData.legL) g.userData.legL.rotation.x = -s;
+    if (g.userData.legR) g.userData.legR.rotation.x = s;
+}
+
+let avatarModel = null;
+const jumpConfig = { velocity: 0, gravity: -0.012, jumpForce: 0.24, isJumping: false, groundY: 0.9 };
+const defaultCameraOffset = new THREE.Vector3(0, 2.5, 5);
+
+function createProceduralAvatar() {
+    const avatarGroup = createEngineerAvatar('#ff9900');
+    avatarGroup.position.set(0, jumpConfig.groundY, 8);
+    scene.add(avatarGroup);
+    avatarModel = avatarGroup;
+}
+createProceduralAvatar();
+
+function triggerAvatarJump() {
+    if (avatarModel && !jumpConfig.isJumping) {
+        jumpConfig.velocity = jumpConfig.jumpForce;
+        jumpConfig.isJumping = true;
+    }
+}
+function resetCameraToAvatar() {
+    if (!avatarModel) return;
+    camera.position.copy(defaultCameraOffset.clone().applyMatrix4(avatarModel.matrixWorld));
+    controls.target.set(avatarModel.position.x, avatarModel.position.y + 0.6, avatarModel.position.z);
+    controls.update();
+}
+
+// ============================================================
+// 4. MOVEMENT INPUT — keyboard + mobile joystick
+// ============================================================
+const moveStatus = { forward: false, backward: false, left: false, right: false };
+const avatarConfig = { speed: 0.12, turnSpeed: 0.045, radius: 0.35 };
+let isFreeLook = false;
+const freeLookSpeed = 0.2;
+
+function isTypingInField() {
+    const t = document.activeElement.tagName;
+    return t === 'INPUT' || t === 'TEXTAREA';
+}
+
+window.addEventListener('keydown', (e) => {
+    if (isTypingInField()) return;
+    const key = e.key.toLowerCase();
+
+    if (key === 'f' || key === 'ด') {
+        isFreeLook = !isFreeLook;
+        if (!isFreeLook) resetCameraToAvatar();
+        mpAppendChat({ name: 'ระบบกล้อง', color: '#00ffff', text: isFreeLook ? '🎥 โหมด Free Look (W A S D บินกล้องอิสระ)' : '👤 กลับสู่โหมดติดตามตัวละคร' });
+        return;
+    }
+    if (e.key === 'ArrowUp' || key === 'w' || key === 'ฟ' || key === 'ไ') moveStatus.forward = true;
+    if (e.key === 'ArrowDown' || key === 's' || key === 'ห') moveStatus.backward = true;
+    if (e.key === 'ArrowLeft' || key === 'a' || key === 'ฟ' || key === 'ภ') moveStatus.left = true;
+    if (e.key === 'ArrowRight' || key === 'd' || key === 'ด' || key === 'ก') moveStatus.right = true;
+    if (e.key === ' ' && !jumpConfig.isJumping && !isFreeLook) triggerAvatarJump();
+
+    if (key === 'h' || key === 'อ') togglePanelElement('dashboard');
+    if (key === 'm' || key === 'ท') togglePanelElement('details-panel');
+    if (key === 't' || key === 'ะ') togglePanelElement('transform-panel');
+    if (key === 'u') togglePanelElement('multiplayer-panel');
+    if (key === 'r' || key === 'พ') resetCameraToAvatar();
+});
+window.addEventListener('keyup', (e) => {
+    const key = e.key.toLowerCase();
+    if (e.key === 'ArrowUp' || key === 'w' || key === 'ฟ' || key === 'ไ') moveStatus.forward = false;
+    if (e.key === 'ArrowDown' || key === 's' || key === 'ห') moveStatus.backward = false;
+    if (e.key === 'ArrowLeft' || key === 'a' || key === 'ฟ' || key === 'ภ') moveStatus.left = false;
+    if (e.key === 'ArrowRight' || key === 'd' || key === 'ด' || key === 'ก') moveStatus.right = false;
+});
+
+function togglePanelElement(elementId) {
+    const el = $(elementId);
+    if (el) el.style.display = (el.style.display === 'none') ? 'block' : 'none';
+}
+
+function initMobileJoystick() {
+    const zone = $('mobile-joystick-zone');
+    if (!zone || typeof nipplejs === 'undefined') return;
+    zone.innerHTML = '';
+    const manager = nipplejs.create({ zone, mode: 'static', position: { left: '50%', top: '50%' }, color: '#00ffff', size: 100 });
+    manager.on('move', (evt, data) => {
+        if (!data.vector) return;
+        const forward = data.vector.y, turn = data.vector.x, threshold = 0.2;
+        moveStatus.forward = forward > threshold;
+        moveStatus.backward = forward < -threshold;
+        moveStatus.left = turn < -threshold;
+        moveStatus.right = turn > threshold;
+    });
+    manager.on('end', () => { moveStatus.forward = moveStatus.backward = moveStatus.left = moveStatus.right = false; });
+}
+window.addEventListener('DOMContentLoaded', () => {
+    initMobileJoystick();
+    injectMobileCloseButtons();
+});
+window.addEventListener('resize', () => setTimeout(initMobileJoystick, 200));
+
+$('btn-mobile-jump')?.addEventListener('touchstart', (e) => { e.preventDefault(); triggerAvatarJump(); });
+$('btn-mobile-interact')?.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    interactNearestMesh();
+});
+
+function injectMobileCloseButtons() {
+    document.querySelectorAll('.panel').forEach(panel => {
+        if (panel.querySelector('.mobile-close-panel-btn')) return;
+        const btn = document.createElement('button');
+        btn.className = 'mobile-close-panel-btn';
+        btn.innerHTML = '✕';
+        btn.title = 'ปิดหน้าต่าง';
+        btn.addEventListener('click', (e) => { e.stopPropagation(); panel.style.display = 'none'; });
+        panel.appendChild(btn);
+    });
+}
+
+// ============================================================
+// 5. MODEL LOADING — factory model (local upload → Supabase, or cloud URL)
+// ============================================================
+let factoryModel = null;
+let originalMaterials = new Map();
+let currentMaterialMode = 'solid';
+let initialFactoryScale = 1;
+let factoryColliders = [];
+
+const HITBOX_PADDING = 0.6; // ขยาย hitbox ให้ชนง่ายขึ้น ไม่ต้องเดินตามขอบโมเดลเป๊ะๆ
+
+function getLoaderForFile(fileName) {
+    const ext = (fileName || '').split('.').pop().toLowerCase();
+    return (ext === 'fbx') ? new THREE.FBXLoader() : new THREE.GLTFLoader();
+}
+
+// ปรับแต่ง mesh ให้เรนเดอร์เบาลง เหมาะกับโมเดลโรงงานที่มีชิ้นส่วนจำนวนมาก
+function optimizeMeshForRender(mesh) {
+    mesh.frustumCulled = true;
+    mesh.castShadow = false;
+    mesh.receiveShadow = false;
+    if (mesh.material) {
+        if (mesh.material.roughness !== undefined) mesh.material.roughness = 0.8;
+        if (mesh.material.metalness !== undefined) mesh.material.metalness = 0.2;
+    }
+}
+
+function populateMeshList(root) {
+    let meshCount = 0;
+    const container = $('mesh-container');
+    container.innerHTML = '';
+    root.traverse(child => {
+        if (!child.isMesh) return;
+        meshCount++;
+        originalMaterials.set(child.uuid, child.material.clone());
+        if (!child._original3DName) child._original3DName = child.name || `Object_${meshCount}`;
+        optimizeMeshForRender(child);
+
+        const key = resolveDatabaseKey(child, child.name);
+        const item = document.createElement('div');
+        item.className = 'mesh-item';
+        item.innerText = `${getIconForType(key)} ${child.name || child._original3DName}`;
+        item.id = `mesh-item-${child.uuid}`;
+        item.addEventListener('click', () => selectPart(child, '📋 คลิกจากรายการ'));
+        item.addEventListener('contextmenu', (e) => { e.preventDefault(); openTypeSelector(child, child.name); });
+        container.appendChild(item);
+    });
+    $('model-meta').innerHTML = `<span class="info-tag">ตรวจพบชิ้นส่วน: ${meshCount} รายการ</span>`;
+    $('details-panel').style.display = 'block';
+    return meshCount;
+}
+
+function applyTransform(t) {
+    if (!factoryModel || !t) return;
+    factoryModel.position.set(t.posX || 0, t.posY || 0, t.posZ || 0);
+    factoryModel.rotation.y = t.rotY || 0;
+    const sc = t.scale || 1;
+    factoryModel.scale.set(initialFactoryScale * sc, initialFactoryScale * sc, initialFactoryScale * sc);
+    syncSlidersWithModel();
+    buildColliders();
+}
+
+function finalizeModelLoad(obj, opts) {
+    factoryModel = obj.scene ? obj.scene : obj;
+    populateMeshList(factoryModel);
+
+    const box = new THREE.Box3().setFromObject(factoryModel);
+    const size = box.getSize(new THREE.Vector3());
+    initialFactoryScale = 12 / Math.max(size.x, size.y, size.z, 0.001);
+
+    if (opts && opts.transform) {
+        applyTransform(opts.transform);
+    } else {
+        factoryModel.scale.set(initialFactoryScale, initialFactoryScale, initialFactoryScale);
+        const center = box.getCenter(new THREE.Vector3());
+        factoryModel.position.set(-center.x * initialFactoryScale, 0, -center.z * initialFactoryScale);
+    }
+
+    scene.add(factoryModel);
+    $('factory-status').innerText = `✓ โหลดสำเร็จ: ${opts && opts.label || ''}`;
+    setFactoryMaterialMode(currentMaterialMode);
+    buildColliders();
+    buildProximityTags();
+    buildPPEZones();
+    syncSlidersWithModel();
+    refreshTransformUiPermissions();
+}
+
+function disposeFactoryModel() {
+    if (!factoryModel) return;
+    factoryModel.traverse(child => {
+        if (child.isMesh) {
+            if (child.geometry) child.geometry.dispose();
+            if (child.material) (Array.isArray(child.material) ? child.material : [child.material]).forEach(m => m.dispose());
+        }
+    });
+    scene.remove(factoryModel);
+    factoryModel = null;
+}
+
+function loadModelFromUrl(url, fileName, transform) {
+    currentSceneModelUrl = url;
+    currentSceneModelName = fileName;
+    fetch(url).then(r => r.arrayBuffer()).then(buf => {
+        currentModelRawBuffer = buf;
+        currentModelRawFileName = fileName;
+    }).catch(err => console.warn('ดึงไฟล์ดิบมาแคชไม่สำเร็จ (ไม่กระทบการแสดงผล):', err));
+
+    disposeFactoryModel();
+    originalMaterials.clear(); factoryColliders = [];
+    $('factory-status').innerText = `⬇️ กำลังโหลดโมเดลจาก Cloud...`;
+    getLoaderForFile(fileName || url).load(url, obj => {
+        finalizeModelLoad(obj, { label: fileName, transform });
+    }, undefined, err => {
+        $('factory-status').innerText = `❌ โหลดล้มเหลว`;
+        console.error(err);
+    });
+}
+
+function loadModelFromBlobUrl(blobUrl, fileName, transform, onDone) {
+    disposeFactoryModel();
+    originalMaterials.clear(); factoryColliders = [];
+    $('factory-status').innerText = `⬇️ กำลังโหลดโมเดลจากไฟล์เซฟ...`;
+    getLoaderForFile(fileName).load(blobUrl, obj => {
+        finalizeModelLoad(obj, { label: `${fileName} (จากไฟล์เซฟ)`, transform });
+        if (onDone) onDone();
+    }, undefined, err => {
+        $('factory-status').innerText = `❌ โหลดโมเดลจากไฟล์เซฟล้มเหลว`;
+        console.error(err);
+    });
+}
+
+// ---------- Supabase upload (เก็บ config เดิมของผู้ใช้ไว้ ไม่แตะระบบ backend) ----------
 const SUPABASE_URL = 'https://hzlokmixfkfrmkuucfhg.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh6bG9rbWl4Zmtmcm1rdXVjZmhnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1NzA5NTUsImV4cCI6MjA5ODE0Njk1NX0.DSj0c7XN979948Iq5rGmWqI9ddcbg56OmfKFin--Luo';
 const SUPABASE_BUCKET = 'models';
@@ -736,7 +547,7 @@ const SUPABASE_BUCKET = 'models';
 async function uploadToSupabase(file) {
     const fileName = `model_${Date.now()}_${file.name.replace(/\s+/g, '_')}`;
     const uploadUrl = `${SUPABASE_URL}/storage/v1/object/${SUPABASE_BUCKET}/${fileName}`;
-    document.getElementById('factory-status').innerText = `⬆️ กำลังอัปโหลด ${file.name}... (${(file.size/1024/1024).toFixed(1)} MB)`;
+    $('factory-status').innerText = `⬆️ กำลังอัปโหลด ${file.name}... (${(file.size / 1024 / 1024).toFixed(1)} MB)`;
     const res = await fetch(uploadUrl, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'application/octet-stream', 'x-upsert': 'true' },
@@ -745,1658 +556,1034 @@ async function uploadToSupabase(file) {
     if (!res.ok) throw new Error(await res.text());
     return `${SUPABASE_URL}/storage/v1/object/public/${SUPABASE_BUCKET}/${fileName}`;
 }
-
-// เก็บ URL/ชื่อโมเดลปัจจุบันไว้ระดับ global เพื่อใช้ตอน Save Scene
-let currentSceneModelUrl = null;
-let currentSceneModelName = null;
-// เก็บ "ไฟล์ดิบต้นฉบับ" (bytes จริง) ไว้เพื่อใช้บันทึกฉากแบบไม่ผ่านการ export ซ้ำ (กันโมเดลผิดเพี้ยน)
-let currentModelRawBuffer = null;
-let currentModelRawFileName = null;
-
-function loadModelFromUrl(url, fileName) {
-    currentSceneModelUrl = url;
-    currentSceneModelName = fileName;
-    // ดึงไฟล์ดิบมาแคชไว้แบบขนาน (ไม่บล็อกการโหลดโมเดลที่แสดงผล) เพื่อใช้ตอน Save Scene ภายหลัง
-    fetch(url).then(r => r.arrayBuffer()).then(buf => {
-        currentModelRawBuffer = buf;
-        currentModelRawFileName = fileName;
-    }).catch(err => console.warn('ดึงไฟล์ดิบมาแคชไม่สำเร็จ (ไม่กระทบการแสดงผล):', err));
-
-    if (factoryModel) { scene.remove(factoryModel); originalMaterials.clear(); factoryColliders = []; }
-    document.getElementById('factory-status').innerText = `⬇️ กำลังโหลดโมเดลจาก Cloud...`;
-    const loader = getLoaderForFile(fileName || url);
-    loader.load(url, function(obj) {
-        factoryModel = obj.scene ? obj.scene : obj;
-        let meshCount = 0;
-        const container = document.getElementById('mesh-container');
-        container.innerHTML = '';
-        factoryModel.traverse(function(child) {
-            if (child.isMesh) {
-                meshCount++;
-                originalMaterials.set(child.uuid, child.material.clone());
-                
-                if (!child._original3DName) { child._original3DName = child.name || `Object_${meshCount}`; }
-
-                const item = document.createElement('div');
-                item.className = 'mesh-item';
-                const mName = child.name || child._original3DName;
-                item.innerText = `🏭 ${mName}`;
-                item.id = `mesh-item-${child.uuid}`;
-                item.addEventListener('click', () => highlightAndShowWorkflow(child, mName, 'คลิกเลือกโมเดล'));
-                container.appendChild(item);
-            }
+async function deleteFromSupabaseStorage(fileUrl) {
+    if (!fileUrl) return;
+    try {
+        const fileName = decodeURIComponent(fileUrl.split('/').pop());
+        await fetch(`${SUPABASE_URL}/storage/v1/object/${SUPABASE_BUCKET}/${fileName}`, {
+            method: 'DELETE', headers: { 'Authorization': `Bearer ${SUPABASE_ANON_KEY}` }
         });
-        document.getElementById('model-meta').innerHTML = `<span class="info-tag">ตรวจพบชิ้นส่วน: ${meshCount} รายการ</span>`;
-        document.getElementById('details-panel').style.display = 'block';
-        const box = new THREE.Box3().setFromObject(factoryModel);
-        const size = box.getSize(new THREE.Vector3());
-        initialFactoryScale = 12 / Math.max(size.x, size.y, size.z);
-        factoryModel.scale.set(initialFactoryScale, initialFactoryScale, initialFactoryScale);
-        const center = box.getCenter(new THREE.Vector3());
-        factoryModel.position.set(-center.x * initialFactoryScale, 0, -center.z * initialFactoryScale);
-        scene.add(factoryModel);
-        document.getElementById('factory-status').innerText = `✓ โหลดสำเร็จ: ${fileName}`;
-        buildColliders();
-        setFactoryMaterialMode(currentMaterialMode);
-        syncSlidersWithModel();
-    }, undefined, err => {
-        document.getElementById('factory-status').innerText = `❌ โหลดล้มเหลว`;
-        console.error(err);
-    });
+    } catch (err) { console.warn('ลบไฟล์ออกจาก Supabase Storage ไม่สำเร็จ:', err); }
 }
 
-const _origInput = document.getElementById('factory-input');
-const _newInput = _origInput.cloneNode(true);
-_origInput.parentNode.replaceChild(_newInput, _origInput);
+let currentSceneModelUrl = null, currentSceneModelName = null;
+let currentModelRawBuffer = null, currentModelRawFileName = null;
 
-_newInput.addEventListener('change', async function(event) {
+$('factory-input')?.addEventListener('change', async function (event) {
     const files = event.target.files;
     if (!files.length) return;
     let modelFile = null;
-    for (let f of files) {
-        const ext = f.name.split('.').pop().toLowerCase();
-        if (['gltf','glb','fbx'].includes(ext)) { modelFile = f; break; }
-    }
-    if (!modelFile) { document.getElementById('factory-status').innerText = '❌ ไม่พบไฟล์ 3D'; return; }
+    for (const f of files) { if (['gltf', 'glb', 'fbx'].includes(f.name.split('.').pop().toLowerCase())) { modelFile = f; break; } }
+    if (!modelFile) { $('factory-status').innerText = '❌ ไม่พบไฟล์ 3D หลัก (.gltf/.glb/.fbx)'; return; }
     try {
-        // แคชไฟล์ดิบต้นฉบับไว้ทันที (ก่อนอัปโหลดขึ้น Cloud) เพื่อใช้ตอน Save Scene ภายหลัง
         currentModelRawBuffer = await modelFile.arrayBuffer();
         currentModelRawFileName = modelFile.name;
-
         const url = await uploadToSupabase(modelFile);
-        if (mpSocket && mpSocket.connected) {
-            mpSocket.emit('model_shared', { url, fileName: modelFile.name });
-        } else {
-            loadModelFromUrl(url, modelFile.name);
-        }
-    } catch(err) {
-        document.getElementById('factory-status').innerText = `❌ อัปโหลดล้มเหลว: ${err.message}`;
+        if (mpSocket && mpSocket.connected) mpSocket.emit('model_shared', { url, fileName: modelFile.name });
+        else loadModelFromUrl(url, modelFile.name);
+    } catch (err) {
+        $('factory-status').innerText = `❌ อัปโหลดล้มเหลว: ${err.message}`;
     }
 });
 
-const _origSaveLiveEdit = saveLiveEdit;
-window.saveLiveEdit = function() {
-    if (!activeSelectedMeshUUID) return;
-    const titleEl = document.getElementById('input-edit-title');
-    const descEl = document.getElementById('input-edit-desc');
-    const stepsEl = document.getElementById('input-edit-steps');
-    const newTitle = titleEl ? titleEl.value.trim() : '';
-    const newDesc = descEl ? descEl.value.trim() : '';
-    const newSteps = stepsEl ? stepsEl.value.split(',').map(s=>s.trim()).filter(Boolean) : [];
-    
-    let originalNameKey = activeSelectedMeshUUID;
-    if (factoryModel) {
-        factoryModel.traverse(function(child) {
-            if (child.isMesh && child.uuid === activeSelectedMeshUUID) {
-                originalNameKey = child._original3DName || child.name || child.uuid;
-                if (!child._original3DName) { child._original3DName = originalNameKey; }
-            }
+function buildColliders() {
+    factoryColliders = [];
+    if (!factoryModel) return;
+    factoryModel.updateMatrixWorld(true);
+    factoryModel.traverse(child => {
+        if (!child.isMesh) return;
+        const box = new THREE.Box3().setFromObject(child);
+        box.expandByScalar(HITBOX_PADDING);
+        factoryColliders.push({ uuid: child.uuid, mesh: child, box });
+    });
+}
+
+function setFactoryMaterialMode(mode) {
+    currentMaterialMode = mode;
+    ['mode-solid', 'mode-wireframe', 'mode-xray'].forEach(m => { const el = $(m); if (el) el.className = `mode-btn ${m === 'mode-' + mode ? 'active' : ''}`; });
+    if (!factoryModel) return;
+    factoryModel.traverse(child => {
+        if (!child.isMesh) return;
+        const orig = originalMaterials.get(child.uuid);
+        if (!orig) return;
+        child.material.dispose();
+        if (mode === 'solid') child.material = orig.clone();
+        else if (mode === 'wireframe') child.material = new THREE.MeshStandardMaterial({ color: 0x00ffff, wireframe: true });
+        else child.material = new THREE.MeshStandardMaterial({ color: 0x00aaff, transparent: true, opacity: 0.2, depthWrite: false });
+    });
+}
+window.setFactoryMaterialMode = setFactoryMaterialMode;
+
+// ============================================================
+// 6. SELECTION / INTERACTION — REQ 4 & 6
+// "ชี้" (raycast click/tap) หรือ "เดินชน" (collision) เพื่อขึ้นข้อมูล
+// ชี้ซ้ำที่จุดเดิม หรือเดินออกไปไกล -> ข้อมูลหายอัตโนมัติ
+// ไม่มีการ "จับ/ลาก" ชิ้นส่วนใดๆ (ตามที่ระบุว่าจะทำให้ระบบซับซ้อนเกินไป)
+// ============================================================
+const selection = { uuid: null, key: 'default' };
+const raycaster = new THREE.Raycaster();
+const pointerNDC = new THREE.Vector2();
+const PROXIMITY_RANGE = 3.0;   // ระยะขยายป้าย (ตามคู่มือ 2-3 เมตร)
+const DESELECT_DISTANCE = 6;   // ระยะที่ถือว่า "เดินเลยวัตถุ" แล้วปิดป้าย
+
+function isEditingActive() {
+    const grp = $('edit-actions-group');
+    return grp && grp.style.display !== 'none';
+}
+
+function applyHighlight(uuid) {
+    if (!factoryModel || currentMaterialMode !== 'solid') return;
+    factoryModel.traverse(child => {
+        if (!child.isMesh) return;
+        if (child.uuid === uuid) child.material = new THREE.MeshStandardMaterial({ color: 0x00ffff, emissive: 0x001a1a });
+        else if (originalMaterials.has(child.uuid)) child.material = originalMaterials.get(child.uuid).clone();
+    });
+}
+
+function selectPart(mesh, method) {
+    if (!mesh || !factoryModel) return;
+    if (isEditingActive()) return; // ห้ามสลับชิ้นส่วนระหว่างแก้ไขข้อมูลค้างอยู่
+
+    // REQ 6: "ชี้ซ้ำ" ที่จุดเดิม -> ปิดป้าย (toggle)
+    if (selection.uuid === mesh.uuid) { deselectPart(); return; }
+
+    selection.uuid = mesh.uuid;
+    const key = resolveDatabaseKey(mesh, mesh.name);
+    selection.key = key;
+    applyHighlight(mesh.uuid);
+
+    const data = workflowDatabase[key] || workflowDatabase.default;
+    renderWorkflowUI(data.name || mesh.name, data.desc, data.steps, method, data.colorClass || 'tag-blue');
+    cancelLiveEdit();
+    $('process-panel').style.display = 'block';
+}
+
+function deselectPart() {
+    selection.uuid = null;
+    selection.key = 'default';
+    $('process-panel').style.display = 'none';
+    if (factoryModel && currentMaterialMode === 'solid') {
+        factoryModel.traverse(child => {
+            if (child.isMesh && originalMaterials.has(child.uuid)) child.material = originalMaterials.get(child.uuid).clone();
         });
     }
+}
 
-    _origSaveLiveEdit();
+// ชี้ (คลิกเมาส์ / แตะจอ) — แยกจาก drag กล้อง โดยเช็คระยะขยับของ pointer
+let pointerDownPos = null, pointerDownTime = 0;
+renderer.domElement.addEventListener('pointerdown', (e) => { pointerDownPos = { x: e.clientX, y: e.clientY }; pointerDownTime = Date.now(); });
+renderer.domElement.addEventListener('pointerup', (e) => {
+    if (!pointerDownPos) return;
+    const moved = Math.hypot(e.clientX - pointerDownPos.x, e.clientY - pointerDownPos.y);
+    const elapsed = Date.now() - pointerDownTime;
+    pointerDownPos = null;
+    if (moved > 6 || elapsed > 600) return; // ถือว่าเป็นการลากกล้อง ไม่ใช่การชี้เลือก
 
-    if (originalNameKey) {
-        workflowDatabase[originalNameKey] = { "name": newTitle, "desc": newDesc, "steps": newSteps, "colorClass": "tag-blue" };
+    if (!factoryModel) return;
+    const rect = renderer.domElement.getBoundingClientRect();
+    pointerNDC.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    pointerNDC.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(pointerNDC, camera);
+    const hits = raycaster.intersectObject(factoryModel, true);
+    if (hits.length > 0) selectPart(hits[0].object, '👆 ชี้เลือกอุปกรณ์');
+    else deselectPart(); // ชี้พื้นที่ว่าง -> ปิดป้าย
+});
+
+function interactNearestMesh() {
+    if (!factoryModel || !avatarModel) return;
+    let closest = null, minDist = 5;
+    factoryModel.traverse(child => {
+        if (!child.isMesh) return;
+        const p = new THREE.Vector3(); child.getWorldPosition(p);
+        const d = avatarModel.position.distanceTo(p);
+        if (d < minDist) { minDist = d; closest = child; }
+    });
+    if (closest) selectPart(closest, '📱 แตะปุ่ม Interact');
+}
+
+// REQ 4: เดินชน hitbox -> ขึ้นข้อมูลทันที (ไม่บล็อกการเดิน เดินทะลุได้อิสระ)
+function checkWalkCollision(nextX, nextZ, currentY) {
+    for (const col of factoryColliders) {
+        const box = col.box;
+        if (nextX + avatarConfig.radius > box.min.x && nextX - avatarConfig.radius < box.max.x &&
+            nextZ + avatarConfig.radius > box.min.z && nextZ - avatarConfig.radius < box.max.z &&
+            currentY < box.max.y && currentY + 1.6 > box.min.y) {
+            if (selection.uuid !== col.uuid) selectPart(col.mesh, '🚶 ตัวละครเดินชนวัตถุ');
+            return;
+        }
     }
+}
 
-    if (mpSocket && mpSocket.connected && originalNameKey) {
-        mpSocket.emit('workflow_update', { 
-            key: originalNameKey, 
-            name: newTitle, 
-            desc: newDesc, 
-            steps: newSteps, 
-            colorClass: 'tag-blue',
-            targetUuid: activeSelectedMeshUUID 
+// REQ 6: เดินออกไปไกลจากจุดที่เลือกไว้ -> ปิดป้ายอัตโนมัติ
+function checkAutoDeselect() {
+    if (!avatarModel || !factoryModel || !selection.uuid) return;
+    if (isEditingActive()) return;
+    let pos = null;
+    factoryModel.traverse(child => { if (child.isMesh && child.uuid === selection.uuid) { pos = new THREE.Vector3(); child.getWorldPosition(pos); } });
+    if (!pos) return;
+    if (avatarModel.position.distanceTo(pos) > DESELECT_DISTANCE) deselectPart();
+}
+
+// ============================================================
+// 7. WORKFLOW UI — render / live edit / type selector
+// ============================================================
+function renderWorkflowUI(name, desc, stepsArray, method, colorClass) {
+    $('process-panel').className = `panel floating-safety-panel ${colorClass}`;
+    $('title-container').innerHTML = `
+        <span id="process-title" style="font-weight:bold;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">⚙️ โซน: ${name}</span>
+        <span id="detection-method" class="method-tag" style="flex-shrink:0;"></span>`;
+    $('desc-view-area').innerText = desc;
+    $('detection-method').innerText = method;
+
+    const container = $('steps-view-area');
+    container.innerHTML = '';
+    (stepsArray || []).forEach(step => {
+        const box = document.createElement('div');
+        box.className = 'step-box';
+        box.innerHTML = `<span class="badge">REGULATION</span><span></span>`;
+        box.querySelector('span:last-child').innerText = step;
+        container.appendChild(box);
+    });
+}
+
+function enableLiveEdit() {
+    if (!selection.uuid) return;
+    const data = workflowDatabase[selection.key] || workflowDatabase.default;
+    const methodText = $('detection-method') ? $('detection-method').innerText : '';
+    $('title-container').innerHTML = `
+        <input type="text" id="input-edit-title" class="ui-edit-input" style="font-weight:bold;flex:1;" value="">
+        <span id="detection-method" class="method-tag" style="flex-shrink:0;">${methodText}</span>`;
+    $('input-edit-title').value = data.name;
+    $('input-edit-desc').value = data.desc;
+    $('input-edit-steps').value = (data.steps || []).join(', ');
+
+    $('desc-view-area').style.display = 'none';
+    $('steps-view-area').style.display = 'none';
+    $('desc-edit-area').style.display = 'block';
+    $('steps-edit-area').style.display = 'block';
+    $('btn-edit-mode').style.display = 'none';
+    $('edit-actions-group').style.display = 'flex';
+}
+
+function closeLiveEditFields() {
+    $('desc-view-area').style.display = 'block';
+    $('steps-view-area').style.display = 'block';
+    $('desc-edit-area').style.display = 'none';
+    $('steps-edit-area').style.display = 'none';
+    $('btn-edit-mode').style.display = 'block';
+    $('edit-actions-group').style.display = 'none';
+}
+
+function cancelLiveEdit() {
+    closeLiveEditFields();
+    if (selection.uuid) {
+        const data = workflowDatabase[selection.key] || workflowDatabase.default;
+        renderWorkflowUI(data.name, data.desc, data.steps, $('detection-method') ? $('detection-method').innerText : '', data.colorClass || 'tag-blue');
+    }
+}
+
+function saveLiveEdit() {
+    if (!selection.uuid) return;
+    const newTitle = $('input-edit-title').value.trim();
+    const newDesc = $('input-edit-desc').value.trim();
+    const newSteps = $('input-edit-steps').value.split(',').map(s => s.trim()).filter(Boolean);
+
+    let nameKey = selection.uuid;
+    let requiresPPE = false;
+    factoryModel.traverse(child => {
+        if (child.isMesh && child.uuid === selection.uuid) {
+            nameKey = child._original3DName || child.name || child.uuid;
+            if (!child._original3DName) child._original3DName = nameKey;
+            child.name = newTitle;
+            const existing = workflowDatabase[resolveDatabaseKey(child, newTitle)];
+            requiresPPE = existing ? !!existing.requiresPPE : false;
+        }
+    });
+
+    const record = { name: newTitle, desc: newDesc, steps: newSteps, colorClass: 'tag-blue', requiresPPE };
+    workflowDatabase[nameKey] = record;
+    selection.key = nameKey;
+
+    const listItem = $(`mesh-item-${selection.uuid}`);
+    if (listItem) listItem.innerText = `${getIconForType(userDefinedTypes[selection.uuid] || nameKey)} ${newTitle}`;
+
+    renderWorkflowUI(newTitle, newDesc, newSteps, '✏️ บันทึกโดยผู้ใช้', 'tag-blue');
+    closeLiveEditFields();
+    buildProximityTags();
+    buildPPEZones();
+
+    if (mpSocket && mpSocket.connected) {
+        mpSocket.emit('workflow_update', { key: nameKey, name: newTitle, desc: newDesc, steps: newSteps, colorClass: 'tag-blue', requiresPPE, targetUuid: selection.uuid });
+    }
+}
+window.enableLiveEdit = enableLiveEdit;
+window.cancelLiveEdit = cancelLiveEdit;
+window.saveLiveEdit = saveLiveEdit;
+
+// ---------- Type selector modal ----------
+let typeSelectorTargetMesh = null;
+function openTypeSelector(mesh, meshName) {
+    typeSelectorTargetMesh = mesh;
+    const overlay = $('type-selector-overlay'), grid = $('type-selector-grid');
+    if (!overlay || !grid) return;
+    $('type-selector-mesh-name').innerText = `📦 ชิ้นส่วน: ${meshName || mesh.name || mesh.uuid.slice(0, 8)}`;
+    const currentKey = userDefinedTypes[mesh.uuid] || resolveDatabaseKey(mesh, meshName);
+    const colorMap = { 'tag-red': '#ef4444', 'tag-orange': '#f97316', 'tag-blue': '#38bdf8', 'tag-green': '#22c55e' };
+
+    grid.innerHTML = TYPE_OPTIONS.map(opt => {
+        const active = opt.key === currentKey;
+        const c = colorMap[opt.color] || '#38bdf8';
+        return `<button onclick="assignMeshType('${opt.key}')" style="
+            background:${active ? `rgba(${hexToRgb(c)},0.25)` : 'rgba(255,255,255,0.04)'};
+            border:${active ? `2px solid ${c}` : '1px solid rgba(255,255,255,0.1)'};
+            border-radius:10px;padding:10px 8px;cursor:pointer;text-align:left;
+            color:${active ? c : '#cbd5e1'};font-size:11.5px;font-weight:${active ? 'bold' : 'normal'};line-height:1.4;">
+            <span style="font-size:18px;display:block;margin-bottom:4px;">${opt.icon}</span>${opt.label}
+            ${active ? '<span style="float:right;font-size:14px;">✓</span>' : ''}
+        </button>`;
+    }).join('');
+    overlay.style.display = 'flex';
+}
+function closeTypeSelector() {
+    const overlay = $('type-selector-overlay');
+    if (overlay) overlay.style.display = 'none';
+    typeSelectorTargetMesh = null;
+}
+function assignMeshType(typeKey) {
+    if (!typeSelectorTargetMesh) return;
+    const uuid = typeSelectorTargetMesh.uuid;
+    const nameKey = typeSelectorTargetMesh._original3DName || typeSelectorTargetMesh.name || uuid;
+
+    userDefinedTypes[uuid] = typeKey;
+    userDefinedTypes[nameKey] = typeKey;
+
+    const source = workflowDatabase[typeKey] || workflowDatabase.default;
+    const record = { ...source };
+    workflowDatabase[uuid] = record;
+    workflowDatabase[nameKey] = record;
+
+    buildProximityTags();
+    buildPPEZones();
+    closeTypeSelector();
+    selectPart(typeSelectorTargetMesh, '🏷️ กำหนดประเภทด้วยตนเอง');
+
+    const listItem = $(`mesh-item-${uuid}`);
+    const opt = TYPE_OPTIONS.find(o => o.key === typeKey);
+    if (listItem) listItem.innerText = `${opt?.icon || '🏭'} ${typeSelectorTargetMesh.name || typeKey}`;
+
+    if (mpSocket && mpSocket.connected) {
+        mpSocket.emit('workflow_update', {
+            key: nameKey, name: record.name, desc: record.desc, steps: record.steps,
+            colorClass: record.colorClass || 'tag-blue', requiresPPE: !!record.requiresPPE,
+            targetUuid: uuid, assignedTypeKey: typeKey
         });
     }
+    mpAppendChat({ name: '🏷️ ระบบ', color: '#00ffff', text: `กำหนด "${typeSelectorTargetMesh.name || uuid.slice(0, 8)}" เป็น "${opt?.label || typeKey}"` });
+}
+function clearMeshType() {
+    if (!typeSelectorTargetMesh) return;
+    delete userDefinedTypes[typeSelectorTargetMesh.uuid];
+    delete workflowDatabase[typeSelectorTargetMesh.uuid];
+    closeTypeSelector();
+    buildProximityTags();
+    buildPPEZones();
+}
+$('type-selector-overlay')?.addEventListener('click', function (e) { if (e.target === this) closeTypeSelector(); });
+window.openTypeSelector = openTypeSelector;
+window.closeTypeSelector = closeTypeSelector;
+window.assignMeshType = assignMeshType;
+window.clearMeshType = clearMeshType;
+window.openTypeSelectorForActive = function () {
+    if (!selection.uuid || !factoryModel) { mpAppendChat({ name: 'ระบบ', color: '#ef4444', text: 'กรุณาเลือกชิ้นส่วนก่อนกำหนด Type' }); return; }
+    let target = null;
+    factoryModel.traverse(c => { if (c.isMesh && c.uuid === selection.uuid) target = c; });
+    if (target) openTypeSelector(target, target._original3DName || target.name);
 };
 
-const remoteAvatars = {};
-const remoteTargets = {};
-const mpPlayerNames = {};
-const mpPlayerColors = {};
-let mpMyId = null;
-let mpMyColor = '#00ffff';
+// ============================================================
+// 8. PROXIMITY TAG SYSTEM — ป้ายลอยเหนือชิ้นส่วน ขยายเมื่อเดินเข้าใกล้
+// ============================================================
+const proximityTags = [];
 
-function buildRemoteAvatar(color) {
-    return createEngineerAvatar(color || '#4d96ff');
+function tagColorFromClass(colorClass) {
+    switch (colorClass) {
+        case 'tag-red': return { bg: 'rgba(239,68,68,0.92)', border: '#ef4444' };
+        case 'tag-orange': return { bg: 'rgba(249,115,22,0.92)', border: '#f97316' };
+        case 'tag-green': return { bg: 'rgba(34,197,94,0.92)', border: '#22c55e' };
+        default: return { bg: 'rgba(56,189,248,0.92)', border: '#38bdf8' };
+    }
+}
+function createTagCanvas(key, expanded) {
+    const data = workflowDatabase[key] || workflowDatabase.default;
+    const colors = tagColorFromClass(data.colorClass);
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+
+    if (!expanded) {
+        canvas.width = 96; canvas.height = 96;
+        ctx.beginPath(); ctx.arc(48, 48, 38, 0, Math.PI * 2);
+        ctx.fillStyle = colors.bg; ctx.fill();
+        ctx.lineWidth = 4; ctx.strokeStyle = '#ffffff'; ctx.stroke();
+        ctx.font = 'bold 42px Arial'; ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('!', 48, 52);
+    } else {
+        const text = data.tagText || data.name || '';
+        const maxWidth = 520;
+        const measureCtx = document.createElement('canvas').getContext('2d');
+        measureCtx.font = 'bold 26px "Segoe UI", Arial, sans-serif';
+        const words = text.split(' '); const lines = []; let line = '';
+        for (const w of words) {
+            const test = line ? line + ' ' + w : w;
+            if (measureCtx.measureText(test).width > maxWidth && line) { lines.push(line); line = w; } else line = test;
+        }
+        if (line) lines.push(line);
+        const lineHeight = 36, padding = 24;
+        canvas.width = maxWidth + padding * 2;
+        canvas.height = lines.length * lineHeight + padding * 2;
+
+        ctx.fillStyle = colors.bg;
+        if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(0, 0, canvas.width, canvas.height, 14); ctx.fill(); }
+        else ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.lineWidth = 3; ctx.strokeStyle = colors.border; ctx.stroke();
+
+        ctx.font = 'bold 26px "Segoe UI", Arial, sans-serif';
+        ctx.fillStyle = '#ffffff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        lines.forEach((l, i) => ctx.fillText(l, canvas.width / 2, padding + lineHeight * i + lineHeight / 2));
+    }
+    return canvas;
+}
+function buildProximitySprite(key) {
+    const tex = new THREE.CanvasTexture(createTagCanvas(key, false));
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, sizeAttenuation: true }));
+    sprite.scale.set(0.5, 0.5, 1);
+    sprite.renderOrder = 999;
+    return sprite;
+}
+function updateSpriteTexture(sprite, key, expanded) {
+    const canvas = createTagCanvas(key, expanded);
+    sprite.material.map.dispose();
+    sprite.material.map = new THREE.CanvasTexture(canvas);
+    sprite.material.needsUpdate = true;
+    if (expanded) { const aspect = canvas.width / canvas.height; sprite.scale.set(2.2 * aspect, 2.2, 1); }
+    else sprite.scale.set(0.5, 0.5, 1);
+}
+function buildProximityTags() {
+    proximityTags.forEach(t => { scene.remove(t.sprite); t.sprite.material.map.dispose(); t.sprite.material.dispose(); });
+    proximityTags.length = 0;
+    if (!factoryModel) return;
+    factoryModel.updateMatrixWorld(true);
+    factoryModel.traverse(child => {
+        if (!child.isMesh) return;
+        const key = resolveDatabaseKey(child, child.name);
+        if (key === 'default') return;
+        const worldPos = new THREE.Vector3(); child.getWorldPosition(worldPos);
+        const box = new THREE.Box3().setFromObject(child);
+        const height = box.max.y - box.min.y;
+        const sprite = buildProximitySprite(key);
+        sprite.position.set(worldPos.x, box.max.y + Math.max(height * 0.15, 0.4), worldPos.z);
+        scene.add(sprite);
+        proximityTags.push({ sprite, mesh: child, key, expanded: false });
+    });
+}
+function updateProximityTags() {
+    if (!avatarModel || proximityTags.length === 0) return;
+    const pos = avatarModel.position;
+    proximityTags.forEach(t => {
+        const expand = pos.distanceTo(t.sprite.position) <= PROXIMITY_RANGE;
+        if (expand !== t.expanded) { t.expanded = expand; updateSpriteTexture(t.sprite, t.key, expand); }
+    });
 }
 
+// ============================================================
+// 9. PPE ZONE SYSTEM — REQ 5: วงกลมรัศมี 15 เมตรรอบอุปกรณ์ที่ต้องระวัง
+// ขับเคลื่อนด้วย flag `requiresPPE` ในฐานข้อมูล (ไม่ใช่ list ตายตัว)
+// เพื่อให้จุดที่ admin กำหนดประเภทเองก็ได้วงเตือนอัตโนมัติด้วย
+// ============================================================
+const PPE_ZONE_RADIUS = 15;
+const ppeZoneObjects = []; // { ring, label, centerX, centerZ }
+let ppeAlertActive = false;
+
+function buildPPEZones() {
+    ppeZoneObjects.forEach(o => { scene.remove(o.ring); scene.remove(o.label); });
+    ppeZoneObjects.length = 0;
+    if (!factoryModel) return;
+
+    factoryModel.traverse(child => {
+        if (!child.isMesh) return;
+        const key = resolveDatabaseKey(child, child.name);
+        const data = workflowDatabase[key];
+        if (!data || !data.requiresPPE) return;
+
+        const worldPos = new THREE.Vector3(); child.getWorldPosition(worldPos);
+
+        const ringGeo = new THREE.RingGeometry(PPE_ZONE_RADIUS - 0.15, PPE_ZONE_RADIUS + 0.15, 64);
+        const ringMat = new THREE.MeshBasicMaterial({ color: 0xffaa00, side: THREE.DoubleSide, transparent: true, opacity: 0.5 });
+        const ring = new THREE.Mesh(ringGeo, ringMat);
+        ring.rotation.x = -Math.PI / 2;
+        ring.position.set(worldPos.x, 0.05, worldPos.z);
+        scene.add(ring);
+
+        const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 128;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = 'rgba(255,170,0,0.88)';
+        if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(4, 4, 504, 120, 14); ctx.fill(); } else ctx.fillRect(4, 4, 504, 120);
+        ctx.font = 'bold 32px Arial'; ctx.fillStyle = '#000'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('🛡️ PPE Zone 15m — สวมอุปกรณ์ป้องกันก่อนเข้า', 256, 64);
+        const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), depthTest: false }));
+        label.scale.set(8, 2, 1);
+        label.position.set(worldPos.x, 1.5, worldPos.z - PPE_ZONE_RADIUS + 1);
+        scene.add(label);
+
+        ppeZoneObjects.push({ ring, label, centerX: worldPos.x, centerZ: worldPos.z });
+    });
+}
+function checkPPEZones() {
+    if (!avatarModel || ppeZoneObjects.length === 0) return;
+    const ax = avatarModel.position.x, az = avatarModel.position.z;
+    let inside = false;
+    for (const z of ppeZoneObjects) {
+        if (Math.hypot(ax - z.centerX, az - z.centerZ) <= PPE_ZONE_RADIUS) { inside = true; break; }
+    }
+    if (inside && !ppeAlertActive) {
+        ppeAlertActive = true;
+        mpAppendChat({ name: '⚠️ PPE Alert', color: '#ffaa00', text: 'คุณเข้าสู่พื้นที่อันตราย! กรุณาสวม 4-Gas Detector และ PPE ทันที' });
+    } else if (!inside && ppeAlertActive) {
+        ppeAlertActive = false;
+        mpAppendChat({ name: '✅ ปลอดภัย', color: '#22c55e', text: 'ออกจากพื้นที่อันตรายแล้ว' });
+    }
+}
+
+// ============================================================
+// 10. TRANSFORM PANEL — REQ 1 & 2: scale/position/rotation + Lock
+// เฉพาะ Admin ที่ล็อกอินถูกต้องและปลดล็อกไว้เท่านั้นที่ปรับได้ ผู้ใช้ทั่วไปเห็นแบบอ่านอย่างเดียว
+// ทุกการปรับ sync ผ่าน server ให้ทุกคนในห้องเห็นตรงกันแบบเรียลไทม์
+// ============================================================
+let isAdmin = false;
+let modelLocked = true;
+const SLIDER_IDS = ['param-posX', 'param-posY', 'param-posZ', 'param-rotY', 'param-scale'];
+
+function syncSlidersWithModel() {
+    if (!factoryModel) return;
+    $('param-posX').value = factoryModel.position.x;
+    $('param-posY').value = factoryModel.position.y;
+    $('param-posZ').value = factoryModel.position.z;
+    $('param-rotY').value = Math.round(factoryModel.rotation.y * (180 / Math.PI));
+    $('param-scale').value = (factoryModel.scale.x / initialFactoryScale).toFixed(2);
+    updateSliderLabels();
+}
+function updateSliderLabels() {
+    $('val-posX').innerText = parseFloat($('param-posX').value).toFixed(1);
+    $('val-posY').innerText = parseFloat($('param-posY').value).toFixed(2);
+    $('val-posZ').innerText = parseFloat($('param-posZ').value).toFixed(1);
+    $('val-rotY').innerText = $('param-rotY').value + '°';
+    $('val-scale').innerText = $('param-scale').value + 'x';
+}
+
+let _lastTransformEmit = 0;
+SLIDER_IDS.forEach(id => {
+    $(id)?.addEventListener('input', () => {
+        if (!factoryModel || !isAdmin || modelLocked) return;
+        const px = parseFloat($('param-posX').value), py = parseFloat($('param-posY').value), pz = parseFloat($('param-posZ').value);
+        const ry = parseFloat($('param-rotY').value) * (Math.PI / 180);
+        const sc = parseFloat($('param-scale').value);
+        factoryModel.position.set(px, py, pz);
+        factoryModel.rotation.y = ry;
+        factoryModel.scale.set(initialFactoryScale * sc, initialFactoryScale * sc, initialFactoryScale * sc);
+        updateSliderLabels();
+        buildColliders();
+        buildProximityTags();
+        buildPPEZones();
+
+        const now = Date.now();
+        if (mpSocket && mpSocket.connected && now - _lastTransformEmit > 60) {
+            _lastTransformEmit = now;
+            mpSocket.emit('model_transform_update', { posX: px, posY: py, posZ: pz, rotY: ry, scale: sc });
+        }
+    });
+});
+
+// เปิด/ปิดการใช้งาน slider ให้ตรงกับสิทธิ์ปัจจุบันเสมอ (เรียกทุกครั้งที่สถานะ admin/lock เปลี่ยน)
+function refreshTransformUiPermissions() {
+    const canEdit = isAdmin && !modelLocked;
+    SLIDER_IDS.forEach(id => { const el = $(id); if (el) el.disabled = !canEdit; });
+
+    const loginRow = $('admin-login-row'), statusRow = $('admin-status-row');
+    if (loginRow) loginRow.style.display = isAdmin ? 'none' : 'flex';
+    if (statusRow) statusRow.style.display = isAdmin ? 'flex' : 'none';
+
+    const lockBtn = $('btn-toggle-lock');
+    if (lockBtn) {
+        lockBtn.style.display = isAdmin ? 'block' : 'none';
+        lockBtn.innerText = modelLocked ? '🔓 ปลดล็อกเพื่อแก้ไข' : '🔒 ล็อกโมเดล';
+        lockBtn.style.background = modelLocked ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.2)';
+        lockBtn.style.borderColor = modelLocked ? '#22c55e' : '#ef4444';
+        lockBtn.style.color = modelLocked ? '#22c55e' : '#ef4444';
+    }
+    const badge = $('lock-status-badge');
+    if (badge) {
+        if (modelLocked) {
+            badge.innerText = '🔒 โมเดลถูกล็อกไว้ — เฉพาะ Admin เท่านั้นที่ปลดล็อกได้';
+            badge.style.background = 'rgba(239,68,68,0.12)'; badge.style.color = '#ef4444'; badge.style.border = '1px solid rgba(239,68,68,0.3)';
+        } else {
+            badge.innerText = '🔓 โมเดลปลดล็อกอยู่ — Admin กำลังปรับตำแหน่ง';
+            badge.style.background = 'rgba(34,197,94,0.12)'; badge.style.color = '#22c55e'; badge.style.border = '1px solid rgba(34,197,94,0.3)';
+        }
+    }
+}
+
+window.adminLogin = function () {
+    const pw = $('admin-password-input').value;
+    if (!mpSocket || !mpSocket.connected) { mpAppendChat({ name: 'ระบบ', color: '#ef4444', text: 'ยังไม่ได้เชื่อมต่อเซิร์ฟเวอร์ ลองใหม่อีกครั้ง' }); return; }
+    mpSocket.emit('admin_login', pw, (res) => {
+        $('admin-password-input').value = '';
+        if (res && res.success) {
+            isAdmin = true;
+            modelLocked = !!res.modelLocked;
+            if (res.modelTransform) applyTransform(res.modelTransform);
+            refreshTransformUiPermissions();
+            mpAppendChat({ name: '🔑 ระบบ', color: '#22c55e', text: 'เข้าสู่โหมด Admin สำเร็จ — ตอนนี้คุณปรับตำแหน่งโมเดลได้ (หลังปลดล็อก)' });
+        } else {
+            mpAppendChat({ name: '🔑 ระบบ', color: '#ef4444', text: 'รหัสผ่าน Admin ไม่ถูกต้อง' });
+        }
+    });
+};
+window.adminLogout = function () {
+    isAdmin = false;
+    if (mpSocket && mpSocket.connected) mpSocket.emit('admin_logout');
+    refreshTransformUiPermissions();
+};
+window.toggleModelLock = function () {
+    if (!isAdmin || !mpSocket || !mpSocket.connected) return;
+    mpSocket.emit('toggle_lock');
+};
+
+// ============================================================
+// 11. MULTIPLAYER — Socket.IO
+// ============================================================
+const remoteAvatars = {}, remoteTargets = {}, mpPlayerNames = {}, mpPlayerColors = {};
+let mpMyId = null, mpMyColor = '#00ffff', mpSocket = null, _lastMoveEmit = 0;
+
+function buildRemoteAvatar(color) { return createEngineerAvatar(color || '#4d96ff'); }
 function setAvatarLabel(g, name, color) {
     if (g._label) { g.remove(g._label); g._label.material.map.dispose(); }
-    const c = document.createElement('canvas'); c.width=256; c.height=64;
+    const c = document.createElement('canvas'); c.width = 256; c.height = 64;
     const ctx = c.getContext('2d');
-    ctx.fillStyle='rgba(0,0,0,0.6)'; ctx.roundRect(4,4,248,56,10); ctx.fill();
-    ctx.font='bold 24px Arial'; ctx.fillStyle=color||'#fff'; ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.fillText(name.substring(0,16), 128, 32);
-    const sp = new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),depthTest:false}));
-    sp.scale.set(1.8,0.45,1); sp.position.y=2.2;
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(4, 4, 248, 56, 10); ctx.fill(); } else ctx.fillRect(4, 4, 248, 56);
+    ctx.font = 'bold 24px Arial'; ctx.fillStyle = color || '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(name.substring(0, 16), 128, 32);
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false }));
+    sp.scale.set(1.8, 0.45, 1); sp.position.y = 2.2;
     g.add(sp); g._label = sp;
 }
-
 function addRemote(data) {
     if (remoteAvatars[data.id]) return;
-    const av = buildRemoteAvatar(data.color||'#4d96ff');
+    const av = buildRemoteAvatar(data.color || '#4d96ff');
     av.position.set(data.position.x, data.position.y, data.position.z);
     scene.add(av); remoteAvatars[data.id] = av;
-    setAvatarLabel(av, data.name||data.id, data.color||'#fff');
+    setAvatarLabel(av, data.name || data.id, data.color || '#fff');
     mpPlayerNames[data.id] = data.name; mpPlayerColors[data.id] = data.color;
     updateMpUI();
 }
-
 function removeRemote(id) {
     if (remoteAvatars[id]) { scene.remove(remoteAvatars[id]); delete remoteAvatars[id]; delete remoteTargets[id]; }
     delete mpPlayerNames[id]; delete mpPlayerColors[id];
     updateMpUI();
 }
-
-const _origRender = renderer.render.bind(renderer);
-renderer.render = function(sc, cam) {
+function updateRemoteAvatars() {
     for (const id in remoteAvatars) {
-        const av = remoteAvatars[id]; const t = remoteTargets[id];
+        const av = remoteAvatars[id], t = remoteTargets[id];
         if (!t) continue;
         av.position.lerp(t.pos, 0.18);
         av.rotation.y += (t.rotY - av.rotation.y) * 0.18;
         animateEngineerWalk(av, t.pos.distanceTo(av.position) > 0.01);
     }
-    if (mpSocket && mpSocket.connected && avatarModel) {
-        const now = Date.now();
-        if (now - _lastSend > 50) {
-            _lastSend = now;
-            mpSocket.emit('player_move', {
-                position: {x:avatarModel.position.x, y:avatarModel.position.y, z:avatarModel.position.z},
-                rotation: {y:avatarModel.rotation.y}
-            });
-        }
-    }
-    _origRender(sc, cam);
-};
-let _lastSend = 0;
-
+}
+function emitOwnPosition() {
+    if (!mpSocket || !mpSocket.connected || !avatarModel) return;
+    const now = Date.now();
+    if (now - _lastMoveEmit < 50) return;
+    _lastMoveEmit = now;
+    mpSocket.emit('player_move', {
+        position: { x: avatarModel.position.x, y: avatarModel.position.y, z: avatarModel.position.z },
+        rotation: { y: avatarModel.rotation.y }
+    });
+}
 function updateMpUI() {
-    const list = document.getElementById('mp-player-list');
+    const list = $('mp-player-list');
     if (!list) return;
     const all = [mpMyId, ...Object.keys(remoteAvatars)].filter(Boolean);
-    document.getElementById('mp-player-count').innerText = all.length;
+    $('mp-player-count').innerText = all.length;
     list.innerHTML = all.map(id => {
         const isMe = id === mpMyId;
-        const name = mpPlayerNames[id] || (isMe ? 'คุณ' : id.slice(0,6));
+        const name = mpPlayerNames[id] || (isMe ? 'คุณ' : id.slice(0, 6));
         const color = mpPlayerColors[id] || '#fff';
         return `<div style="display:flex;align-items:center;gap:6px;padding:3px 0;font-size:12px;">
             <span style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0"></span>
-            <span style="color:${color};font-weight:${isMe?'bold':'normal'}">${isMe?'👤 ':''}${name}</span>
+            <span style="color:${color};font-weight:${isMe ? 'bold' : 'normal'}">${isMe ? '👤 ' : ''}${name}</span>
         </div>`;
     }).join('');
 }
-
 function mpAppendChat(msg) {
-    const log = document.getElementById('mp-chat-log');
+    const log = $('mp-chat-log');
     if (!log) return;
     const d = document.createElement('div');
-    d.style.cssText = `margin-bottom:4px;color:${msg.color||'#fff'};word-break:break-all;font-size:11px;`;
-    d.innerHTML = `<strong>${msg.name}:</strong> ${msg.text}`;
+    d.style.cssText = `margin-bottom:4px;color:${msg.color || '#fff'};word-break:break-all;font-size:11px;`;
+    const strong = document.createElement('strong');
+    strong.innerText = msg.name + ': ';
+    d.appendChild(strong);
+    d.appendChild(document.createTextNode(msg.text));
     log.appendChild(d); log.scrollTop = log.scrollHeight;
 }
-
-window.setMyName = function() {
-    const v = document.getElementById('mp-name-input').value.trim();
+window.setMyName = function () {
+    const v = $('mp-name-input').value.trim();
     if (!v || !mpSocket) return;
     mpSocket.emit('set_name', v);
     mpPlayerNames[mpMyId] = v; updateMpUI();
 };
-
-window.sendChat = function() {
-    const inp = document.getElementById('mp-chat-input');
+window.sendChat = function () {
+    const inp = $('mp-chat-input');
     const text = inp.value.trim();
     if (!text || !mpSocket) return;
     mpSocket.emit('chat_message', text); inp.value = '';
 };
+$('mp-chat-input')?.addEventListener('keydown', e => { if (e.key === 'Enter') window.sendChat(); });
+$('mp-name-input')?.addEventListener('keydown', e => { if (e.key === 'Enter') window.setMyName(); });
 
-document.getElementById('mp-chat-input')?.addEventListener('keydown', e => { if(e.key==='Enter') window.sendChat(); });
-document.getElementById('mp-name-input')?.addEventListener('keydown', e => { if(e.key==='Enter') window.setMyName(); });
-
-window.addEventListener('keydown', e => {
-    if (document.activeElement.tagName==='INPUT'||document.activeElement.tagName==='TEXTAREA') return;
-    if (e.key.toLowerCase()==='u') togglePanelElement('multiplayer-panel');
-}, true);
-
-let mpSocket;
 function initMultiplayer() {
-    const dot = document.getElementById('mp-dot');
-    const txt = document.getElementById('mp-status-text');
+    const dot = $('mp-dot'), txt = $('mp-status-text');
     if (typeof io === 'undefined') { txt.innerText = 'Single Player mode'; return; }
 
     const SERVER = window.RAILWAY_SERVER_URL || window.location.origin;
-    mpSocket = io(SERVER, { transports: ['websocket','polling'] });
+    mpSocket = io(SERVER, { transports: ['websocket', 'polling'] });
 
-    mpSocket.on('connect', () => { dot.style.background='#22c55e'; txt.innerText='เชื่อมต่อแล้ว ✓'; });
-    mpSocket.on('disconnect', () => { dot.style.background='#ef4444'; txt.innerText='การเชื่อมต่อขาด...'; });
+    mpSocket.on('connect', () => { dot.style.background = '#22c55e'; txt.innerText = 'เชื่อมต่อแล้ว ✓'; });
+    mpSocket.on('disconnect', () => { dot.style.background = '#ef4444'; txt.innerText = 'การเชื่อมต่อขาด...'; });
 
     mpSocket.on('self_init', data => {
         mpMyId = data.self.id;
         mpMyColor = data.self.color;
         mpPlayerNames[mpMyId] = data.self.name;
         mpPlayerColors[mpMyId] = mpMyColor;
-        document.getElementById('mp-name-input').value = data.self.name;
+        $('mp-name-input').value = data.self.name;
         if (avatarModel) avatarModel.position.set(data.self.position.x, data.self.position.y, data.self.position.z);
         data.others.forEach(p => addRemote(p));
-        if (data.modelUrl) loadModelFromUrl(data.modelUrl, data.modelName);
+
         if (data.workflowDb) Object.assign(workflowDatabase, data.workflowDb);
-        // 🏷️ ผู้เล่นที่เข้าห้องทีหลังต้องได้รับ Type ที่ถูกกำหนดไว้แล้วด้วย เพื่อให้ PPE zone แสดงถูกต้อง
-        if (data.typeAssignments && typeof userDefinedTypes !== 'undefined') {
-            Object.assign(userDefinedTypes, data.typeAssignments);
-        }
+        if (data.typeAssignments) Object.assign(userDefinedTypes, data.typeAssignments);
+        modelLocked = data.modelLocked !== undefined ? data.modelLocked : true;
+        isAdmin = false;
+        refreshTransformUiPermissions();
+        updateMpAdminBadge(data.adminCount || 0);
+
+        if (data.modelUrl) loadModelFromUrl(data.modelUrl, data.modelName, data.modelTransform);
         updateMpUI();
     });
 
-    mpSocket.on('player_joined', data => {
-        addRemote(data);
-        mpAppendChat({name:'ระบบ', color:'#64748b', text:`${data.name} เข้าร่วมโลก`});
-    });
-
+    mpSocket.on('player_joined', data => { addRemote(data); mpAppendChat({ name: 'ระบบ', color: '#64748b', text: `${data.name} เข้าร่วมโลก` }); });
     mpSocket.on('player_left', data => {
         const name = mpPlayerNames[data.id] || data.id;
         removeRemote(data.id);
-        mpAppendChat({name:'ระบบ', color:'#64748b', text:`${name} ออกจากโลก`});
+        mpAppendChat({ name: 'ระบบ', color: '#64748b', text: `${name} ออกจากโลก` });
     });
-
     mpSocket.on('player_moved', data => {
         if (!remoteAvatars[data.id]) return;
         if (!remoteTargets[data.id]) remoteTargets[data.id] = { pos: new THREE.Vector3(), rotY: 0 };
         remoteTargets[data.id].pos.set(data.position.x, data.position.y, data.position.z);
         remoteTargets[data.id].rotY = data.rotation?.y || 0;
     });
-
     mpSocket.on('player_renamed', data => {
         mpPlayerNames[data.id] = data.name;
-        if (remoteAvatars[data.id]) setAvatarLabel(remoteAvatars[data.id], data.name, mpPlayerColors[data.id]||'#fff');
+        if (remoteAvatars[data.id]) setAvatarLabel(remoteAvatars[data.id], data.name, mpPlayerColors[data.id] || '#fff');
         updateMpUI();
     });
-
     mpSocket.on('load_model', data => {
-        mpAppendChat({name:'ระบบ', color:'#00ffff', text:`📦 โมเดลใหม่: ${data.fileName}`});
-        loadModelFromUrl(data.url, data.fileName);
+        mpAppendChat({ name: 'ระบบ', color: '#00ffff', text: `📦 โมเดลใหม่: ${data.fileName}` });
+        modelLocked = data.modelLocked !== undefined ? data.modelLocked : true;
+        refreshTransformUiPermissions();
+        loadModelFromUrl(data.url, data.fileName, data.modelTransform);
     });
+    mpSocket.on('model_removed', () => {
+        clearFactoryModelFromScene();
+        mpAppendChat({ name: '🗑️ ระบบ', color: '#ef4444', text: 'โมเดลถูกลบออกจากฉากแล้ว' });
+    });
+    mpSocket.on('admin_presence', data => { updateMpAdminBadge(data.adminCount); });
+    mpSocket.on('lock_state', data => {
+        modelLocked = data.locked;
+        refreshTransformUiPermissions();
+        mpAppendChat({ name: '🔒 ระบบ', color: '#ffaa00', text: `${data.by} ${data.locked ? 'ล็อก' : 'ปลดล็อก'}ตำแหน่งโมเดลแล้ว` });
+    });
+    mpSocket.on('model_transform_updated', t => { applyTransform(t); buildProximityTags(); buildPPEZones(); });
 
     mpSocket.on('workflow_updated', data => {
-        workflowDatabase[data.key] = { name: data.name, desc: data.desc, steps: data.steps, colorClass: data.colorClass||'tag-blue' };
-        
-        if (data.targetUuid) {
-            workflowDatabase[data.targetUuid] = { name: data.name, desc: data.desc, steps: data.steps, colorClass: data.colorClass||'tag-blue' };
-        }
-
-        // 🏷️ ถ้าเป็นการกำหนด Type จากผู้เล่นคนอื่น ให้บันทึกลง userDefinedTypes ด้วยชื่อ (key)
-        // เพื่อให้ resolveDatabaseKey ของเครื่องนี้จับคู่ mesh ที่ชื่อตรงกันได้ (คนละ UUID กัน)
-        if (data.assignedTypeKey && typeof userDefinedTypes !== 'undefined') {
-            userDefinedTypes[data.key] = data.assignedTypeKey;
-        }
+        const record = { name: data.name, desc: data.desc, steps: data.steps, colorClass: data.colorClass || 'tag-blue', requiresPPE: !!data.requiresPPE };
+        workflowDatabase[data.key] = record;
+        if (data.targetUuid) workflowDatabase[data.targetUuid] = record;
+        if (data.assignedTypeKey) userDefinedTypes[data.key] = data.assignedTypeKey;
 
         if (factoryModel) {
-            factoryModel.traverse(function(child) {
-                if (child.isMesh && !child._original3DName) {
-                    child._original3DName = child.name;
-                }
-                
-                if (child.isMesh && (child._original3DName === data.key || child.name === data.key || child.uuid === data.key || child.uuid === data.targetUuid)) {
-                    child.name = data.name; 
-                    if (data.assignedTypeKey && typeof userDefinedTypes !== 'undefined') {
-                        userDefinedTypes[child.uuid] = data.assignedTypeKey;
-                    }
-                    
-                    const sideListItem = document.getElementById(`mesh-item-${child.uuid}`);
-                    if (sideListItem) {
-                        const icon = getIconForType(data.assignedTypeKey || data.colorClass);
-                        sideListItem.innerText = `${icon} ${data.name}`;
-                    }
+            factoryModel.traverse(child => {
+                if (!child.isMesh) return;
+                if (!child._original3DName) child._original3DName = child.name;
+                if (child._original3DName === data.key || child.name === data.key || child.uuid === data.key || child.uuid === data.targetUuid) {
+                    child.name = data.name;
+                    if (data.assignedTypeKey) userDefinedTypes[child.uuid] = data.assignedTypeKey;
+                    const item = $(`mesh-item-${child.uuid}`);
+                    if (item) item.innerText = `${getIconForType(data.assignedTypeKey || data.colorClass)} ${data.name}`;
                 }
             });
         }
+        buildProximityTags();
+        buildPPEZones();
 
-        // Rebuild proximity tags และ PPE zones ให้ฝั่งนี้เห็นวงกลมเตือน/ป้ายใหม่ด้วย
-        if (typeof buildProximityTags === 'function') buildProximityTags();
-        if (typeof buildPPEZones === 'function') buildPPEZones();
-
-        const panel = document.getElementById('process-panel');
-        if (panel && panel.style.display !== 'none' && (activeSelectedKeyKey === data.key || activeSelectedKeyKey === data.targetUuid || activeSelectedMeshUUID === data.targetUuid)) {
-            renderWorkflowUI(data.name, data.desc, data.steps, '✏️ อัปเดตโดยผู้เล่นอื่น', data.colorClass||'tag-blue');
+        const panel = $('process-panel');
+        if (panel && panel.style.display !== 'none' && (selection.key === data.key || selection.key === data.targetUuid || selection.uuid === data.targetUuid)) {
+            renderWorkflowUI(data.name, data.desc, data.steps, '✏️ อัปเดตโดยผู้เล่นอื่น', data.colorClass || 'tag-blue');
         }
-        mpAppendChat({name:'ระบบ', color:'#ffaa00', text:`✏️ "${data.name}" ถูกแก้ไขแล้ว`});
+        mpAppendChat({ name: 'ระบบ', color: '#ffaa00', text: `✏️ "${data.name}" ถูกแก้ไขแล้ว` });
     });
 
     mpSocket.on('chat_message', msg => mpAppendChat(msg));
 }
-
+function updateMpAdminBadge(count) {
+    const el = $('mp-admin-count');
+    if (el) el.innerText = count;
+}
 initMultiplayer();
-// ============================================================
-// END MULTIPLAYER MODULE
-// ============================================================
-
 
 // ============================================================
-// PROXIMITY TAG SYSTEM — ป้ายข้อมูลเสมือนจริงเชิงปฏิสัมพันธ์
-// ตามคู่มือ "Interactive Biogas Safety Standard Metaverse"
-// - ไอคอนเล็กแสดงตลอดเวลาเหนือชิ้นส่วน
-// - ขยายเป็นข้อความเต็มเมื่อ avatar เดินเข้าใกล้ในระยะ PROXIMITY_RANGE เมตร
+// 12. SAVE / LOAD SCENE (.zip) — เก็บไฟล์โมเดลต้นฉบับตรงๆ ไม่ผ่านการ re-export
 // ============================================================
-
-const PROXIMITY_RANGE = 3.0; // ระยะที่ป้ายจะขยาย (เมตร) ตามคู่มือ 2-3 เมตร
-const proximityTags = []; // { sprite, mesh, databaseKey, expanded }
-
-// แปลง colorClass -> สี hex สำหรับพื้นหลังป้าย
-function tagColorFromClass(colorClass) {
-    switch (colorClass) {
-        case 'tag-red':    return { bg: 'rgba(239,68,68,0.92)',  border: '#ef4444' };
-        case 'tag-orange': return { bg: 'rgba(249,115,22,0.92)', border: '#f97316' };
-        case 'tag-blue':   return { bg: 'rgba(56,189,248,0.92)', border: '#38bdf8' };
-        case 'tag-green':  return { bg: 'rgba(34,197,94,0.92)',  border: '#22c55e' };
-        default:           return { bg: 'rgba(56,189,248,0.92)', border: '#38bdf8' };
-    }
-}
-
-// สร้าง canvas texture สำหรับป้าย (โหมดย่อ = ไอคอนวงกลม, โหมดขยาย = กล่องข้อความ)
-function createTagCanvas(databaseKey, expanded) {
-    const data = workflowDatabase[databaseKey] || workflowDatabase['default'];
-    const colors = tagColorFromClass(data.colorClass);
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-
-    if (!expanded) {
-        // โหมดย่อ: วงกลมไอคอนเตือนเล็กๆ
-        canvas.width = 96; canvas.height = 96;
-        ctx.clearRect(0, 0, 96, 96);
-        ctx.beginPath();
-        ctx.arc(48, 48, 38, 0, Math.PI * 2);
-        ctx.fillStyle = colors.bg;
-        ctx.fill();
-        ctx.lineWidth = 4;
-        ctx.strokeStyle = '#ffffff';
-        ctx.stroke();
-        ctx.font = 'bold 42px Arial';
-        ctx.fillStyle = '#ffffff';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('!', 48, 52);
-    } else {
-        // โหมดขยาย: กล่องข้อความเต็มตามคู่มือ (tagText)
-        const text = data.tagText || data.name || '';
-        ctx.font = 'bold 26px "Segoe UI", Arial, sans-serif';
-        // วัดความกว้างข้อความเพื่อ wrap
-        const maxWidth = 520;
-        const words = text.split(' ');
-        const lines = [];
-        let line = '';
-        const measureCtx = document.createElement('canvas').getContext('2d');
-        measureCtx.font = 'bold 26px "Segoe UI", Arial, sans-serif';
-        for (const w of words) {
-            const test = line ? line + ' ' + w : w;
-            if (measureCtx.measureText(test).width > maxWidth && line) {
-                lines.push(line); line = w;
-            } else { line = test; }
-        }
-        if (line) lines.push(line);
-
-        const lineHeight = 36;
-        const padding = 24;
-        const boxWidth = maxWidth + padding * 2;
-        const boxHeight = lines.length * lineHeight + padding * 2;
-        canvas.width = boxWidth;
-        canvas.height = boxHeight;
-
-        ctx.fillStyle = colors.bg;
-        ctx.beginPath();
-        ctx.roundRect ? ctx.roundRect(0, 0, boxWidth, boxHeight, 14) : ctx.rect(0, 0, boxWidth, boxHeight);
-        ctx.fill();
-        ctx.lineWidth = 3;
-        ctx.strokeStyle = colors.border;
-        ctx.stroke();
-
-        ctx.font = 'bold 26px "Segoe UI", Arial, sans-serif';
-        ctx.fillStyle = '#ffffff';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        lines.forEach((l, i) => {
-            ctx.fillText(l, boxWidth / 2, padding + lineHeight * i + lineHeight / 2);
-        });
-    }
-    return canvas;
-}
-
-function buildProximitySprite(databaseKey) {
-    const canvas = createTagCanvas(databaseKey, false);
-    const tex = new THREE.CanvasTexture(canvas);
-    const mat = new THREE.SpriteMaterial({ map: tex, depthTest: false, sizeAttenuation: true });
-    const sprite = new THREE.Sprite(mat);
-    sprite.scale.set(0.5, 0.5, 1);
-    sprite.renderOrder = 999;
-    return sprite;
-}
-
-function updateSpriteTexture(sprite, databaseKey, expanded) {
-    const canvas = createTagCanvas(databaseKey, expanded);
-    sprite.material.map.dispose();
-    const tex = new THREE.CanvasTexture(canvas);
-    sprite.material.map = tex;
-    sprite.material.needsUpdate = true;
-    if (expanded) {
-        // ปรับ scale ตามสัดส่วน canvas เพื่อไม่ให้ข้อความบิดเบี้ยว
-        const aspect = canvas.width / canvas.height;
-        sprite.scale.set(2.2 * aspect, 2.2, 1);
-    } else {
-        sprite.scale.set(0.5, 0.5, 1);
-    }
-}
-
-// สร้าง proximity tag ให้ทุก mesh ในโมเดลโรงงาน (เรียกหลังโหลดโมเดลเสร็จ)
-function buildProximityTags() {
-    // ล้างป้ายเก่าก่อน
-    proximityTags.forEach(t => { scene.remove(t.sprite); t.sprite.material.map.dispose(); t.sprite.material.dispose(); });
-    proximityTags.length = 0;
-
-    if (!factoryModel) return;
-    factoryModel.updateMatrixWorld(true);
-    factoryModel.traverse(function (child) {
-        if (!child.isMesh) return;
-        const databaseKey = resolveDatabaseKey(child, child.name);
-        // ข้ามจุด "default" เพื่อไม่ให้รกฉาก (โซนทั่วไปไม่ต้องมีป้ายลอย)
-        if (databaseKey === 'default') return;
-
-        const worldPos = new THREE.Vector3();
-        child.getWorldPosition(worldPos);
-        const box = new THREE.Box3().setFromObject(child);
-        const height = box.max.y - box.min.y;
-
-        const sprite = buildProximitySprite(databaseKey);
-        sprite.position.set(worldPos.x, box.max.y + Math.max(height * 0.15, 0.4), worldPos.z);
-        scene.add(sprite);
-
-        proximityTags.push({ sprite, mesh: child, databaseKey, expanded: false });
-    });
-}
-
-// เรียกทุกเฟรมเพื่ออัปเดตว่าป้ายไหนควรขยาย/ย่อ ตามระยะห่างจาก avatar
-function updateProximityTags() {
-    if (!avatarModel || proximityTags.length === 0) return;
-    const avatarPos = avatarModel.position;
-
-    proximityTags.forEach(t => {
-        const dist = avatarPos.distanceTo(t.sprite.position);
-        const shouldExpand = dist <= PROXIMITY_RANGE;
-        if (shouldExpand !== t.expanded) {
-            t.expanded = shouldExpand;
-            updateSpriteTexture(t.sprite, t.databaseKey, shouldExpand);
-        }
-    });
-}
-
-// Hook เข้า render loop เดิม (ใช้ renderer.render ที่ multiplayer module patch ไว้แล้ว)
-const _origRenderForTags = renderer.render.bind(renderer);
-renderer.render = function(sc, cam) {
-    updateProximityTags();
-    _origRenderForTags(sc, cam);
-};
-
-// เรียกสร้างป้ายหลังโหลดโมเดลทุกครั้ง — wrap buildColliders เดิมแบบปลอดภัย (ใช้ var เพื่อ override การเรียกผ่าน global scope)
-buildColliders = (function(originalFn) {
-    return function() {
-        originalFn();
-        buildProximityTags();
-    };
-})(buildColliders);
-// ============================================================
-// END PROXIMITY TAG SYSTEM
-// ============================================================
-// ==========================================
-// SYSTEMS: MOBILE VIRTUAL JOYSTICK CONTROLLER
-// ==========================================
-function initMobileJoystick() {
-    const joystickZone = document.getElementById('mobile-joystick-zone');
-    if (!joystickZone || typeof nipplejs === 'undefined') return;
-
-    // เคลียร์ค่าเดิมป้องกันจอยซ้ำซ้อน
-    joystickZone.innerHTML = '';
-
-    const manager = nipplejs.create({
-        zone: joystickZone,
-        mode: 'static',
-        position: { left: '50%', top: '50%' },
-        color: '#00ffff',
-        size: 100
-    });
-
-    manager.on('move', function (evt, data) {
-        if (!data.vector) return;
-
-        const forward = data.vector.y;
-        const turn = data.vector.x;
-        const threshold = 0.2; // ค่าความไวขั้นต่ำ
-
-        // รีเซ็ตสเตตัสการเดินก่อนคำนวณใหม่
-        if (typeof moveStatus !== 'undefined') {
-            moveStatus.forward = forward > threshold;
-            moveStatus.backward = forward < -threshold;
-            moveStatus.left = turn < -threshold;
-            moveStatus.right = turn > threshold;
-        }
-    });
-
-    manager.on('end', function () {
-        // เมื่อปล่อยนิ้วหลุดจากจอย ให้หยุดเดินทันที
-        if (typeof moveStatus !== 'undefined') {
-            moveStatus.forward = false;
-            moveStatus.backward = false;
-            moveStatus.left = false;
-            moveStatus.right = false;
-        }
-    });
-
-    // ผูกปุ่ม Action บนหน้าจอมือถือ (Jump และ Interact)
-    const btnJump = document.getElementById('btn-mobile-jump');
-    if (btnJump) {
-        btnJump.addEventListener('touchstart', function(e) {
-            e.preventDefault();
-            // จำลองการกดปุ่ม Spacebar หรือฟังก์ชันกระโดดของคุณ
-            document.dispatchEvent(new KeyboardEvent('keydown', { key: ' ' })); 
-        });
-    }
-
-    const btnInteract = document.getElementById('btn-mobile-interact');
-    if (btnInteract) {
-        btnInteract.addEventListener('touchstart', function(e) {
-            e.preventDefault();
-            // จำลองการกดปุ่ม E หรือฟังก์ชัน Interact ของคุณ
-            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'e' }));
-        });
-    }
-}
-
-// เรียกใช้งานระบบ Mobile Controls เมื่อหน้าจอโหลดเสร็จสิ้น
-window.addEventListener('DOMContentLoaded', () => {
-    initMobileJoystick();
-});
-
-// อัปเดตขนาดและจุดศูนย์กลางของจอยใหม่เมื่อมีการหมุนพับหน้าจอ
-window.addEventListener('resize', () => {
-    setTimeout(initMobileJoystick, 200);
-});
-// ==========================================
-// SYSTEM: MOBILE AUTO CLOSE BUTTON IN PANELS
-// ==========================================
-function injectMobileCloseButtons() {
-    // หาหน้าต่าง Panel ทั้งหมดในระบบ
-    const panels = document.querySelectorAll('.panel');
-    
-    panels.forEach(panel => {
-        // ตรวจสอบว่ามีปุ่มปิดอยู่แล้วหรือยัง ป้องกันการสร้างซ้ำ
-        if (panel.querySelector('.mobile-close-panel-btn')) return;
-
-        // สร้างปุ่มกากบาทสีแดง
-        const closeBtn = document.createElement('button');
-        closeBtn.className = 'mobile-close-panel-btn';
-        closeBtn.innerHTML = '✕';
-        closeBtn.title = 'ปิดหน้าต่าง';
-
-        // เมื่อกดปุ่ม ให้ซ่อนแผงหน้าต่างนั้นทันที
-        closeBtn.addEventListener('click', (e) => {
-            e.stopPropagation(); // ป้องกัน event บัคไปโดนฉากหลัง
-            panel.style.display = 'none';
-        });
-
-        // แทรกลงไปใน panel
-        panel.appendChild(closeBtn);
-    });
-}
-
-// เรียกทำงานทันทีที่โหลดหน้าจอหลักเสร็จสิ้น
-window.addEventListener('DOMContentLoaded', () => {
-    injectMobileCloseButtons();
-});
-// นำไปวางในส่วนหลังจากที่โหลดไฟล์ Biogasbase.glb สำเร็จแล้ว
-if (factoryModel) {
-    // ปรับแต่งการตั้งค่าการเรนเดอร์ของชิ้นส่วนย่อยทั้ง 6005 ชิ้น
-    factoryModel.traverse(function (child) {
-        if (child.isMesh) {
-            // 1. เปิดใช้ Frustum Culling (สำคัญมากสำหรับวัตถุหลายชิ้น!)
-            // เพื่อบังคับให้คอมพิวเตอร์/มือถือ "คำนวณและวาดเฉพาะชิ้นส่วนที่กล้องกำลังมองเห็นอยู่เท่านั้น" 
-            // ชิ้นไหนที่หันหลังให้ หรืออยู่ข้างนอกจอ จะไม่โดนวาดเลย ช่วยลดภาระไปได้เยอะมาก
-            child.frustumCulled = true;
-
-            // 2. ปิดระบบเงา Real-time สำหรับชิ้นส่วนโรงงาน (ตัวการใหญ่ที่ทำให้มือถือแล็ก)
-            // โมเดลที่มีชิ้นงานเยอะขนาดนี้ ถ้าเปิดแชร์เงากันแบบสดๆ การ์ดจอมือถือจะค้างทันที
-            child.castShadow = false;
-            child.receiveShadow = false;
-
-            // 3. ปรับแต่ง Material (วัสดุ) ของโมเดลให้คำนวณแสงแบบเรียบง่ายขึ้น (ถ้าต้องการให้ลื่นสุดๆ)
-            if (child.material) {
-                // หากระบบใช้ MeshStandardMaterial ซึ่งกินสเปกมาก 
-                // สามารถปรับค่าเบื้องต้นให้ลดการสะท้อนที่ละเอียดเกินไปลงได้
-                if (child.material.roughness !== undefined) child.material.roughness = 0.8;
-                if (child.material.metalness !== undefined) child.material.metalness = 0.2;
-            }
-        }
-    });
-}
-function disposeOldFactory(model) {
-    if (!model) return;
-    model.traverse((child) => {
-        if (child.isMesh) {
-            if (child.geometry) child.geometry.dispose();
-            if (child.material) {
-                if (Array.isArray(child.material)) {
-                    child.material.forEach(m => m.dispose());
-                } else {
-                    child.material.dispose();
-                }
-            }
-        }
-    });
-    scene.remove(model);
-}
-
-
-// ============================================================
-// REQUIREMENTS MODULE — 6 ข้อตาม Spec
-// ============================================================
-
-// ─────────────────────────────────────────────
-// REQ 1 & 2: Lock / Unlock Transform (Scale + Position + Rotation)
-// ─────────────────────────────────────────────
-let transformLocked = false;
-
-function toggleTransformLock() {
-    transformLocked = !transformLocked;
-    const btn = document.getElementById('btn-lock-transform');
-    const sliders = ['param-posX','param-posY','param-posZ','param-rotY','param-scale'];
-    sliders.forEach(id => { const el = document.getElementById(id); if (el) el.disabled = transformLocked; });
-    if (btn) {
-        btn.innerText = transformLocked ? '🔒 ล็อกแล้ว' : '🔓 ปลดล็อก';
-        btn.style.background = transformLocked ? 'rgba(239,68,68,0.2)' : 'rgba(34,197,94,0.1)';
-        btn.style.borderColor = transformLocked ? '#ef4444' : '#22c55e';
-        btn.style.color = transformLocked ? '#ef4444' : '#22c55e';
-    }
-}
-window.toggleTransformLock = toggleTransformLock;
-
-// Intercept slider changes when locked
-['param-posX','param-posY','param-posZ','param-rotY','param-scale'].forEach(id => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.addEventListener('mousedown', (e) => { if (transformLocked) e.preventDefault(); });
-    el.addEventListener('touchstart', (e) => { if (transformLocked) e.preventDefault(); }, { passive: false });
-});
-
-// Add lock button to transform panel
-(function addLockButton() {
-    const panel = document.getElementById('transform-panel');
-    if (!panel) return;
-    const btn = document.createElement('button');
-    btn.id = 'btn-lock-transform';
-    btn.className = 'panel-action-btn';
-    btn.innerText = '🔓 ปลดล็อก';
-    btn.style.cssText = 'width:100%;margin-top:10px;background:rgba(34,197,94,0.1);border-color:#22c55e;color:#22c55e;';
-    btn.onclick = toggleTransformLock;
-    panel.appendChild(btn);
-})();
-
-// ─────────────────────────────────────────────
-// REQ 3: Avatar สัดส่วนสมจริงยิ่งขึ้น
-// แทนที่ createEngineerAvatar เดิมด้วยเวอร์ชันสัดส่วนสมจริง
-// ─────────────────────────────────────────────
-function createRealisticEngineerAvatar(helmetColor) {
-    const group = new THREE.Group();
-    const hex = helmetColor ? parseInt(String(helmetColor).replace('#',''), 16) : 0xff9900;
-
-    const skinMat   = new THREE.MeshStandardMaterial({ color: 0xf4c08a, roughness: 0.7 });
-    const suitMat   = new THREE.MeshStandardMaterial({ color: 0xff6600, roughness: 0.6 });
-    const darkMat   = new THREE.MeshStandardMaterial({ color: 0x1a1a2e, roughness: 0.8 });
-    const helmetMat = new THREE.MeshStandardMaterial({ color: hex, roughness: 0.3, metalness: 0.3 });
-    const glassMat  = new THREE.MeshStandardMaterial({ color: 0x88ccff, transparent: true, opacity: 0.45 });
-    const visibMat  = new THREE.MeshStandardMaterial({ color: 0xffff00 });
-    const bootMat   = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9 });
-
-    // สัดส่วนมนุษย์จริง: ความสูงรวม ~1.75m
-    // ─ หัว: 0.22m cube (ที่ y=1.53–1.75)
-    // ─ ลำตัว: 0.5m tall (y=0.9–1.4) + คอ 0.1m (y=1.4–1.5)
-    // ─ แขน: 0.55m each side
-    // ─ ขา: 0.5m each (y=0.38–0.88) + รองเท้า 0.1m
-
-    // ── หัว ──
-    const head = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.24, 0.22), skinMat);
-    head.position.y = 1.62; group.add(head);
-
-    // คอ
-    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 0.1, 8), skinMat);
-    neck.position.y = 1.49; group.add(neck);
-
-    // หมวก Hard Hat
-    const helmetTop = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.12, 0.26), helmetMat);
-    helmetTop.position.y = 1.78; group.add(helmetTop);
-    const helmetBrim = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.03, 0.3), helmetMat);
-    helmetBrim.position.y = 1.72; group.add(helmetBrim);
-
-    // วีซอร์ (ด้าน -Z = หน้า)
-    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.08, 0.03), glassMat);
-    visor.position.set(0, 1.62, -0.12); group.add(visor);
-
-    // ตา
-    const eyeMat = new THREE.MeshBasicMaterial({ color: 0x111111 });
-    const eyeL = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.03, 0.02), eyeMat);
-    eyeL.position.set(-0.05, 1.63, -0.112); group.add(eyeL);
-    const eyeR = eyeL.clone(); eyeR.position.set(0.05, 1.63, -0.112); group.add(eyeR);
-
-    // ── ลำตัว ──
-    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.5, 0.2), suitMat);
-    torso.position.y = 1.14; group.add(torso);
-
-    // แถบ Hi-Vis 2 เส้น
-    const stripe1 = new THREE.Mesh(new THREE.BoxGeometry(0.39, 0.05, 0.21), visibMat);
-    stripe1.position.y = 1.22; group.add(stripe1);
-    const stripe2 = new THREE.Mesh(new THREE.BoxGeometry(0.39, 0.05, 0.21), visibMat);
-    stripe2.position.y = 1.08; group.add(stripe2);
-
-    // ซิปกลาง
-    const zip = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.45, 0.21), darkMat);
-    zip.position.y = 1.14; group.add(zip);
-
-    // ── แขน ── (แยกเป็น upper/lower เพื่อ animation งอข้อศอก)
-    const upperArmGeo = new THREE.BoxGeometry(0.11, 0.28, 0.13);
-    const lowerArmGeo = new THREE.BoxGeometry(0.1, 0.25, 0.12);
-    const handGeo = new THREE.BoxGeometry(0.09, 0.1, 0.05);
-
-    // แขนซ้าย
-    const uArmL = new THREE.Mesh(upperArmGeo, suitMat); uArmL.position.set(-0.265, 1.24, 0); group.add(uArmL);
-    const lArmL = new THREE.Mesh(lowerArmGeo, suitMat); lArmL.position.set(-0.265, 0.94, 0); group.add(lArmL);
-    const handL = new THREE.Mesh(handGeo, skinMat); handL.position.set(-0.265, 0.77, 0); group.add(handL);
-    // Hi-vis แขนซ้าย
-    const asL = new THREE.Mesh(new THREE.BoxGeometry(0.115, 0.04, 0.135), visibMat); asL.position.set(-0.265, 1.14, 0); group.add(asL);
-
-    // แขนขวา
-    const uArmR = new THREE.Mesh(upperArmGeo, suitMat); uArmR.position.set(0.265, 1.24, 0); group.add(uArmR);
-    const lArmR = new THREE.Mesh(lowerArmGeo, suitMat); lArmR.position.set(0.265, 0.94, 0); group.add(lArmR);
-    const handR = new THREE.Mesh(handGeo, skinMat); handR.position.set(0.265, 0.77, 0); group.add(handR);
-    const asR = asL.clone(); asR.position.set(0.265, 1.14, 0); group.add(asR);
-
-    // ── เอว/กางเกง ──
-    const waist = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.12, 0.18), darkMat);
-    waist.position.y = 0.88; group.add(waist);
-
-    // Belt
-    const belt = new THREE.Mesh(new THREE.BoxGeometry(0.37, 0.05, 0.19), new THREE.MeshStandardMaterial({color:0x8B4513, roughness:0.5}));
-    belt.position.y = 0.92; group.add(belt);
-
-    // ── ขา ──
-    const legGeo = new THREE.BoxGeometry(0.14, 0.42, 0.15);
-    const legL = new THREE.Mesh(legGeo, suitMat); legL.position.set(-0.1, 0.6, 0); group.add(legL);
-    const legR = new THREE.Mesh(legGeo, suitMat); legR.position.set(0.1, 0.6, 0); group.add(legR);
-
-    // Hi-vis ขา
-    const lsL = new THREE.Mesh(new THREE.BoxGeometry(0.145, 0.04, 0.155), visibMat); lsL.position.set(-0.1, 0.52, 0); group.add(lsL);
-    const lsR = lsL.clone(); lsR.position.set(0.1, 0.52, 0); group.add(lsR);
-
-    // ── รองเท้า ──
-    const bootGeo = new THREE.BoxGeometry(0.16, 0.1, 0.22);
-    const bootL = new THREE.Mesh(bootGeo, bootMat); bootL.position.set(-0.1, 0.33, -0.03); group.add(bootL);
-    const bootR = bootL.clone(); bootR.position.set(0.1, 0.33, -0.03); group.add(bootR);
-
-    // Shadow blob
-    const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.25, 16), new THREE.MeshBasicMaterial({color:0x000000,transparent:true,opacity:0.18}));
-    shadow.rotation.x = -Math.PI/2; shadow.position.y = 0.01; group.add(shadow);
-
-    // Store refs for walk animation
-    group.userData.armL = uArmL;
-    group.userData.armR = uArmR;
-    group.userData.lArmL = lArmL;
-    group.userData.lArmR = lArmR;
-    group.userData.legL = legL;
-    group.userData.legR = legR;
-    group.userData.walkPhase = 0;
-
-    return group;
-}
-
-// Override animateEngineerWalk ให้แกว่งทั้งแขนบน-ล่าง-ขา
-(function overrideWalkAnim() {
-    const _orig = animateEngineerWalk;
-    window.animateEngineerWalk = function(g, isMoving) {
-        if (!g || !g.userData.legL) return;
-        if (isMoving) g.userData.walkPhase += 0.1;
-        else g.userData.walkPhase *= 0.8;
-        const s = Math.sin(g.userData.walkPhase) * 0.45;
-        if (g.userData.armL) g.userData.armL.rotation.x =  s;
-        if (g.userData.armR) g.userData.armR.rotation.x = -s;
-        if (g.userData.lArmL) g.userData.lArmL.rotation.x = s * 0.5;
-        if (g.userData.lArmR) g.userData.lArmR.rotation.x = -s * 0.5;
-        if (g.userData.legL) g.userData.legL.rotation.x = -s;
-        if (g.userData.legR) g.userData.legR.rotation.x =  s;
-    };
-})();
-
-// Override createEngineerAvatar → ใช้ realistic version
-window.createEngineerAvatar = createRealisticEngineerAvatar;
-
-// Rebuild avatar ทันที
-if (avatarModel) {
-    scene.remove(avatarModel);
-    const newAvatar = createRealisticEngineerAvatar('#ff9900');
-    newAvatar.position.copy(avatarModel.position || new THREE.Vector3(0, 0.9, 8));
-    newAvatar.rotation.copy(avatarModel.rotation);
-    scene.add(newAvatar);
-    avatarModel = newAvatar;
-}
-
-// ─────────────────────────────────────────────
-// REQ 4: Safety Zone Hotspot — กำหนดจุดอุปกรณ์ด้วย Pin
-// คลิก Mesh → popup ความปลอดภัย (ยังทำงานอยู่เดิม)
-// เพิ่ม: ป้าย "!" ขนาดเล็กลอยเหนือทุก mesh ที่มี safety data
-// ─────────────────────────────────────────────
-// (ระบบนี้ทำงานผ่าน proximity tag system และ highlightAndShowWorkflow เดิม)
-
-// ─────────────────────────────────────────────
-// REQ 5: PPE Safety Zone — วงกลมรัศมี 15m รอบอุปกรณ์อันตราย
-// ─────────────────────────────────────────────
-const PPE_ZONE_RADIUS = 15;
-const PPE_ZONE_KEYS = ['tank', 'manhole', 'pvrv', 'flare']; // โซนที่ต้องสวม PPE
-const ppeZoneCircles = [];
-let ppeAlertActive = false;
-
-function buildPPEZones() {
-    // ล้างวงเก่า
-    ppeZoneCircles.forEach(c => scene.remove(c));
-    ppeZoneCircles.length = 0;
-    if (!factoryModel) return;
-
-    factoryModel.traverse(function(child) {
-        if (!child.isMesh) return;
-        const key = resolveDatabaseKey(child, child.name);
-        if (!PPE_ZONE_KEYS.includes(key)) return;
-
-        const worldPos = new THREE.Vector3();
-        child.getWorldPosition(worldPos);
-
-        // วงกลมพื้น (RingGeometry แบบ dashed ดูง่าย)
-        const ringGeo = new THREE.RingGeometry(PPE_ZONE_RADIUS - 0.15, PPE_ZONE_RADIUS + 0.15, 64);
-        const ringMat = new THREE.MeshBasicMaterial({ color: 0xffaa00, side: THREE.DoubleSide, transparent: true, opacity: 0.5 });
-        const ring = new THREE.Mesh(ringGeo, ringMat);
-        ring.rotation.x = -Math.PI / 2;
-        ring.position.set(worldPos.x, 0.05, worldPos.z);
-        ring.userData.centerX = worldPos.x;
-        ring.userData.centerZ = worldPos.z;
-        ring.userData.ppeKey = key;
-        scene.add(ring);
-        ppeZoneCircles.push(ring);
-
-        // ป้าย PPE label ลอยเหนือวง
-        const canvas = document.createElement('canvas');
-        canvas.width = 512; canvas.height = 128;
-        const ctx = canvas.getContext('2d');
-        ctx.fillStyle = 'rgba(255,170,0,0.88)';
-        ctx.roundRect(4, 4, 504, 120, 14); ctx.fill();
-        ctx.font = 'bold 34px Arial'; ctx.fillStyle = '#000';
-        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText('🛡️ PPE Zone — สวม 4-Gas Detector ก่อนเข้า', 256, 64);
-        const sp = new THREE.Sprite(new THREE.SpriteMaterial({map: new THREE.CanvasTexture(canvas), depthTest: false}));
-        sp.scale.set(8, 2, 1);
-        sp.position.set(worldPos.x, 1.5, worldPos.z - PPE_ZONE_RADIUS + 1);
-        scene.add(sp);
-        ppeZoneCircles.push(sp);
-    });
-}
-
-// เช็คทุกเฟรมว่า avatar อยู่ใน PPE zone ไหนไหม
-let _lastPPEAlertTime = 0;
-function checkPPEZones() {
-    if (!avatarModel || ppeZoneCircles.length === 0) return;
-    const ax = avatarModel.position.x, az = avatarModel.position.z;
-    let inside = false;
-    for (const obj of ppeZoneCircles) {
-        if (!obj.userData.centerX) continue;
-        const dx = ax - obj.userData.centerX, dz = az - obj.userData.centerZ;
-        if (Math.sqrt(dx*dx + dz*dz) <= PPE_ZONE_RADIUS) { inside = true; break; }
-    }
-    if (inside && !ppeAlertActive) {
-        ppeAlertActive = true;
-        mpAppendChat({ name:'⚠️ PPE Alert', color:'#ffaa00', text:'คุณเข้าสู่พื้นที่อันตราย! กรุณาสวม 4-Gas Detector และ PPE ทันที' });
-    } else if (!inside && ppeAlertActive) {
-        ppeAlertActive = false;
-        mpAppendChat({ name:'✅ ปลอดภัย', color:'#22c55e', text:'ออกจากพื้นที่อันตรายแล้ว' });
-    }
-}
-
-// ─────────────────────────────────────────────
-// REQ 6: ข้อมูลหายเมื่อเดินออกหรือชี้ซ้ำ (Deselect)
-// ─────────────────────────────────────────────
-let _lastSelectedUUID = null;
-let _lastInteractTime = 0;
-const DESELECT_DISTANCE = 6; // เมตร — ออกไปไกลกว่านี้ = ปิดป้าย (เผื่อระยะกันสั่น/กระพริบ)
-const DESELECT_COOLDOWN = 300; // ms
-
-function checkAutoDeselect() {
-    if (!avatarModel || !factoryModel || !activeSelectedMeshUUID) return;
-    // ห้าม deselect ระหว่างที่ผู้ใช้กำลังแก้ไขข้อมูลอยู่ ไม่งั้นข้อมูลที่พิมพ์จะหายก่อนกดบันทึกทัน
-    const editGroup = document.getElementById('edit-actions-group');
-    if (editGroup && editGroup.style.display !== 'none') return;
-    // หาตำแหน่ง mesh ที่ select ไว้
-    let selectedMeshPos = null;
-    factoryModel.traverse(child => {
-        if (child.isMesh && child.uuid === activeSelectedMeshUUID) {
-            selectedMeshPos = new THREE.Vector3();
-            child.getWorldPosition(selectedMeshPos);
-        }
-    });
-    if (!selectedMeshPos) return;
-    const dist = avatarModel.position.distanceTo(selectedMeshPos);
-    if (dist > DESELECT_DISTANCE) {
-        // ออกไปไกลแล้ว — ปิดป้าย
-        const panel = document.getElementById('process-panel');
-        if (panel) panel.style.display = 'none';
-        activeSelectedMeshUUID = null;
-        activeSelectedKeyKey = 'default';
-        // Reset highlight
-        if (factoryModel && currentMaterialMode === 'solid') {
-            factoryModel.traverse(child => {
-                if (child.isMesh && originalMaterials.has(child.uuid)) {
-                    child.material = originalMaterials.get(child.uuid).clone();
-                }
-            });
-        }
-    }
-}
-
-// "ชี้ซ้ำ" = คลิก mesh เดิม 2 ครั้ง → ปิดป้าย
-(function overrideHighlight() {
-    const _origHL = highlightAndShowWorkflow;
-    window.highlightAndShowWorkflow = function(targetMesh, meshName, method) {
-        const now = Date.now();
-        if (targetMesh.uuid === _lastSelectedUUID && now - _lastInteractTime < 1500 && method === 'คลิกเลือกโมเดล') {
-            // ชี้ซ้ำ → deselect
-            const panel = document.getElementById('process-panel');
-            if (panel) panel.style.display = 'none';
-            activeSelectedMeshUUID = null; activeSelectedKeyKey = 'default'; _lastSelectedUUID = null;
-            if (factoryModel && currentMaterialMode === 'solid') {
-                factoryModel.traverse(child => {
-                    if (child.isMesh && originalMaterials.has(child.uuid)) child.material = originalMaterials.get(child.uuid).clone();
-                });
-            }
-            return;
-        }
-        _lastSelectedUUID = targetMesh.uuid;
-        _lastInteractTime = now;
-        _origHL(targetMesh, meshName, method);
-    };
-})();
-
-// ─────────────────────────────────────────────
-// Hook เข้า render loop สำหรับ REQ 5 & 6
-// ─────────────────────────────────────────────
-const _origRenderReq = renderer.render.bind(renderer);
-renderer.render = function(sc, cam) {
-    checkPPEZones();
-    checkAutoDeselect();
-    _origRenderReq(sc, cam);
-};
-
-// Hook buildColliders เพื่อ rebuild PPE zones หลังโหลดโมเดล
-buildColliders = (function(origFn) {
-    return function() {
-        origFn();
-        buildPPEZones();
-    };
-})(buildColliders);
-
-// ─────────────────────────────────────────────
-// Mobile Controls — joystick + interact + jump
-// ─────────────────────────────────────────────
-(function initMobileControls() {
-    if (typeof nipplejs === 'undefined') return;
-    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.innerWidth <= 920;
-    if (!isMobile) return;
-
-    const joystickZone = document.getElementById('mobile-joystick-zone');
-    if (!joystickZone) return;
-
-    const manager = nipplejs.create({
-        zone: joystickZone, mode: 'static',
-        position: { left: '60px', bottom: '20px' },
-        color: '#00ffff', size: 100
-    });
-
-    manager.on('move', (evt, data) => {
-        const angle = data.angle.radian;
-        const force = Math.min(data.force, 1);
-        moveStatus.forward  = false; moveStatus.backward = false;
-        moveStatus.left = false; moveStatus.right = false;
-        if (force > 0.2) {
-            if (angle > 0.4 && angle < 2.7) moveStatus.forward = true;
-            if (angle > 3.6 || angle < -0.4 || (angle < 0 && angle > -2.7)) moveStatus.backward = true;
-            if (angle > 1.2 && angle < 4.3) moveStatus.left = true;
-            if (angle < -1.2 || angle > 4.3 || (angle > -0.4 && angle < 1.2)) moveStatus.right = true;
-        }
-    });
-    manager.on('end', () => {
-        moveStatus.forward = moveStatus.backward = moveStatus.left = moveStatus.right = false;
-    });
-
-    // Interact button — raycast หา mesh ใกล้ avatar ที่สุด
-    document.getElementById('btn-mobile-interact')?.addEventListener('click', () => {
-        if (!factoryModel || !avatarModel) return;
-        let closest = null; let minDist = 5;
-        factoryModel.traverse(child => {
-            if (!child.isMesh) return;
-            const p = new THREE.Vector3(); child.getWorldPosition(p);
-            const d = avatarModel.position.distanceTo(p);
-            if (d < minDist) { minDist = d; closest = child; }
-        });
-        if (closest) highlightAndShowWorkflow(closest, closest.name || 'อุปกรณ์', '📱 แตะปุ่ม Interact');
-    });
-
-    document.getElementById('btn-mobile-jump')?.addEventListener('click', triggerAvatarJump);
-})();
-
-// ============================================================
-// END REQUIREMENTS MODULE
-// ============================================================
-
-
-// ============================================================
-// TYPE SELECTOR SYSTEM — กำหนดประเภทอุปกรณ์แบบ Manual
-// ============================================================
-
-// ตาราง type ทั้งหมดพร้อม icon, label, colorClass
-const TYPE_OPTIONS = [
-    { key: 'tank',          icon: '🟤', label: 'บ่อหมัก / Digester Tank',     color: 'tag-red'    },
-    { key: 'manhole',       icon: '🔴', label: 'ปากบ่อ Manhole',               color: 'tag-red'    },
-    { key: 'pvrv',          icon: '🔴', label: 'วาล์วนิรภัย PVRV',             color: 'tag-red'    },
-    { key: 'flame_arrester',icon: '🟠', label: 'Flame Arrester',               color: 'tag-orange' },
-    { key: 'pipe',          icon: '🟠', label: 'ท่อก๊าซชีวภาพ',                color: 'tag-orange' },
-    { key: 'lightning_rod', icon: '🟠', label: 'เสาล่อฟ้า',                    color: 'tag-orange' },
-    { key: 'loto',          icon: '🔵', label: 'จุด LOTO / MCC',               color: 'tag-blue'   },
-    { key: 'ppe_checkpoint',icon: '🔵', label: 'จุดตรวจ PPE',                  color: 'tag-blue'   },
-    { key: 'esd',           icon: '🟢', label: 'ปุ่มฉุกเฉิน ESD',              color: 'tag-green'  },
-    { key: 'utilization',   icon: '🟢', label: 'อาคารเครื่องยนต์ Genset',      color: 'tag-green'  },
-    { key: 'flare',         icon: '🟢', label: 'หอเผาก๊าซ Flare',             color: 'tag-green'  },
-    { key: 'default',       icon: '⚪', label: 'โครงสร้างทั่วไป (Default)',    color: 'tag-blue'   },
-];
-
-// เก็บ mapping ที่ผู้ใช้กำหนดเอง: meshUUID → databaseKey
-const userDefinedTypes = {};
-
-// หา icon ที่ตรงกับ Type — ใช้ทั้งฝั่งกำหนดเอง (local) และฝั่งรับ sync จากผู้เล่นอื่น (remote)
-// เพื่อให้ icon ในลิสต์ชิ้นส่วนตรงกันทุก browser ไม่ใช่แค่ 🏭 ตายตัว
-function getIconForType(typeKeyOrColorClass) {
-    if (!typeKeyOrColorClass) return '🏭';
-    let opt = TYPE_OPTIONS.find(o => o.key === typeKeyOrColorClass);
-    if (!opt) opt = TYPE_OPTIONS.find(o => o.color === typeKeyOrColorClass);
-    return opt ? opt.icon : '🏭';
-}
-
-// เปิด modal เลือก type
-let _typeSelectorTargetMesh = null;
-
-function openTypeSelector(mesh, meshName) {
-    _typeSelectorTargetMesh = mesh;
-    const overlay = document.getElementById('type-selector-overlay');
-    const nameEl  = document.getElementById('type-selector-mesh-name');
-    const grid    = document.getElementById('type-selector-grid');
-    if (!overlay || !grid) return;
-
-    nameEl.innerText = `📦 ชิ้นส่วน: ${meshName || mesh.name || mesh.uuid.slice(0,8)}`;
-
-    // Current assigned type
-    const currentKey = userDefinedTypes[mesh.uuid] || resolveDatabaseKey(mesh, meshName);
-
-    grid.innerHTML = TYPE_OPTIONS.map(opt => {
-        const isActive = opt.key === currentKey;
-        const colorMap = { 'tag-red':'#ef4444','tag-orange':'#f97316','tag-blue':'#38bdf8','tag-green':'#22c55e' };
-        const c = colorMap[opt.color] || '#38bdf8';
-        return `<button onclick="assignMeshType('${opt.key}')" style="
-            background:${isActive ? `rgba(${hexToRgb(c)},0.25)` : 'rgba(255,255,255,0.04)'};
-            border:${isActive ? `2px solid ${c}` : '1px solid rgba(255,255,255,0.1)'};
-            border-radius:10px; padding:10px 8px; cursor:pointer; text-align:left;
-            color:${isActive ? c : '#cbd5e1'}; font-size:11.5px; font-weight:${isActive?'bold':'normal'};
-            transition:0.15s; line-height:1.4;
-        ">
-            <span style="font-size:18px; display:block; margin-bottom:4px;">${opt.icon}</span>
-            ${opt.label}
-            ${isActive ? '<span style="float:right;font-size:14px;">✓</span>' : ''}
-        </button>`;
-    }).join('');
-
-    overlay.style.display = 'flex';
-}
-
-function hexToRgb(hex) {
-    const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
-    return `${r},${g},${b}`;
-}
-
-function assignMeshType(typeKey) {
-    if (!_typeSelectorTargetMesh) return;
-    const uuid = _typeSelectorTargetMesh.uuid;
-
-    // ใช้ชื่อดั้งเดิมของ mesh เป็น sync key (ใช้ได้ข้าม browser เพราะ UUID ต่างกันในแต่ละเครื่อง)
-    const nameKey = _typeSelectorTargetMesh._original3DName || _typeSelectorTargetMesh.name || uuid;
-
-    // บันทึก mapping ทั้ง 2 แบบ: uuid (เร็วสำหรับเครื่องตัวเอง) และ nameKey (sync ข้าม browser)
-    userDefinedTypes[uuid] = typeKey;
-    userDefinedTypes[nameKey] = typeKey;
-
-    // บันทึกลง workflowDatabase ด้วย key เป็น nameKey (ให้ resolveDatabaseKey เจอทั้ง 2 ฝั่ง)
-    const sourceData = workflowDatabase[typeKey] || workflowDatabase['default'];
-    const dataToApply = { ...sourceData };
-    workflowDatabase[uuid] = dataToApply;
-    workflowDatabase[nameKey] = dataToApply;
-
-    // อัปเดต proximity tag ถ้ามี
-    if (typeof buildProximityTags === 'function') buildProximityTags();
-    // Rebuild PPE zones
-    if (typeof buildPPEZones === 'function') buildPPEZones();
-
-    // แสดงข้อมูลทันที (ฝั่งตัวเอง)
-    closeTypeSelector();
-    highlightAndShowWorkflow(_typeSelectorTargetMesh, _typeSelectorTargetMesh.name || 'อุปกรณ์', '🏷️ กำหนดประเภทด้วยตนเอง');
-
-    // อัปชื่อใน mesh list
-    const listItem = document.getElementById(`mesh-item-${uuid}`);
-    const opt = TYPE_OPTIONS.find(o => o.key === typeKey);
-    if (listItem) {
-        listItem.innerText = `${opt?.icon || '🏭'} ${_typeSelectorTargetMesh.name || typeKey}`;
-    }
-
-    // 🔴 สำคัญ: broadcast ไปให้ผู้เล่นคนอื่นเห็นด้วย ผ่าน workflow_update channel เดิม
-    // ใช้ nameKey เป็น key เพื่อให้ resolveDatabaseKey ของฝั่งอื่น match เจอ (คนละ UUID กัน)
-    if (typeof mpSocket !== 'undefined' && mpSocket && mpSocket.connected) {
-        mpSocket.emit('workflow_update', {
-            key: nameKey,
-            name: dataToApply.name,
-            desc: dataToApply.desc,
-            steps: dataToApply.steps,
-            colorClass: dataToApply.colorClass || 'tag-blue',
-            targetUuid: uuid,
-            assignedTypeKey: typeKey // ส่งต้นทาง typeKey ไปด้วยเผื่อฝั่งอื่นอยากรู้ประเภทดิบ
-        });
-    }
-
-    mpAppendChat({ name:'🏷️ ระบบ', color:'#00ffff', text:`กำหนด "${_typeSelectorTargetMesh.name || uuid.slice(0,8)}" เป็น "${opt?.label || typeKey}"` });
-}
-
-function clearMeshType() {
-    if (!_typeSelectorTargetMesh) return;
-    delete userDefinedTypes[_typeSelectorTargetMesh.uuid];
-    delete workflowDatabase[_typeSelectorTargetMesh.uuid];
-    closeTypeSelector();
-    if (typeof buildProximityTags === 'function') buildProximityTags();
-    if (typeof buildPPEZones === 'function') buildPPEZones();
-}
-
-function closeTypeSelector() {
-    const overlay = document.getElementById('type-selector-overlay');
-    if (overlay) overlay.style.display = 'none';
-    _typeSelectorTargetMesh = null;
-}
-
-// ปิด modal เมื่อคลิก overlay
-document.getElementById('type-selector-overlay')?.addEventListener('click', function(e) {
-    if (e.target === this) closeTypeSelector();
-});
-
-// Override resolveDatabaseKey ให้เช็ค userDefinedTypes ก่อน — ทั้งจาก uuid (เครื่องตัวเอง)
-// และจากชื่อดั้งเดิม (_original3DName) เพื่อให้ค่าที่ sync มาจากผู้เล่นอื่นถูก match ได้ด้วย
-(function() {
-    const _origResolve = resolveDatabaseKey;
-    window.resolveDatabaseKey = function(mesh, fallback) {
-        if (!mesh) return _origResolve(mesh, fallback);
-        if (userDefinedTypes[mesh.uuid]) return userDefinedTypes[mesh.uuid];
-        const nameKey = mesh._original3DName || mesh.name;
-        if (nameKey && userDefinedTypes[nameKey]) return userDefinedTypes[nameKey];
-        return _origResolve(mesh, fallback);
-    };
-})();
-
-// เพิ่มปุ่ม "กำหนดประเภท" ใน mesh list item เมื่อ hover
-// Override factory loader mesh item creation
-(function patchMeshList() {
-    const origBuildColliders = buildColliders;
-    // ทำ patch หลัง factoryModel โหลดเสร็จ — intercepting mesh item click ใน mesh list
-    // แต่เพิ่ม right-click / long-press เพื่อ open type selector
-    document.getElementById('mesh-container').addEventListener('contextmenu', function(e) {
-        e.preventDefault();
-        const item = e.target.closest('.mesh-item');
-        if (!item) return;
-        const uuid = item.id.replace('mesh-item-', '');
-        if (!factoryModel) return;
-        factoryModel.traverse(child => {
-            if (child.isMesh && child.uuid === uuid) {
-                openTypeSelector(child, child.name || uuid.slice(0,8));
-            }
-        });
-    });
-})();
-
-// เพิ่มปุ่ม "🏷️ กำหนดประเภท" ใน process-panel header
-(function addTypeSelectorBtn() {
-    const header = document.querySelector('.process-header > div:first-child');
-    if (!header) return;
-    const btn = document.createElement('button');
-    btn.id = 'btn-set-type';
-    btn.className = 'panel-action-btn';
-    btn.style.cssText = 'background:rgba(0,255,255,0.08);border-color:rgba(0,255,255,0.3);color:#00ffff;font-size:11px;';
-    btn.innerText = '🏷️ ประเภท';
-    btn.onclick = function() {
-        if (!activeSelectedMeshUUID || !factoryModel) return;
-        factoryModel.traverse(child => {
-            if (child.isMesh && child.uuid === activeSelectedMeshUUID) {
-                openTypeSelector(child, child.name);
-            }
-        });
-    };
-    // Insert after title-container
-    const titleContainer = document.getElementById('title-container');
-    if (titleContainer && titleContainer.parentNode) {
-        titleContainer.parentNode.insertBefore(btn, titleContainer.nextSibling);
-    }
-})();
-
-window.openTypeSelector = openTypeSelector;
-window.closeTypeSelector = closeTypeSelector;
-window.assignMeshType = assignMeshType;
-window.clearMeshType = clearMeshType;
-// ============================================================
-// END TYPE SELECTOR SYSTEM
-// ============================================================
-
-
-
-// openTypeSelectorForActive — bridge จาก process panel ปุ่ม "กำหนด Type"
-window.openTypeSelectorForActive = function() {
-    if (!activeSelectedMeshUUID || !factoryModel) {
-        mpAppendChat({ name:'ระบบ', color:'#ef4444', text:'กรุณาคลิกเลือกชิ้นส่วนก่อนกำหนด Type' });
-        return;
-    }
-    let targetMesh = null;
-    factoryModel.traverse(c => { if (c.isMesh && c.uuid === activeSelectedMeshUUID) targetMesh = c; });
-    if (targetMesh) openTypeSelector(targetMesh, targetMesh._original3DName || targetMesh.name);
-};
-
-
-
-
-// ============================================================
-// SAVE / LOAD SCENE SYSTEM (v3) — เก็บ "ไฟล์ดิบต้นฉบับ" ตรงๆ ไม่ผ่านการ re-export
-// แก้ปัญหาโมเดลผิดเพี้ยนจากรอบก่อน (GLTFExporter แปลงไฟล์ .fbx ทำให้ geometry/material เพี้ยน)
-// ตอนนี้ bundle ไฟล์ .glb/.gltf/.fbx ต้นฉบับ (bytes เดิมทุกบิต) + ตำแหน่ง/ขนาด + ข้อมูลชิ้นส่วน
-// รวมเป็น .zip ไฟล์เดียว — โหลดกลับมาแล้วเหมือนเดิมเป๊ะ ไม่มีผิดเพี้ยน
-// ============================================================
-
 function collectPartMetadata() {
-    const workflowOverrides = {};
-    const typeAssignmentsOut = {};
-
+    const workflowOverrides = {}, typeAssignmentsOut = {};
     if (factoryModel) {
         factoryModel.traverse(child => {
             if (!child.isMesh) return;
             const nameKey = child._original3DName || child.name;
             if (!nameKey) return;
-
-            if (workflowDatabase[nameKey]) {
-                workflowOverrides[nameKey] = workflowDatabase[nameKey];
-            }
-            const rawType = (typeof userDefinedTypes !== 'undefined')
-                ? (userDefinedTypes[nameKey] || userDefinedTypes[child.uuid])
-                : null;
+            if (workflowDatabase[nameKey]) workflowOverrides[nameKey] = workflowDatabase[nameKey];
+            const rawType = userDefinedTypes[nameKey] || userDefinedTypes[child.uuid];
             if (rawType) typeAssignmentsOut[nameKey] = rawType;
         });
     }
-
     return { workflowOverrides, typeAssignments: typeAssignmentsOut };
 }
 
-window.saveScene = async function() {
-    const statusEl = document.getElementById('scene-save-status');
-
-    if (!currentModelRawBuffer || !currentModelRawFileName) {
-        if (statusEl) statusEl.innerText = '❌ ยังไม่มีไฟล์โมเดลต้นฉบับให้บันทึก (รอโมเดลโหลดเสร็จก่อน แล้วลองใหม่)';
-        return;
-    }
-    if (!factoryModel) {
-        if (statusEl) statusEl.innerText = '❌ ยังไม่มีโมเดลในฉาก';
-        return;
-    }
-
+window.saveScene = async function () {
+    const statusEl = $('scene-save-status');
+    if (!currentModelRawBuffer || !currentModelRawFileName) { statusEl.innerText = '❌ ยังไม่มีไฟล์โมเดลต้นฉบับให้บันทึก'; return; }
+    if (!factoryModel) { statusEl.innerText = '❌ ยังไม่มีโมเดลในฉาก'; return; }
     try {
-        if (statusEl) statusEl.innerText = '⏳ กำลังรวมไฟล์...';
-
+        statusEl.innerText = '⏳ กำลังรวมไฟล์...';
         const { workflowOverrides, typeAssignments } = collectPartMetadata();
-
         const transform = {
-            posX: factoryModel.position.x,
-            posY: factoryModel.position.y,
-            posZ: factoryModel.position.z,
-            rotY: factoryModel.rotation.y,
-            scale: factoryModel.scale.x / (initialFactoryScale || 1)
+            posX: factoryModel.position.x, posY: factoryModel.position.y, posZ: factoryModel.position.z,
+            rotY: factoryModel.rotation.y, scale: factoryModel.scale.x / (initialFactoryScale || 1)
         };
-
-        const metadata = {
-            version: 3,
-            savedAt: new Date().toISOString(),
-            modelFileName: currentModelRawFileName, // ชื่อไฟล์ต้นฉบับเป๊ะๆ (รักษานามสกุลไว้ให้โหลดตัวถูก loader)
-            transform,
-            workflowOverrides,
-            typeAssignments
-        };
+        const metadata = { version: 4, savedAt: new Date().toISOString(), modelFileName: currentModelRawFileName, transform, workflowOverrides, typeAssignments };
 
         const zip = new JSZip();
-        zip.file(currentModelRawFileName, currentModelRawBuffer); // ไฟล์โมเดลต้นฉบับ "ตัวจริง" ไม่ผ่านการแปลง
+        zip.file(currentModelRawFileName, currentModelRawBuffer);
         zip.file('data.json', JSON.stringify(metadata, null, 2));
-
-        const zipBlob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+        const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
 
         const fname = `biogas_scene_${Date.now()}.zip`;
-        const url = URL.createObjectURL(zipBlob);
-        const a = document.createElement('a');
-        a.href = url; a.download = fname;
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = fname;
         document.body.appendChild(a); a.click(); a.remove();
         setTimeout(() => URL.revokeObjectURL(url), 5000);
-
-        const partCount = Object.keys(workflowOverrides).length;
-        if (statusEl) statusEl.innerText = `✅ บันทึกแล้ว: ${fname} (โมเดลต้นฉบับ + ข้อมูล ${partCount} ชิ้นส่วน)`;
+        statusEl.innerText = `✅ บันทึกแล้ว: ${fname} (${Object.keys(workflowOverrides).length} ชิ้นส่วน)`;
     } catch (err) {
         console.error(err);
-        if (statusEl) statusEl.innerText = `❌ บันทึกล้มเหลว: ${err.message}`;
+        statusEl.innerText = `❌ บันทึกล้มเหลว: ${err.message}`;
     }
 };
 
-// โหลดโมเดลจาก Blob URL โดยใช้ loader ที่ถูกต้องตามนามสกุลไฟล์ (เหมือน loadModelFromUrl ทุกประการ
-// แต่ไม่ auto-fit ขนาด/ตำแหน่งใหม่ — ใช้ transform ที่บันทึกไว้แทน)
-function loadModelFromBlobUrl(blobUrl, fileName, transform, onDone) {
-    if (factoryModel) { scene.remove(factoryModel); originalMaterials.clear(); factoryColliders = []; }
-    document.getElementById('factory-status').innerText = `⬇️ กำลังโหลดโมเดลจากไฟล์เซฟ...`;
-
-    const loader = getLoaderForFile(fileName);
-    loader.load(blobUrl, function(obj) {
-        factoryModel = obj.scene ? obj.scene : obj;
-        let meshCount = 0;
-        const container = document.getElementById('mesh-container');
-        container.innerHTML = '';
-        factoryModel.traverse(function(child) {
-            if (child.isMesh) {
-                meshCount++;
-                originalMaterials.set(child.uuid, child.material.clone());
-                if (!child._original3DName) { child._original3DName = child.name || `Object_${meshCount}`; }
-
-                const item = document.createElement('div');
-                item.className = 'mesh-item';
-                const mName = child.name || child._original3DName;
-                item.innerText = `🏭 ${mName}`;
-                item.id = `mesh-item-${child.uuid}`;
-                item.addEventListener('click', () => highlightAndShowWorkflow(child, mName, 'คลิกเลือกโมเดล'));
-                container.appendChild(item);
-            }
-        });
-        document.getElementById('model-meta').innerHTML = `<span class="info-tag">ตรวจพบชิ้นส่วน: ${meshCount} รายการ</span>`;
-        document.getElementById('details-panel').style.display = 'block';
-
-        if (transform) {
-            // มี transform ที่บันทึกไว้ — คืนค่าตำแหน่ง/ขนาด/หมุนตามเดิมเป๊ะ
-            const box = new THREE.Box3().setFromObject(factoryModel);
-            const size = box.getSize(new THREE.Vector3());
-            initialFactoryScale = 12 / Math.max(size.x, size.y, size.z);
-            factoryModel.position.set(transform.posX, transform.posY, transform.posZ);
-            factoryModel.rotation.y = transform.rotY;
-            const sc = transform.scale || 1;
-            factoryModel.scale.set(initialFactoryScale * sc, initialFactoryScale * sc, initialFactoryScale * sc);
-        } else {
-            // ไม่มี transform (เช่นโหลดครั้งแรกแบบปกติ) — auto-fit ขนาดเหมือนเดิม
-            const box = new THREE.Box3().setFromObject(factoryModel);
-            const size = box.getSize(new THREE.Vector3());
-            initialFactoryScale = 12 / Math.max(size.x, size.y, size.z);
-            factoryModel.scale.set(initialFactoryScale, initialFactoryScale, initialFactoryScale);
-            const center = box.getCenter(new THREE.Vector3());
-            factoryModel.position.set(-center.x * initialFactoryScale, 0, -center.z * initialFactoryScale);
-        }
-
-        scene.add(factoryModel);
-        document.getElementById('factory-status').innerText = `✓ โหลดจากไฟล์เซฟสำเร็จ: ${fileName}`;
-        buildColliders();
-        setFactoryMaterialMode(currentMaterialMode);
-        syncSlidersWithModel();
-        if (onDone) onDone();
-    }, undefined, err => {
-        document.getElementById('factory-status').innerText = `❌ โหลดโมเดลจากไฟล์เซฟล้มเหลว`;
-        console.error(err);
-    });
-}
-
 function applyPartMetadata(metadata) {
-    if (metadata.workflowOverrides) Object.assign(workflowDatabase, metadata.workflowOverrides);
-    if (metadata.typeAssignments && typeof userDefinedTypes !== 'undefined') Object.assign(userDefinedTypes, metadata.typeAssignments);
-
+    Object.assign(workflowDatabase, metadata.workflowOverrides || {});
+    Object.assign(userDefinedTypes, metadata.typeAssignments || {});
     if (factoryModel) {
         factoryModel.traverse(child => {
             if (!child.isMesh) return;
             const nameKey = child._original3DName || child.name;
-            const data = metadata.workflowOverrides ? metadata.workflowOverrides[nameKey] : null;
-            const typeKey = metadata.typeAssignments ? metadata.typeAssignments[nameKey] : null;
-            if (data && data.name) {
-                child.name = data.name;
-                const item = document.getElementById(`mesh-item-${child.uuid}`);
-                if (item) {
-                    const icon = (typeof getIconForType === 'function') ? getIconForType(typeKey || data.colorClass) : '🏭';
-                    item.innerText = `${icon} ${data.name}`;
-                }
-            }
+            if (workflowDatabase[nameKey]) child.name = workflowDatabase[nameKey].name;
+            const item = $(`mesh-item-${child.uuid}`);
+            if (item) item.innerText = `${getIconForType(userDefinedTypes[nameKey] || nameKey)} ${child.name}`;
         });
     }
-
-    if (typeof buildProximityTags === 'function') buildProximityTags();
-    if (typeof buildPPEZones === 'function') buildPPEZones();
+    buildProximityTags();
+    buildPPEZones();
 }
 
-// หลังโหลดฉากในเครื่องตัวเองสำเร็จ — ถ้าต่อ multiplayer อยู่ อัปโหลดไฟล์ต้นฉบับขึ้น Supabase
-// แล้ว broadcast URL + ข้อมูลทุกชิ้นส่วนให้ผู้เล่นคนอื่นเห็นตรงกันทันที
 async function broadcastLoadedSceneToRoom(rawBuffer, fileName, metadata) {
-    if (typeof mpSocket === 'undefined' || !mpSocket || !mpSocket.connected) return;
-
+    if (!mpSocket || !mpSocket.connected || !isAdmin) return;
     try {
-        const statusEl = document.getElementById('scene-save-status');
-        if (statusEl) statusEl.innerText = '⏳ กำลังอัปโหลดโมเดลขึ้น Cloud เพื่อแชร์ให้ผู้เล่นอื่น...';
-
+        const statusEl = $('scene-save-status');
+        statusEl.innerText = '⏳ กำลังอัปโหลดโมเดลขึ้น Cloud เพื่อแชร์ให้ผู้เล่นอื่น...';
         const modelFile = new File([rawBuffer], fileName, { type: 'application/octet-stream' });
         const publicUrl = await uploadToSupabase(modelFile);
-
-        mpSocket.emit('model_shared', { url: publicUrl, fileName: fileName });
+        mpSocket.emit('model_shared', { url: publicUrl, fileName });
 
         const overrides = metadata.workflowOverrides || {};
         Object.keys(overrides).forEach(nameKey => {
-            const data = overrides[nameKey];
-            mpSocket.emit('workflow_update', {
-                key: nameKey,
-                name: data.name,
-                desc: data.desc,
-                steps: data.steps,
-                colorClass: data.colorClass || 'tag-blue',
-                assignedTypeKey: (metadata.typeAssignments || {})[nameKey] || null
-            });
+            const d = overrides[nameKey];
+            mpSocket.emit('workflow_update', { key: nameKey, name: d.name, desc: d.desc, steps: d.steps, colorClass: d.colorClass || 'tag-blue', requiresPPE: !!d.requiresPPE, assignedTypeKey: (metadata.typeAssignments || {})[nameKey] || null });
         });
-
-        if (statusEl) statusEl.innerText = `✅ แชร์ฉากให้ผู้เล่นในห้องแล้ว (${Object.keys(overrides).length} ชิ้นส่วน)`;
-        mpAppendChat({ name:'💾 ระบบ', color:'#38bdf8', text:`โหลดฉากใหม่และแชร์ให้ทุกคนในห้องแล้ว` });
+        statusEl.innerText = `✅ แชร์ฉากให้ผู้เล่นในห้องแล้ว (${Object.keys(overrides).length} ชิ้นส่วน)`;
     } catch (err) {
         console.error(err);
-        const statusEl = document.getElementById('scene-save-status');
-        if (statusEl) statusEl.innerText = `⚠️ โหลดสำเร็จ แต่แชร์ให้ผู้เล่นอื่นไม่สำเร็จ: ${err.message}`;
+        $('scene-save-status').innerText = `⚠️ โหลดสำเร็จ แต่แชร์ให้ผู้เล่นอื่นไม่สำเร็จ: ${err.message}`;
     }
 }
 
-window.loadScene = async function(file) {
-    const statusEl = document.getElementById('scene-save-status');
+window.loadScene = async function (file) {
+    const statusEl = $('scene-save-status');
     try {
-        if (statusEl) statusEl.innerText = '⏳ กำลังเปิดไฟล์เซฟ...';
+        statusEl.innerText = '⏳ กำลังเปิดไฟล์เซฟ...';
         const zip = await JSZip.loadAsync(file);
-
         const jsonEntry = zip.file('data.json');
         if (!jsonEntry) throw new Error('ไฟล์เซฟไม่ถูกต้อง (ไม่พบ data.json)');
-        const jsonText = await jsonEntry.async('string');
-        const metadata = JSON.parse(jsonText);
+        const metadata = JSON.parse(await jsonEntry.async('string'));
 
         const modelEntry = zip.file(metadata.modelFileName);
         if (!modelEntry) throw new Error(`ไม่พบไฟล์โมเดล "${metadata.modelFileName}" ในไฟล์เซฟ`);
         const modelArrayBuffer = await modelEntry.async('arraybuffer');
+        const blobUrl = URL.createObjectURL(new Blob([modelArrayBuffer]));
 
-        const modelBlob = new Blob([modelArrayBuffer]);
-        const blobUrl = URL.createObjectURL(modelBlob);
-
-        // แคชไฟล์ดิบไว้ทันที เผื่อผู้ใช้กด Save ต่ออีกครั้งหลังโหลด (ไม่ต้องโหลดใหม่)
         currentModelRawBuffer = modelArrayBuffer;
         currentModelRawFileName = metadata.modelFileName;
 
-        if (statusEl) statusEl.innerText = '⏳ กำลังโหลดโมเดล...';
+        statusEl.innerText = '⏳ กำลังโหลดโมเดล...';
         loadModelFromBlobUrl(blobUrl, metadata.modelFileName, metadata.transform, () => {
             applyPartMetadata(metadata);
             const partCount = Object.keys(metadata.workflowOverrides || {}).length;
-            if (statusEl) statusEl.innerText = `✅ โหลดฉากสำเร็จ (โมเดลต้นฉบับ + ข้อมูล ${partCount} ชิ้นส่วน)`;
-            mpAppendChat({ name:'💾 ระบบ', color:'#38bdf8', text:`โหลดฉากที่บันทึกไว้แล้ว — ${partCount} ชิ้นส่วน` });
-
+            statusEl.innerText = `✅ โหลดฉากสำเร็จ (${partCount} ชิ้นส่วน)`;
+            mpAppendChat({ name: '💾 ระบบ', color: '#38bdf8', text: `โหลดฉากที่บันทึกไว้แล้ว — ${partCount} ชิ้นส่วน` });
             broadcastLoadedSceneToRoom(modelArrayBuffer, metadata.modelFileName, metadata);
-
             URL.revokeObjectURL(blobUrl);
         });
     } catch (err) {
         console.error(err);
-        if (statusEl) statusEl.innerText = `❌ โหลดไฟล์ไม่สำเร็จ: ${err.message}`;
+        statusEl.innerText = `❌ โหลดไฟล์ไม่สำเร็จ: ${err.message}`;
     }
 };
-
-document.getElementById('scene-load-input')?.addEventListener('change', function(e) {
-    const file = e.target.files[0];
-    if (file) window.loadScene(file);
-});
+$('scene-load-input')?.addEventListener('change', function (e) { const f = e.target.files[0]; if (f) window.loadScene(f); });
 
 // ============================================================
-// END SAVE / LOAD SCENE SYSTEM (v3)
+// 13. DELETE MODEL
 // ============================================================
-
-// ============================================================
-// DELETE MODEL SYSTEM — ลบโมเดลที่แสดงอยู่ออกจากฉาก
-// ลบทั้งในเครื่องตัวเอง + แจ้งผู้เล่นอื่นให้ลบตาม + ลบไฟล์จริงออกจาก Supabase Storage
-// ============================================================
-
-// ดึงชื่อไฟล์บน Supabase จาก public URL (path segment สุดท้าย) เพื่อใช้ตอนสั่งลบ
-function extractSupabaseFileName(url) {
-    if (!url) return null;
-    try {
-        const parts = url.split('/');
-        return decodeURIComponent(parts[parts.length - 1]);
-    } catch (e) { return null; }
-}
-
-async function deleteFromSupabaseStorage(fileUrl) {
-    const fileName = extractSupabaseFileName(fileUrl);
-    if (!fileName) return;
-    try {
-        await fetch(`${SUPABASE_URL}/storage/v1/object/${SUPABASE_BUCKET}/${fileName}`, {
-            method: 'DELETE',
-            headers: { 'Authorization': `Bearer ${SUPABASE_ANON_KEY}` }
-        });
-        console.log(`[SUPABASE] ลบไฟล์ ${fileName} ออกจาก Storage แล้ว`);
-    } catch (err) {
-        console.warn('ลบไฟล์ออกจาก Supabase Storage ไม่สำเร็จ (ไม่กระทบการใช้งานต่อ):', err);
-    }
-}
-
-// เคลียร์โมเดลออกจากฉากในเครื่องนี้ — ใช้ทั้งฝั่งกดลบเองและฝั่งรับแจ้งจากผู้เล่นอื่น
 function clearFactoryModelFromScene() {
-    if (factoryModel) {
-        scene.remove(factoryModel);
-        factoryModel = null;
-    }
+    disposeFactoryModel();
     originalMaterials.clear();
     factoryColliders = [];
-
-    document.getElementById('mesh-container').innerHTML = '';
-    document.getElementById('model-meta').innerHTML = '';
-    document.getElementById('details-panel').style.display = 'none';
-    document.getElementById('process-panel').style.display = 'none';
-    document.getElementById('factory-status').innerText = 'สถานะ: รอการอัปโหลดโมเดล...';
-    document.getElementById('btn-delete-model').style.display = 'none';
-
-    activeSelectedMeshUUID = null;
-    activeSelectedKeyKey = 'default';
-
-    if (typeof buildProximityTags === 'function') buildProximityTags();
-    if (typeof buildPPEZones === 'function') buildPPEZones();
+    $('mesh-container').innerHTML = '';
+    $('model-meta').innerHTML = '';
+    $('details-panel').style.display = 'none';
+    $('process-panel').style.display = 'none';
+    $('factory-status').innerText = 'สถานะ: รอการอัปโหลดโมเดล...';
+    $('btn-delete-model').style.display = 'none';
+    selection.uuid = null; selection.key = 'default';
+    buildProximityTags();
+    buildPPEZones();
 }
-
-window.deleteCurrentModel = async function() {
-    if (!factoryModel && !currentSceneModelUrl) {
-        mpAppendChat({ name:'ระบบ', color:'#ef4444', text:'ยังไม่มีโมเดลในฉากให้ลบ' });
-        return;
-    }
+window.deleteCurrentModel = async function () {
+    if (!factoryModel && !currentSceneModelUrl) { mpAppendChat({ name: 'ระบบ', color: '#ef4444', text: 'ยังไม่มีโมเดลในฉากให้ลบ' }); return; }
+    if (!isAdmin) { mpAppendChat({ name: 'ระบบ', color: '#ef4444', text: 'เฉพาะ Admin เท่านั้นที่ลบโมเดลได้' }); return; }
     const urlToDelete = currentSceneModelUrl;
-
     clearFactoryModelFromScene();
-    currentSceneModelUrl = null;
-    currentSceneModelName = null;
-    currentModelRawBuffer = null;
-    currentModelRawFileName = null;
-
-    // แจ้งผู้เล่นคนอื่นในห้องให้ลบตามทันที
-    if (typeof mpSocket !== 'undefined' && mpSocket && mpSocket.connected) {
-        mpSocket.emit('model_removed');
-    }
-    mpAppendChat({ name:'🗑️ ระบบ', color:'#ef4444', text:'ลบโมเดลออกจากฉากแล้ว' });
-
-    // ลบไฟล์จริงออกจาก Supabase Storage ด้วย (best-effort, ไม่บล็อก UI)
+    currentSceneModelUrl = null; currentSceneModelName = null;
+    currentModelRawBuffer = null; currentModelRawFileName = null;
+    if (mpSocket && mpSocket.connected) mpSocket.emit('model_removed');
+    mpAppendChat({ name: '🗑️ ระบบ', color: '#ef4444', text: 'ลบโมเดลออกจากฉากแล้ว' });
     if (urlToDelete) deleteFromSupabaseStorage(urlToDelete);
 };
-
-// รับแจ้งจากผู้เล่นคนอื่นว่าโมเดลถูกลบ — เคลียร์ฉากตามให้ตรงกัน
-(function hookModelRemovedReceiver() {
-    const trySetup = () => {
-        if (typeof mpSocket === 'undefined' || !mpSocket) { setTimeout(trySetup, 300); return; }
-        mpSocket.on('model_removed', () => {
-            clearFactoryModelFromScene();
-            currentSceneModelUrl = null;
-            currentSceneModelName = null;
-            currentModelRawBuffer = null;
-            currentModelRawFileName = null;
-            mpAppendChat({ name:'🗑️ ระบบ', color:'#ef4444', text:'ผู้เล่นอื่นลบโมเดลออกจากฉากแล้ว' });
-        });
-    };
-    trySetup();
-})();
-
-// แสดง/ซ่อนปุ่ม "ลบโมเดล" ให้ตรงกับสถานะจริงเสมอ — ใช้ polling แทนการ wrap function
-// เพื่อไม่ให้พลาดไม่ว่าโมเดลจะถูกโหลดจากช่องทางไหนก็ตาม (อัปโหลดเอง/Cloud/ไฟล์เซฟ)
 setInterval(() => {
-    const btn = document.getElementById('btn-delete-model');
+    const btn = $('btn-delete-model');
     if (!btn) return;
     const shouldShow = !!factoryModel;
-    const isShown = btn.style.display !== 'none';
-    if (shouldShow !== isShown) {
-        btn.style.display = shouldShow ? 'block' : 'none';
-    }
+    if ((btn.style.display !== 'none') !== shouldShow) btn.style.display = shouldShow ? 'block' : 'none';
 }, 500);
 
 // ============================================================
-// END DELETE MODEL SYSTEM
+// 14. MAIN LOOP — เรียกทุกระบบผ่าน safeCall() กัน error หนึ่งจุดลากทั้งเฟรมพัง
 // ============================================================
+function updateAvatarPhysics() {
+    if (isTypingInField()) return;
+
+    if (isFreeLook) {
+        const camDir = new THREE.Vector3(); camera.getWorldDirection(camDir);
+        const camRight = new THREE.Vector3().crossVectors(camera.up, camDir).normalize();
+        if (moveStatus.forward) { camera.position.addScaledVector(camDir, freeLookSpeed); controls.target.addScaledVector(camDir, freeLookSpeed); }
+        if (moveStatus.backward) { camera.position.addScaledVector(camDir, -freeLookSpeed); controls.target.addScaledVector(camDir, -freeLookSpeed); }
+        if (moveStatus.left) { camera.position.addScaledVector(camRight, freeLookSpeed); controls.target.addScaledVector(camRight, freeLookSpeed); }
+        if (moveStatus.right) { camera.position.addScaledVector(camRight, -freeLookSpeed); controls.target.addScaledVector(camRight, -freeLookSpeed); }
+        return;
+    }
+    if (!avatarModel) return;
+
+    if (jumpConfig.isJumping) {
+        avatarModel.position.y += jumpConfig.velocity;
+        jumpConfig.velocity += jumpConfig.gravity;
+        if (avatarModel.position.y <= jumpConfig.groundY) { avatarModel.position.y = jumpConfig.groundY; jumpConfig.isJumping = false; }
+    } else if (avatarModel.position.y > jumpConfig.groundY) {
+        avatarModel.position.y += jumpConfig.gravity;
+        if (avatarModel.position.y < jumpConfig.groundY) avatarModel.position.y = jumpConfig.groundY;
+    }
+
+    if (moveStatus.left) avatarModel.rotation.y += avatarConfig.turnSpeed;
+    if (moveStatus.right) avatarModel.rotation.y -= avatarConfig.turnSpeed;
+
+    const moveVector = new THREE.Vector3(0, 0, 0);
+    if (moveStatus.forward) moveVector.z = -avatarConfig.speed;
+    if (moveStatus.backward) moveVector.z = avatarConfig.speed;
+    moveVector.applyQuaternion(avatarModel.quaternion);
+
+    const isMoving = moveVector.lengthSq() > 0;
+    animateEngineerWalk(avatarModel, isMoving);
+
+    if (isMoving) {
+        const nextX = avatarModel.position.x + moveVector.x;
+        const nextZ = avatarModel.position.z + moveVector.z;
+        const currentY = avatarModel.position.y - jumpConfig.groundY;
+        avatarModel.position.x = nextX;
+        avatarModel.position.z = nextZ;
+        checkWalkCollision(nextX, nextZ, currentY);
+    }
+
+    const targetCamOffset = defaultCameraOffset.clone().applyMatrix4(avatarModel.matrixWorld);
+    camera.position.lerp(targetCamOffset, 0.08);
+    controls.target.set(avatarModel.position.x, avatarModel.position.y + 0.3, avatarModel.position.z);
+}
+
+function animate() {
+    requestAnimationFrame(animate);
+    safeCall(updateAvatarPhysics, 'updateAvatarPhysics');
+    safeCall(updateRemoteAvatars, 'updateRemoteAvatars');
+    safeCall(updateProximityTags, 'updateProximityTags');
+    safeCall(checkPPEZones, 'checkPPEZones');
+    safeCall(checkAutoDeselect, 'checkAutoDeselect');
+    safeCall(emitOwnPosition, 'emitOwnPosition');
+    safeCall(() => controls.update(), 'controls.update');
+    safeCall(() => renderer.render(scene, camera), 'renderer.render');
+}
+animate();
+
+// ============================================================
+// 15. IOT TELEMETRY SIMULATION (คงพฤติกรรมเดิม)
+// ============================================================
+setInterval(() => {
+    if (!selection.uuid) return;
+    let pressureVal, tempVal;
+    if (selection.key === 'pipe') {
+        pressureVal = (1.5 + Math.random() * 0.5).toFixed(2) + ' bar';
+        tempVal = (31.2 + Math.random() * 1.5).toFixed(1) + ' °C';
+    } else if (selection.key === 'tank') {
+        pressureVal = (0.04 + Math.random() * 0.03).toFixed(3) + ' bar';
+        tempVal = (37.5 + Math.random() * 0.8).toFixed(1) + ' °C';
+    } else {
+        pressureVal = '0.00 bar'; tempVal = '28.5 °C';
+    }
+    $('iot-pressure').innerText = pressureVal;
+    $('iot-temp').innerText = tempVal;
+}, 1500);
