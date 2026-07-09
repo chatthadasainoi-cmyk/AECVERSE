@@ -146,6 +146,12 @@ h4 { color: #00ffff; }
 
 .section-label { font-size: 12px; font-weight: 600; color: #94a3b8; display: block; margin-bottom: 6px; }
 
+/* 🔴 [แก้บั๊กสำคัญ] .upload-btn-wrapper ไม่เคยมี position:relative มาก่อน ทำให้ input
+   ไฟล์ที่ซ่อนอยู่ข้างใน (.file-input, position:absolute) ไปยึดเอา #dashboard (panel ที่มี
+   position:relative) เป็น containing block แทน — ผลคือพื้นที่คลิกของ "อัปโหลดโมเดล"
+   ขยายคลุมทั้ง panel ทับปุ่ม "บันทึกฉากทั้งหมด" ด้านล่างไปด้วย กดปุ่มไหนก็โดนเปิดหาไฟล์โมเดลหมด */
+.upload-btn-wrapper { position: relative; }
+
 .btn {
     border: 1px dashed rgba(0, 255, 255, 0.4); color: #00ffff; background: rgba(0, 255, 255, 0.04);
     padding: 10px; border-radius: 8px; font-size: 12px; font-weight: bold; cursor: pointer;
