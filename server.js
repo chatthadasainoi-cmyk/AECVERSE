@@ -44,6 +44,108 @@ function publicState() {
     };
 }
 
+// ============================================================
+// SIMULATED PLANT SENSOR FEED (ต้นแบบงานวิจัย — ยังไม่มีเซนเซอร์ IoT จริง)
+// ค่าทั้งหมด random-walk ต่อเนื่องบนเซิร์ฟเวอร์แล้ว broadcast ให้ทุกคนเห็น
+// ตรงกัน real-time ผ่าน Socket.io เพื่อให้หน้า Dashboard/Analytics/Emergency/
+// AI Prediction มีข้อมูลเดียวกันแทนตัวเลข hardcode
+// ============================================================
+function rand(min, max) { return min + Math.random() * (max - min); }
+function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+
+const plant = { ch4Percent: 65.2, flowRate: 125.6, efficiency: 82.4 };
+
+// rate = ต่อ tick (4s) ใช้แค่ทำให้ตัวเลขขยับให้เห็น real-time บนหน้าจอ
+// dailyRate = ต่อวัน ใช้คำนวณ "วันที่เหลือก่อนถึงกำหนดบำรุงรักษา" ให้สมจริง
+const equipment = {
+    'TANK-01':   { name: 'ถังหมักที่ 1', wear: 20, rate: 0.010, dailyRate: 0.9, pressure: 2.15, temperature: 38.6, ph: 7.21, level: 1250 },
+    'PUMP-02':   { name: 'ปั๊มที่ 2', wear: 78, rate: 0.050, dailyRate: 1.8 },
+    'BOILER-01': { name: 'หม้อไอน้ำที่ 1', wear: 65, rate: 0.040, dailyRate: 1.9 },
+    'PUMP-01':   { name: 'ปั๊มที่ 1', wear: 54, rate: 0.030, dailyRate: 2.0 },
+    'TANK-02':   { name: 'ถังหมักที่ 2', wear: 42, rate: 0.020, dailyRate: 1.9 },
+    'FILTER-01': { name: 'ตัวกรองที่ 1', wear: 35, rate: 0.015, dailyRate: 1.4 }
+};
+Object.values(equipment).forEach(e => { e.wearHistory = [e.wear]; });
+
+const plantHistory = []; // sparkline ย้อนหลัง — เก็บสูงสุด 60 จุด (4s * 60 = 4 นาที)
+const MAX_HISTORY = 60;
+
+function riskLevel(wear) {
+    if (wear >= 80) return 'critical';
+    if (wear >= 60) return 'high';
+    if (wear >= 35) return 'medium';
+    return 'low';
+}
+
+function computePlantSnapshot() {
+    const equipmentList = Object.entries(equipment).map(([id, e]) => ({
+        id,
+        name: e.name,
+        wear: Math.round(e.wear * 10) / 10,
+        risk: riskLevel(e.wear),
+        failureProb: Math.round(e.wear),
+        daysToMaintenance: Math.max(1, Math.round((100 - e.wear) / e.dailyRate)),
+        wearHistory: e.wearHistory
+    })).sort((a, b) => b.wear - a.wear);
+
+    const t1 = equipment['TANK-01'];
+    const alerts = [];
+    if (t1.pressure > 2.8) alerts.push({ tag: 'TANK-01 Overpressure', level: 'critical' });
+    if (t1.temperature > 43) alerts.push({ tag: 'TANK-01 Temp Drift', level: 'warning' });
+    if (t1.ph < 6.8 || t1.ph > 7.6) alerts.push({ tag: 'TANK-01 pH Drift', level: 'warning' });
+    equipmentList.filter(e => e.risk === 'critical').forEach(e => alerts.push({ tag: `${e.id} Imminent Failure Risk`, level: 'critical' }));
+    equipmentList.filter(e => e.risk === 'high').forEach(e => alerts.push({ tag: `${e.id} High Wear`, level: 'warning' }));
+    if (!alerts.length) alerts.push({ tag: 'All Systems Normal', level: 'normal' });
+
+    return {
+        plant: {
+            ch4Percent: Math.round(plant.ch4Percent * 10) / 10,
+            flowRate: Math.round(plant.flowRate * 10) / 10,
+            efficiency: Math.round(plant.efficiency * 10) / 10
+        },
+        tank1: {
+            pressure: Math.round(t1.pressure * 100) / 100,
+            temperature: Math.round(t1.temperature * 10) / 10,
+            ph: Math.round(t1.ph * 100) / 100,
+            level: Math.round(t1.level)
+        },
+        equipment: equipmentList,
+        alerts,
+        history: plantHistory,
+        updatedAt: Date.now()
+    };
+}
+
+function stepPlantSimulation() {
+    plant.ch4Percent = clamp(plant.ch4Percent + rand(-0.4, 0.4), 55, 72);
+    plant.flowRate = clamp(plant.flowRate + rand(-2, 2), 90, 160);
+    plant.efficiency = clamp(plant.efficiency + rand(-0.5, 0.5), 70, 92);
+
+    const t1 = equipment['TANK-01'];
+    t1.pressure = clamp(t1.pressure + rand(-0.05, 0.05), 1.5, 3.2);
+    t1.temperature = clamp(t1.temperature + rand(-0.3, 0.3), 32, 45);
+    t1.ph = clamp(t1.ph + rand(-0.03, 0.03), 6.5, 7.8);
+    t1.level = clamp(t1.level + rand(-15, 15), 900, 1600);
+
+    Object.values(equipment).forEach(e => {
+        e.wear = clamp(e.wear + e.rate + rand(-0.03, 0.03), 0, 100);
+        if (e.wear >= 99.5) e.wear = rand(8, 15); // จำลองการซ่อมบำรุงเสร็จแล้วรีเซ็ต
+        e.wearHistory.push(e.wear);
+        if (e.wearHistory.length > 30) e.wearHistory.shift();
+    });
+
+    plantHistory.push({
+        t: Date.now(),
+        ch4Percent: plant.ch4Percent, flowRate: plant.flowRate, efficiency: plant.efficiency,
+        pressure: t1.pressure, temperature: t1.temperature, ph: t1.ph, level: t1.level
+    });
+    if (plantHistory.length > MAX_HISTORY) plantHistory.shift();
+
+    io.emit('plant_update', computePlantSnapshot());
+}
+
+setInterval(stepPlantSimulation, 4000);
+
 io.on('connection', socket => {
     console.log(`[+] ${socket.id}`);
     const player = {
@@ -61,6 +163,7 @@ io.on('connection', socket => {
         isAdmin: false,
         ...publicState()
     });
+    socket.emit('plant_update', computePlantSnapshot());
     socket.broadcast.emit('player_joined', player);
 
     // ---------- movement ----------

@@ -6,6 +6,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<script>window.RAILWAY_SERVER_URL = "https://aecmultiplayertest-production.up.railway.app";</script>
 <style>
 /* ==================== AEC VERSE — shared design system ==================== */
 :root{
@@ -349,93 +351,119 @@ tbody td.strong{color:var(--text-0);font-weight:600;}
           <div class="card" style="display:flex;gap:18px;align-items:center;">
             <div>
               <div class="card-head" style="margin-bottom:2px;"><h3>Equipment Risk Overview</h3></div>
-              <div style="color:var(--text-2);font-size:11px;">Based on last 90 days sensor data</div>
-              <div style="display:flex;gap:14px;margin-top:14px;flex-wrap:wrap;">
-                <span class="badge b-red">High Risk 12 (14.3%)</span>
-                <span class="badge b-yellow">Medium Risk 24 (28.6%)</span>
-                <span class="badge b-blue">Low Risk 36 (42.9%)</span>
-                <span class="badge b-green">Normal 12 (14.3%)</span>
+              <div style="color:var(--text-2);font-size:11px;">Live simulated sensor feed — updates every few seconds</div>
+              <div id="risk-badges" style="display:flex;gap:14px;margin-top:14px;flex-wrap:wrap;">
+                <span class="badge b-gray">กำลังเชื่อมต่อข้อมูล...</span>
               </div>
             </div>
-            <div style="margin-left:auto;"><svg viewBox="0 0 140 140" width="150" height="150">
-      <circle cx="70" cy="70" r="54" fill="none" stroke="#161d29" stroke-width="14"/>
-      <circle cx="70" cy="70" r="54" fill="none" stroke="#ef4444" stroke-width="14" stroke-dasharray="81.4 339.3" stroke-dashoffset="0.0" transform="rotate(-90 70 70)"/><circle cx="70" cy="70" r="54" fill="none" stroke="#f59e0b" stroke-width="14" stroke-dasharray="95.0 339.3" stroke-dashoffset="-81.4" transform="rotate(-90 70 70)"/><circle cx="70" cy="70" r="54" fill="none" stroke="#3b82f6" stroke-width="14" stroke-dasharray="122.1 339.3" stroke-dashoffset="-176.4" transform="rotate(-90 70 70)"/><circle cx="70" cy="70" r="54" fill="none" stroke="#22c55e" stroke-width="14" stroke-dasharray="40.7 339.3" stroke-dashoffset="-298.6" transform="rotate(-90 70 70)"/>
-      <text x="70" y="66" text-anchor="middle" font-size="26" font-weight="800" fill="#eef2f7" font-family="Sora,sans-serif">84</text>
-      <text x="70" y="84" text-anchor="middle" font-size="8.5" fill="#657182">Total Equipment</text>
-    </svg></div>
+            <div style="margin-left:auto;" id="risk-donut"></div>
           </div>
           <div class="grid g2">
             <div class="card">
               <div class="card-head"><h3>AI Insight</h3></div>
-              <p style="color:var(--text-1);font-size:12px;line-height:1.6;margin:0 0 14px 0;">PUMP-02 มีแนวโน้มเกิดความเสียหายจาก Seal Bearing ภายใน 12 วัน แนะนำให้ตรวจสอบก่อนกำหนด</p>
+              <p id="ai-insight-text" style="color:var(--text-1);font-size:12px;line-height:1.6;margin:0 0 14px 0;">กำลังเชื่อมต่อข้อมูล...</p>
               <button class="btn primary btn-sm">Generate Report</button>
             </div>
             <div class="card">
-              <div class="card-head"><h3>Prediction Trend (Next 30 Days)</h3></div>
-              <svg viewBox="0 0 320 110" width="100%" height="110" preserveAspectRatio="none">
-      <defs>
-        <linearGradient id="lg1" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.35"/>
-          <stop offset="100%" stop-color="#3b82f6" stop-opacity="0"/>
-        </linearGradient>
-      </defs>
-      <g stroke="#182234" stroke-width="1">
-        <line x1="0" y1="30" x2="320" y2="30"/>
-        <line x1="0" y1="80" x2="320" y2="80"/>
-        <line x1="0" y1="130" x2="320" y2="130"/>
-        <line x1="0" y1="180" x2="320" y2="180"/>
-      </g>
-      <path d="M0,90 C40,80 80,60 120,65 S200,30 240,45 S300,20 320,25 L320,110 L0,110 Z" fill="url(#lg1)"/>
-      <path d="M0,90 C40,80 80,60 120,65 S200,30 240,45 S300,20 320,25" fill="none" stroke="#3b82f6" stroke-width="2.5"/>
-      <line x1="0" y1="55" x2="320" y2="55" stroke="#ef4444" stroke-width="1.5" stroke-dasharray="5,4"/>
-    </svg>
-              <div style="display:flex;gap:12px;font-size:10.5px;color:var(--text-2);margin-top:6px;">
-                <span><span class="dot-sm" style="background:#f59e0b;"></span> PUMP-02</span>
-                <span><span class="dot-sm" style="background:#ef4444;"></span> BOILER-01</span>
-                <span><span class="dot-sm" style="background:#3b82f6;"></span> PUMP-01</span>
-              </div>
+              <div class="card-head"><h3>Wear Trend (Top 3 Risk)</h3></div>
+              <div id="trend-chart"></div>
+              <div id="trend-legend" style="display:flex;gap:12px;font-size:10.5px;color:var(--text-2);margin-top:6px;"></div>
             </div>
           </div>
         </div>
 
         <div class="card">
           <div class="card-head"><h3>Top 5 High Risk Equipment</h3></div>
-          <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 4px;border-bottom:1px solid var(--border-soft);">
-      <div>
-        <div class="strong" style="font-weight:700;">PUMP-02</div>
-        <div style="color:var(--text-2);font-size:11px;">Failure Prob: 78% · 12 Days to maintenance</div>
-      </div>
-      <span class="badge b-red">High</span>
-    </div><div style="display:flex;justify-content:space-between;align-items:center;padding:10px 4px;border-bottom:1px solid var(--border-soft);">
-      <div>
-        <div class="strong" style="font-weight:700;">BOILER-01</div>
-        <div style="color:var(--text-2);font-size:11px;">Failure Prob: 65% · 18 Days to maintenance</div>
-      </div>
-      <span class="badge b-red">High</span>
-    </div><div style="display:flex;justify-content:space-between;align-items:center;padding:10px 4px;border-bottom:1px solid var(--border-soft);">
-      <div>
-        <div class="strong" style="font-weight:700;">PUMP-01</div>
-        <div style="color:var(--text-2);font-size:11px;">Failure Prob: 54% · 23 Days to maintenance</div>
-      </div>
-      <span class="badge b-yellow">Medium</span>
-    </div><div style="display:flex;justify-content:space-between;align-items:center;padding:10px 4px;border-bottom:1px solid var(--border-soft);">
-      <div>
-        <div class="strong" style="font-weight:700;">TANK-02</div>
-        <div style="color:var(--text-2);font-size:11px;">Failure Prob: 42% · 30 Days to maintenance</div>
-      </div>
-      <span class="badge b-yellow">Medium</span>
-    </div><div style="display:flex;justify-content:space-between;align-items:center;padding:10px 4px;border-bottom:1px solid var(--border-soft);">
-      <div>
-        <div class="strong" style="font-weight:700;">FILTER-01</div>
-        <div style="color:var(--text-2);font-size:11px;">Failure Prob: 35% · 45 Days to maintenance</div>
-      </div>
-      <span class="badge b-green">Low</span>
-    </div>
+          <div id="top-risk-list"></div>
         </div>
       </div>
 
       </div>
     </div>
   </div>
+
+  <script>
+  (function(){
+    const SERVER = window.RAILWAY_SERVER_URL || window.location.origin;
+    const socket = io(SERVER, { transports: ['websocket', 'polling'] });
+    const riskBadgeClass = { critical: 'b-red', high: 'b-red', medium: 'b-yellow', low: 'b-blue' };
+    const riskLabel = { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low' };
+    const trendColors = ['#ef4444', '#f59e0b', '#3b82f6'];
+
+    function buildDonut(equipmentList){
+      const total = equipmentList.length;
+      const groups = { high: 0, medium: 0, low: 0 };
+      equipmentList.forEach(e => {
+        const k = (e.risk === 'critical') ? 'high' : e.risk;
+        groups[k] = (groups[k] || 0) + 1;
+      });
+      const colors = { high: '#ef4444', medium: '#f59e0b', low: '#3b82f6' };
+      const circumference = 339.3;
+      let offset = 0;
+      let circles = `<circle cx="70" cy="70" r="54" fill="none" stroke="#161d29" stroke-width="14"/>`;
+      ['high', 'medium', 'low'].forEach(k => {
+        const frac = total ? groups[k] / total : 0;
+        const len = frac * circumference;
+        circles += `<circle cx="70" cy="70" r="54" fill="none" stroke="${colors[k]}" stroke-width="14" stroke-dasharray="${len.toFixed(1)} ${circumference}" stroke-dashoffset="${(-offset).toFixed(1)}" transform="rotate(-90 70 70)"/>`;
+        offset += len;
+      });
+      return `<svg viewBox="0 0 140 140" width="150" height="150">${circles}
+        <text x="70" y="66" text-anchor="middle" font-size="26" font-weight="800" fill="#eef2f7" font-family="Sora,sans-serif">${total}</text>
+        <text x="70" y="84" text-anchor="middle" font-size="8.5" fill="#657182">Total Equipment</text>
+      </svg>`;
+    }
+
+    function buildTrend(equipmentList){
+      const top3 = equipmentList.slice(0, 3);
+      const w = 320, h = 110;
+      let polylines = '';
+      top3.forEach((eq, i) => {
+        const hist = eq.wearHistory.length > 1 ? eq.wearHistory : [eq.wear, eq.wear];
+        const pts = hist.map((v, idx) => {
+          const x = (idx / (hist.length - 1)) * w;
+          const y = h - (v / 100) * h;
+          return x.toFixed(1) + ',' + y.toFixed(1);
+        }).join(' ');
+        polylines += `<polyline points="${pts}" fill="none" stroke="${trendColors[i]}" stroke-width="2.5"/>`;
+      });
+      document.getElementById('trend-chart').innerHTML =
+        `<svg viewBox="0 0 ${w} ${h}" width="100%" height="110" preserveAspectRatio="none">
+          <g stroke="#182234" stroke-width="1"><line x1="0" y1="27" x2="${w}" y2="27"/><line x1="0" y1="55" x2="${w}" y2="55"/><line x1="0" y1="82" x2="${w}" y2="82"/></g>
+          ${polylines}
+        </svg>`;
+      document.getElementById('trend-legend').innerHTML = top3.map((eq, i) =>
+        `<span><span class="dot-sm" style="background:${trendColors[i]};"></span> ${eq.id}</span>`
+      ).join('');
+    }
+
+    socket.on('plant_update', data => {
+      const eq = data.equipment;
+      const total = eq.length;
+      const groups = { high: 0, medium: 0, low: 0 };
+      eq.forEach(e => { const k = (e.risk === 'critical') ? 'high' : e.risk; groups[k] = (groups[k] || 0) + 1; });
+      document.getElementById('risk-badges').innerHTML =
+        `<span class="badge b-red">High Risk ${groups.high} (${total ? (groups.high / total * 100).toFixed(1) : 0}%)</span>` +
+        `<span class="badge b-yellow">Medium Risk ${groups.medium} (${total ? (groups.medium / total * 100).toFixed(1) : 0}%)</span>` +
+        `<span class="badge b-blue">Low Risk ${groups.low} (${total ? (groups.low / total * 100).toFixed(1) : 0}%)</span>`;
+
+      document.getElementById('risk-donut').innerHTML = buildDonut(eq);
+      buildTrend(eq);
+
+      const worst = eq[0];
+      document.getElementById('ai-insight-text').textContent =
+        `${worst.id} (${worst.name}) มีแนวโน้ม wear สะสม ${worst.wear}% แนะนำให้ตรวจสอบภายใน ${worst.daysToMaintenance} วัน`;
+
+      document.getElementById('top-risk-list').innerHTML = eq.slice(0, 5).map(e =>
+        `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 4px;border-bottom:1px solid var(--border-soft);">
+          <div>
+            <div class="strong" style="font-weight:700;">${e.id}</div>
+            <div style="color:var(--text-2);font-size:11px;">Failure Prob: ${e.failureProb}% · ${e.daysToMaintenance} Days to maintenance</div>
+          </div>
+          <span class="badge ${riskBadgeClass[e.risk]}">${riskLabel[e.risk]}</span>
+        </div>`
+      ).join('');
+    });
+  })();
+  </script>
 </body>
 </html>
