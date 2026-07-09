@@ -85,7 +85,7 @@
             <a href="#" class="link">Forgot password?</a>
           </div>
 
-          <button class="btn-signin" onclick="sendPrompt && sendPrompt('Sign in clicked')">Sign In</button>
+          <button class="btn-signin" onclick="handleSignIn()">Sign In</button>
 
           <div class="divider">or continue with</div>
 
@@ -129,6 +129,18 @@
     function togglePwd(){
       const pwd = document.getElementById('password');
       pwd.type = pwd.type === 'password' ? 'text' : 'password';
+    }
+
+    // หมายเหตุ: นี่คือหน้า Login ระดับต้นแบบ (prototype) ยังไม่ได้ผูกกับระบบยืนยันตัวตนจริงฝั่ง backend
+    // แค่ตรวจสอบว่ากรอกอีเมล/รหัสผ่านครบแล้วพาไปหน้า Dashboard เพื่อให้ผู้ใช้ทดสอบ flow การนำทางได้ครบทุกหน้า
+    function handleSignIn(){
+      const email = document.getElementById('email').value.trim();
+      const pwd = document.getElementById('password').value.trim();
+      if (!email || !pwd) {
+        alert('กรุณากรอกอีเมลและรหัสผ่านก่อนเข้าสู่ระบบ');
+        return;
+      }
+      window.location.href = 'Dashboard.html';
     }
     </script>
 
