@@ -8,8 +8,8 @@ const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*", methods: ["GET", "POST"] } });
 const PORT = process.env.PORT || 3000;
 
-app.use(express.static(path.join(__dirname, 'public')));
-app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+app.use(express.static(path.join(__dirname, 'public'), { index: false }));
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'Login.html')));
 
 // ============================================================
 // ROOM STATE (single shared room — เหมือนเดิมทั้งระบบ)
