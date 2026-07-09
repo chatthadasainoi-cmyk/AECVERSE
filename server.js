@@ -16,6 +16,7 @@ const COLORS = ['#ff6b6b','#ffd93d','#6bcb77','#4d96ff','#c77dff','#ff9f43','#00
 let currentModelUrl = null;
 let currentModelName = null;
 const workflowDb = {}; // key -> { name, desc, steps, colorClass }
+const typeAssignments = {}; // key -> raw typeKey (เช่น 'tank','flare') สำหรับ PPE zone ของผู้เล่นที่เข้าห้องทีหลัง
 
 io.on('connection', socket => {
     console.log(`[+] ${socket.id}`);
@@ -33,7 +34,8 @@ io.on('connection', socket => {
         others: Object.values(players).filter(p=>p.id!==socket.id),
         modelUrl: currentModelUrl,
         modelName: currentModelName,
-        workflowDb: workflowDb
+        workflowDb: workflowDb,
+        typeAssignments: typeAssignments
     });
     socket.broadcast.emit('player_joined', player);
 
@@ -49,8 +51,19 @@ io.on('connection', socket => {
         console.log(`[MODEL] ${data.fileName}`);
     });
 
+    // ลบโมเดลออกจากฉาก — เคลียร์ state บน server แล้วแจ้งทุกคนในห้องให้ลบตามด้วย
+    socket.on('model_removed', () => {
+        currentModelUrl = null;
+        currentModelName = null;
+        io.emit('model_removed');
+        console.log(`[MODEL] Removed by ${socket.id}`);
+    });
+
     socket.on('workflow_update', data => {
         workflowDb[data.key] = { name:data.name, desc:data.desc, steps:data.steps, colorClass:data.colorClass||'tag-blue' };
+        if (data.assignedTypeKey) {
+            typeAssignments[data.key] = data.assignedTypeKey;
+        }
         socket.broadcast.emit('workflow_updated', data);
         console.log(`[WORKFLOW] key:${data.key} name:${data.name}`);
     });
