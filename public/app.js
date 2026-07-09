@@ -2385,19 +2385,17 @@ window.deleteCurrentModel = async function() {
     trySetup();
 })();
 
-// แสดงปุ่ม "ลบโมเดล" ทุกครั้งที่มีโมเดลโหลดสำเร็จ (คลุมทุกช่องทาง: อัปโหลดเอง/โหลดจาก Cloud/โหลดจากไฟล์เซฟ)
-function showDeleteModelButton() {
+// แสดง/ซ่อนปุ่ม "ลบโมเดล" ให้ตรงกับสถานะจริงเสมอ — ใช้ polling แทนการ wrap function
+// เพื่อไม่ให้พลาดไม่ว่าโมเดลจะถูกโหลดจากช่องทางไหนก็ตาม (อัปโหลดเอง/Cloud/ไฟล์เซฟ)
+setInterval(() => {
     const btn = document.getElementById('btn-delete-model');
-    if (btn) btn.style.display = 'block';
-}
-
-// Hook เข้ากับจุดที่โมเดลโหลดสำเร็จทั้งหมด โดย wrap buildColliders (ถูกเรียกทุกครั้งหลังโหลดโมเดลสำเร็จอยู่แล้ว)
-buildColliders = (function(origFn) {
-    return function() {
-        origFn();
-        if (factoryModel) showDeleteModelButton();
-    };
-})(buildColliders);
+    if (!btn) return;
+    const shouldShow = !!factoryModel;
+    const isShown = btn.style.display !== 'none';
+    if (shouldShow !== isShown) {
+        btn.style.display = shouldShow ? 'block' : 'none';
+    }
+}, 500);
 
 // ============================================================
 // END DELETE MODEL SYSTEM
