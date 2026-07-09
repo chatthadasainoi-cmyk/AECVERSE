@@ -2294,3 +2294,111 @@ document.getElementById('scene-load-input')?.addEventListener('change', function
 // ============================================================
 // END SAVE / LOAD SCENE SYSTEM (v3)
 // ============================================================
+
+// ============================================================
+// DELETE MODEL SYSTEM — ลบโมเดลที่แสดงอยู่ออกจากฉาก
+// ลบทั้งในเครื่องตัวเอง + แจ้งผู้เล่นอื่นให้ลบตาม + ลบไฟล์จริงออกจาก Supabase Storage
+// ============================================================
+
+// ดึงชื่อไฟล์บน Supabase จาก public URL (path segment สุดท้าย) เพื่อใช้ตอนสั่งลบ
+function extractSupabaseFileName(url) {
+    if (!url) return null;
+    try {
+        const parts = url.split('/');
+        return decodeURIComponent(parts[parts.length - 1]);
+    } catch (e) { return null; }
+}
+
+async function deleteFromSupabaseStorage(fileUrl) {
+    const fileName = extractSupabaseFileName(fileUrl);
+    if (!fileName) return;
+    try {
+        await fetch(`${SUPABASE_URL}/storage/v1/object/${SUPABASE_BUCKET}/${fileName}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${SUPABASE_ANON_KEY}` }
+        });
+        console.log(`[SUPABASE] ลบไฟล์ ${fileName} ออกจาก Storage แล้ว`);
+    } catch (err) {
+        console.warn('ลบไฟล์ออกจาก Supabase Storage ไม่สำเร็จ (ไม่กระทบการใช้งานต่อ):', err);
+    }
+}
+
+// เคลียร์โมเดลออกจากฉากในเครื่องนี้ — ใช้ทั้งฝั่งกดลบเองและฝั่งรับแจ้งจากผู้เล่นอื่น
+function clearFactoryModelFromScene() {
+    if (factoryModel) {
+        scene.remove(factoryModel);
+        factoryModel = null;
+    }
+    originalMaterials.clear();
+    factoryColliders = [];
+
+    document.getElementById('mesh-container').innerHTML = '';
+    document.getElementById('model-meta').innerHTML = '';
+    document.getElementById('details-panel').style.display = 'none';
+    document.getElementById('process-panel').style.display = 'none';
+    document.getElementById('factory-status').innerText = 'สถานะ: รอการอัปโหลดโมเดล...';
+    document.getElementById('btn-delete-model').style.display = 'none';
+
+    activeSelectedMeshUUID = null;
+    activeSelectedKeyKey = 'default';
+
+    if (typeof buildProximityTags === 'function') buildProximityTags();
+    if (typeof buildPPEZones === 'function') buildPPEZones();
+}
+
+window.deleteCurrentModel = async function() {
+    if (!factoryModel && !currentSceneModelUrl) {
+        mpAppendChat({ name:'ระบบ', color:'#ef4444', text:'ยังไม่มีโมเดลในฉากให้ลบ' });
+        return;
+    }
+    const urlToDelete = currentSceneModelUrl;
+
+    clearFactoryModelFromScene();
+    currentSceneModelUrl = null;
+    currentSceneModelName = null;
+    currentModelRawBuffer = null;
+    currentModelRawFileName = null;
+
+    // แจ้งผู้เล่นคนอื่นในห้องให้ลบตามทันที
+    if (typeof mpSocket !== 'undefined' && mpSocket && mpSocket.connected) {
+        mpSocket.emit('model_removed');
+    }
+    mpAppendChat({ name:'🗑️ ระบบ', color:'#ef4444', text:'ลบโมเดลออกจากฉากแล้ว' });
+
+    // ลบไฟล์จริงออกจาก Supabase Storage ด้วย (best-effort, ไม่บล็อก UI)
+    if (urlToDelete) deleteFromSupabaseStorage(urlToDelete);
+};
+
+// รับแจ้งจากผู้เล่นคนอื่นว่าโมเดลถูกลบ — เคลียร์ฉากตามให้ตรงกัน
+(function hookModelRemovedReceiver() {
+    const trySetup = () => {
+        if (typeof mpSocket === 'undefined' || !mpSocket) { setTimeout(trySetup, 300); return; }
+        mpSocket.on('model_removed', () => {
+            clearFactoryModelFromScene();
+            currentSceneModelUrl = null;
+            currentSceneModelName = null;
+            currentModelRawBuffer = null;
+            currentModelRawFileName = null;
+            mpAppendChat({ name:'🗑️ ระบบ', color:'#ef4444', text:'ผู้เล่นอื่นลบโมเดลออกจากฉากแล้ว' });
+        });
+    };
+    trySetup();
+})();
+
+// แสดงปุ่ม "ลบโมเดล" ทุกครั้งที่มีโมเดลโหลดสำเร็จ (คลุมทุกช่องทาง: อัปโหลดเอง/โหลดจาก Cloud/โหลดจากไฟล์เซฟ)
+function showDeleteModelButton() {
+    const btn = document.getElementById('btn-delete-model');
+    if (btn) btn.style.display = 'block';
+}
+
+// Hook เข้ากับจุดที่โมเดลโหลดสำเร็จทั้งหมด โดย wrap buildColliders (ถูกเรียกทุกครั้งหลังโหลดโมเดลสำเร็จอยู่แล้ว)
+buildColliders = (function(origFn) {
+    return function() {
+        origFn();
+        if (factoryModel) showDeleteModelButton();
+    };
+})(buildColliders);
+
+// ============================================================
+// END DELETE MODEL SYSTEM
+// ============================================================
