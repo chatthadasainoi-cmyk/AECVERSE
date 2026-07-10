@@ -179,14 +179,14 @@
       </div>
 
       <h1>Verify Your Email</h1>
-      <p class="sub">เราได้ส่งรหัสยืนยัน 8 หลักไปที่ <span class="email" id="emailDisplay">-</span><br>กรุณากรอกรหัสเพื่อยืนยันบัญชีของคุณ</p>
+      <p class="sub">เราได้ส่งรหัสยืนยัน 6 หลักไปที่ <span class="email" id="emailDisplay">-</span><br>กรุณากรอกรหัสเพื่อยืนยันบัญชีของคุณ</p>
 
       <div id="otpError" class="auth-error" style="display:none;"></div>
       <div id="otpSuccess" class="auth-success" style="display:none;"></div>
 
       <div class="field">
         <label for="otpInput">รหัสยืนยัน (OTP)</label>
-        <input id="otpInput" type="text" inputmode="numeric" maxlength="8" placeholder="000000">
+        <input id="otpInput" type="text" inputmode="numeric" maxlength="6" placeholder="000000">
       </div>
 
       <button class="btn-verify" id="verifyBtn" onclick="handleVerify()">Verify</button>
