@@ -597,7 +597,9 @@
 
     function showError(msg){
       const el = document.getElementById('loginError');
-      el.textContent = msg;
+      el.textContent = (typeof msg === 'string' && msg.trim() && msg.trim() !== '{}')
+        ? msg
+        : 'เกิดข้อผิดพลาดจากระบบ กรุณาลองใหม่อีกครั้ง (Supabase อาจกำลังมีปัญหาชั่วคราว)';
       el.style.display = 'block';
     }
 
@@ -613,30 +615,38 @@
       btn.disabled = true;
       btn.textContent = 'กำลังเข้าสู่ระบบ...';
 
-      const { error } = await supabaseClient.auth.signInWithPassword({ email, password: pwd });
+      try {
+        const { error } = await supabaseClient.auth.signInWithPassword({ email, password: pwd });
 
-      if (error) {
-        btn.disabled = false;
-        btn.textContent = 'Sign In';
-        if (error.message.includes('Email not confirmed')) {
-          window.location.href = 'VerifyOtp.html?email=' + encodeURIComponent(email);
+        if (error) {
+          const msg = error.message || '';
+          if (msg.includes('Email not confirmed')) {
+            window.location.href = 'VerifyOtp.html?email=' + encodeURIComponent(email);
+            return;
+          }
+          showError(msg === 'Invalid login credentials' ? 'อีเมลหรือรหัสผ่านไม่ถูกต้อง' : msg);
           return;
         }
-        showError(error.message === 'Invalid login credentials'
-          ? 'อีเมลหรือรหัสผ่านไม่ถูกต้อง'
-          : error.message);
-        return;
-      }
 
-      window.location.href = 'Dashboard.html';
+        window.location.href = 'Dashboard.html';
+      } catch (err) {
+        showError(err && err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Sign In';
+      }
     }
 
     async function handleOAuth(provider){
-      const { error } = await supabaseClient.auth.signInWithOAuth({
-        provider,
-        options: { redirectTo: window.location.origin + '/Dashboard.html' }
-      });
-      if (error) showError(error.message);
+      try {
+        const { error } = await supabaseClient.auth.signInWithOAuth({
+          provider,
+          options: { redirectTo: window.location.origin + '/Dashboard.html' }
+        });
+        if (error) showError(error.message);
+      } catch (err) {
+        showError(err && err.message);
+      }
     }
     </script>
 

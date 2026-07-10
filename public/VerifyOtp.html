@@ -204,7 +204,9 @@
     function showError(msg){
       document.getElementById('otpSuccess').style.display = 'none';
       const el = document.getElementById('otpError');
-      el.textContent = msg;
+      el.textContent = (typeof msg === 'string' && msg.trim() && msg.trim() !== '{}')
+        ? msg
+        : 'เกิดข้อผิดพลาดจากระบบ กรุณาลองใหม่อีกครั้ง (Supabase อาจกำลังมีปัญหาชั่วคราว)';
       el.style.display = 'block';
     }
 
@@ -230,18 +232,22 @@
       btn.disabled = true;
       btn.textContent = 'กำลังยืนยัน...';
 
-      const { error } = await supabaseClient.auth.verifyOtp({ email, token, type: 'signup' });
+      try {
+        const { error } = await supabaseClient.auth.verifyOtp({ email, token, type: 'signup' });
 
-      btn.disabled = false;
-      btn.textContent = 'Verify';
+        if (error) {
+          showError(error.message);
+          return;
+        }
 
-      if (error) {
-        showError(error.message);
-        return;
+        showSuccess('ยืนยันสำเร็จ! กำลังพาไปหน้า Dashboard...');
+        setTimeout(() => { window.location.href = 'Dashboard.html'; }, 1200);
+      } catch (err) {
+        showError(err && err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Verify';
       }
-
-      showSuccess('ยืนยันสำเร็จ! กำลังพาไปหน้า Dashboard...');
-      setTimeout(() => { window.location.href = 'Dashboard.html'; }, 1200);
     }
 
     async function handleResend(){
@@ -252,12 +258,16 @@
       const btn = document.getElementById('resendBtn');
       btn.disabled = true;
 
-      const { error } = await supabaseClient.auth.resend({ type: 'signup', email });
+      try {
+        const { error } = await supabaseClient.auth.resend({ type: 'signup', email });
 
-      if (error) {
-        showError(error.message);
-      } else {
-        showSuccess('ส่งรหัสใหม่แล้ว กรุณาตรวจสอบอีเมลของคุณ');
+        if (error) {
+          showError(error.message);
+        } else {
+          showSuccess('ส่งรหัสใหม่แล้ว กรุณาตรวจสอบอีเมลของคุณ');
+        }
+      } catch (err) {
+        showError(err && err.message);
       }
 
       setTimeout(() => { btn.disabled = false; }, 15000);

@@ -583,7 +583,9 @@
     function showError(msg){
       const el = document.getElementById('signupError');
       el.className = 'auth-error';
-      el.textContent = msg;
+      el.textContent = (typeof msg === 'string' && msg.trim() && msg.trim() !== '{}')
+        ? msg
+        : 'เกิดข้อผิดพลาดจากระบบ กรุณาลองใหม่อีกครั้ง (Supabase อาจกำลังมีปัญหาชั่วคราว)';
       el.style.display = 'block';
     }
 
@@ -609,25 +611,33 @@
       btn.disabled = true;
       btn.textContent = 'กำลังสร้างบัญชี...';
 
-      const { error } = await supabaseClient.auth.signUp({ email, password: pwd });
+      try {
+        const { error } = await supabaseClient.auth.signUp({ email, password: pwd });
 
-      btn.disabled = false;
-      btn.textContent = 'Create Account';
+        if (error) {
+          showError(error.message);
+          return;
+        }
 
-      if (error) {
-        showError(error.message);
-        return;
+        window.location.href = 'VerifyOtp.html?email=' + encodeURIComponent(email);
+      } catch (err) {
+        showError(err && err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Create Account';
       }
-
-      window.location.href = 'VerifyOtp.html?email=' + encodeURIComponent(email);
     }
 
     async function handleOAuth(provider){
-      const { error } = await supabaseClient.auth.signInWithOAuth({
-        provider,
-        options: { redirectTo: window.location.origin + '/Dashboard.html' }
-      });
-      if (error) showError(error.message);
+      try {
+        const { error } = await supabaseClient.auth.signInWithOAuth({
+          provider,
+          options: { redirectTo: window.location.origin + '/Dashboard.html' }
+        });
+        if (error) showError(error.message);
+      } catch (err) {
+        showError(err && err.message);
+      }
     }
     </script>
 
