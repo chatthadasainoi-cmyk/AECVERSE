@@ -550,7 +550,7 @@
 
           <div class="row-between">
             <label class="remember"><input type="checkbox" checked> Remember me</label>
-            <a href="#" class="link">Forgot password?</a>
+            <a href="ForgotPassword.html" class="link">Forgot password?</a>
           </div>
 
           <button class="btn-signin" id="signInBtn" onclick="handleSignIn()">Sign In</button>
@@ -620,10 +620,6 @@
 
         if (error) {
           const msg = error.message || '';
-          if (msg.includes('Email not confirmed')) {
-            window.location.href = 'VerifyOtp.html?email=' + encodeURIComponent(email);
-            return;
-          }
           showError(msg === 'Invalid login credentials' ? 'อีเมลหรือรหัสผ่านไม่ถูกต้อง' : msg);
           return;
         }
