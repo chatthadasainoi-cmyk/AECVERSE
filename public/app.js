@@ -1123,12 +1123,12 @@ SLIDER_IDS.forEach(id => {
 });
 
 // เปิด/ปิดการใช้งาน slider ให้ตรงกับสิทธิ์ปัจจุบันเสมอ (เรียกทุกครั้งที่สถานะ admin/lock เปลี่ยน)
+// สิทธิ์ admin มาจากบัญชีที่ล็อกอิน (server ตรวจให้ตอนเชื่อมต่อ) — ไม่มีช่องกรอกรหัสผ่านอีกแล้ว
 function refreshTransformUiPermissions() {
     const canEdit = isAdmin && !modelLocked;
     SLIDER_IDS.forEach(id => { const el = $(id); if (el) el.disabled = !canEdit; });
 
-    const loginRow = $('admin-login-row'), statusRow = $('admin-status-row');
-    if (loginRow) loginRow.style.display = isAdmin ? 'none' : 'flex';
+    const statusRow = $('admin-status-row');
     if (statusRow) statusRow.style.display = isAdmin ? 'flex' : 'none';
 
     const lockBtn = $('btn-toggle-lock');
@@ -1142,36 +1142,19 @@ function refreshTransformUiPermissions() {
     const badge = $('lock-status-badge');
     if (badge) {
         if (modelLocked) {
-            badge.innerText = '🔒 โมเดลถูกล็อกไว้ — เฉพาะ Admin เท่านั้นที่ปลดล็อกได้';
+            badge.innerText = isAdmin
+                ? '🔒 โมเดลถูกล็อกไว้ — กดปลดล็อกด้านล่างเพื่อปรับตำแหน่ง'
+                : '🔒 โมเดลถูกล็อกไว้ — ปรับได้เฉพาะบัญชีที่เป็น Admin';
             badge.style.background = 'rgba(239,68,68,0.12)'; badge.style.color = '#ef4444'; badge.style.border = '1px solid rgba(239,68,68,0.3)';
         } else {
-            badge.innerText = '🔓 โมเดลปลดล็อกอยู่ — Admin กำลังปรับตำแหน่ง';
+            badge.innerText = isAdmin
+                ? '🔓 โมเดลปลดล็อกอยู่ — คุณปรับตำแหน่งได้ ทุกคนเห็นแบบเรียลไทม์'
+                : '🔓 Admin กำลังปรับตำแหน่งโมเดล — การเปลี่ยนแปลงแสดงแบบเรียลไทม์';
             badge.style.background = 'rgba(34,197,94,0.12)'; badge.style.color = '#22c55e'; badge.style.border = '1px solid rgba(34,197,94,0.3)';
         }
     }
 }
 
-window.adminLogin = function () {
-    const pw = $('admin-password-input').value;
-    if (!mpSocket || !mpSocket.connected) { mpAppendChat({ name: 'ระบบ', color: '#ef4444', text: 'ยังไม่ได้เชื่อมต่อเซิร์ฟเวอร์ ลองใหม่อีกครั้ง' }); return; }
-    mpSocket.emit('admin_login', pw, (res) => {
-        $('admin-password-input').value = '';
-        if (res && res.success) {
-            isAdmin = true;
-            modelLocked = !!res.modelLocked;
-            if (res.modelTransform) applyTransform(res.modelTransform);
-            refreshTransformUiPermissions();
-            mpAppendChat({ name: '🔑 ระบบ', color: '#22c55e', text: 'เข้าสู่โหมด Admin สำเร็จ — ตอนนี้คุณปรับตำแหน่งโมเดลได้ (หลังปลดล็อก)' });
-        } else {
-            mpAppendChat({ name: '🔑 ระบบ', color: '#ef4444', text: 'รหัสผ่าน Admin ไม่ถูกต้อง' });
-        }
-    });
-};
-window.adminLogout = function () {
-    isAdmin = false;
-    if (mpSocket && mpSocket.connected) mpSocket.emit('admin_logout');
-    refreshTransformUiPermissions();
-};
 window.toggleModelLock = function () {
     if (!isAdmin || !mpSocket || !mpSocket.connected) return;
     mpSocket.emit('toggle_lock');
@@ -1255,12 +1238,7 @@ function mpAppendChat(msg) {
     d.appendChild(document.createTextNode(msg.text));
     log.appendChild(d); log.scrollTop = log.scrollHeight;
 }
-window.setMyName = function () {
-    const v = $('mp-name-input').value.trim();
-    if (!v || !mpSocket) return;
-    mpSocket.emit('set_name', v);
-    mpPlayerNames[mpMyId] = v; updateMpUI();
-};
+// ชื่อผู้เล่นล็อกตามบัญชีที่ล็อกอิน — ไม่มี setMyName/set_name อีกต่อไป
 window.sendChat = function () {
     const inp = $('mp-chat-input');
     const text = inp.value.trim();
@@ -1268,33 +1246,64 @@ window.sendChat = function () {
     mpSocket.emit('chat_message', text); inp.value = '';
 };
 $('mp-chat-input')?.addEventListener('keydown', e => { if (e.key === 'Enter') window.sendChat(); });
-$('mp-name-input')?.addEventListener('keydown', e => { if (e.key === 'Enter') window.setMyName(); });
 
-function initMultiplayer() {
+async function initMultiplayer() {
     const dot = $('mp-dot'), txt = $('mp-status-text');
     if (typeof io === 'undefined') { txt.innerText = 'Single Player mode'; return; }
 
+    // ตัวตนผูกกับบัญชี Supabase: ดึง access token จาก session ที่ล็อกอินไว้
+    // (session เก็บใน localStorage ของ origin เดียวกัน — หน้า Login เป็นคนสร้างให้)
+    let token = null;
+    if (window.supabase && typeof window.supabase.createClient === 'function') {
+        try {
+            const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            const { data: { session } } = await sb.auth.getSession();
+            if (session) token = session.access_token;
+        } catch (err) { console.warn('อ่าน session ไม่สำเร็จ:', err); }
+    }
+    // โหมดผู้เล่น (ไม่ใช่ viewer ใน iframe) ต้องล็อกอินก่อนเสมอ — ชื่อ/ตัวละครมาจากบัญชี
+    if (!token && !VIEWER_MODE) { window.location.href = 'Login.html'; return; }
+
     const SERVER = window.RAILWAY_SERVER_URL || window.location.origin;
-    mpSocket = io(SERVER, { transports: ['websocket', 'polling'] });
+    mpSocket = io(SERVER, {
+        transports: ['websocket', 'polling'],
+        auth: { token, role: VIEWER_MODE ? 'watcher' : 'player' }
+    });
 
     mpSocket.on('connect', () => { dot.style.background = '#22c55e'; txt.innerText = 'เชื่อมต่อแล้ว ✓'; });
     mpSocket.on('disconnect', () => { dot.style.background = '#ef4444'; txt.innerText = 'การเชื่อมต่อขาด...'; });
+    mpSocket.on('connect_error', err => {
+        if (err && err.message === 'AUTH_REQUIRED' && !VIEWER_MODE) { window.location.href = 'Login.html'; return; }
+        dot.style.background = '#ef4444'; txt.innerText = 'เชื่อมต่อไม่สำเร็จ...';
+    });
+    // บัญชีเดียวกันเปิดแท็บใหม่ -> server เตะ connection เก่า (ตัวนี้) ออก
+    mpSocket.on('kicked_duplicate', () => {
+        txt.innerText = 'บัญชีนี้เข้าใช้งานจากแท็บ/อุปกรณ์อื่นแล้ว';
+        mpAppendChat({ name: 'ระบบ', color: '#f59e0b', text: '⚠️ บัญชีนี้เชื่อมต่อจากที่อื่น — การเชื่อมต่อนี้ถูกปิด' });
+    });
 
     mpSocket.on('self_init', data => {
-        mpMyId = data.self.id;
-        mpMyColor = data.self.color;
-        mpPlayerNames[mpMyId] = data.self.name;
-        mpPlayerColors[mpMyId] = mpMyColor;
-        $('mp-name-input').value = data.self.name;
-        if (avatarModel) avatarModel.position.set(data.self.position.x, data.self.position.y, data.self.position.z);
-        if (!VIEWER_MODE) data.others.forEach(p => addRemote(p));
-
+        // ส่วนที่ทุก connection ได้รับ (ทั้ง player และ watcher): state กลางของห้อง
         if (data.workflowDb) Object.assign(workflowDatabase, data.workflowDb);
         if (data.typeAssignments) Object.assign(userDefinedTypes, data.typeAssignments);
         modelLocked = data.modelLocked !== undefined ? data.modelLocked : true;
-        isAdmin = false;
+        isAdmin = !!data.isAdmin; // สิทธิ์ admin ตรวจจากบัญชีโดย server — ไม่มีรหัสผ่านแยกแล้ว
         refreshTransformUiPermissions();
         updateMpAdminBadge(data.adminCount || 0);
+
+        // ส่วนเฉพาะ player: ข้อมูลตัวละครของตัวเอง (watcher ได้ self เป็น null)
+        if (data.self) {
+            mpMyId = data.self.id;
+            mpMyColor = data.self.color;
+            mpPlayerNames[mpMyId] = data.self.name;
+            mpPlayerColors[mpMyId] = mpMyColor;
+            if (avatarModel) {
+                avatarModel.position.set(data.self.position.x, data.self.position.y, data.self.position.z);
+                setAvatarLabel(avatarModel, data.self.name, data.self.color); // ป้ายชื่อตามบัญชีเหนือหัวตัวเอง
+            }
+            if (!VIEWER_MODE) data.others.forEach(p => addRemote(p));
+            mpAppendChat({ name: 'ระบบ', color: '#22c55e', text: `เข้าสู่โลกในชื่อ "${data.self.name}" (ตามบัญชีของคุณ)` });
+        }
 
         if (data.modelUrl) loadModelFromUrl(data.modelUrl, data.modelName, data.modelTransform);
         updateMpUI();
@@ -1311,11 +1320,6 @@ function initMultiplayer() {
         if (!remoteTargets[data.id]) remoteTargets[data.id] = { pos: new THREE.Vector3(), rotY: 0 };
         remoteTargets[data.id].pos.set(data.position.x, data.position.y, data.position.z);
         remoteTargets[data.id].rotY = data.rotation?.y || 0;
-    });
-    mpSocket.on('player_renamed', data => {
-        mpPlayerNames[data.id] = data.name;
-        if (remoteAvatars[data.id]) setAvatarLabel(remoteAvatars[data.id], data.name, mpPlayerColors[data.id] || '#fff');
-        updateMpUI();
     });
     mpSocket.on('load_model', data => {
         mpAppendChat({ name: 'ระบบ', color: '#00ffff', text: `📦 โมเดลใหม่: ${data.fileName}` });
