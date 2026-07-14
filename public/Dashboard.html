@@ -8,6 +8,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 <script>window.RAILWAY_SERVER_URL = "https://aecmultiplayertest-production.up.railway.app";</script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="supabaseClient.js"></script>
 <style>
 /* ==================== AEC VERSE — shared design system ==================== */
 :root{
@@ -332,7 +334,7 @@ tbody td.strong{color:var(--text-0);font-weight:600;}
         <div class="icon-btn">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
         </div>
-        <div class="user-chip" style="cursor:pointer;" onclick="location.href='Login.html'" title="บัญชีผู้ใช้ / ออกจากระบบ">
+        <div class="user-chip" style="cursor:pointer;" onclick="handleLogout()" title="บัญชีผู้ใช้ / ออกจากระบบ">
           <div class="avatar">SY</div>
           <div>
             <div class="u-name">สมปอง ยิ้ม</div>
@@ -466,6 +468,11 @@ tbody td.strong{color:var(--text-0);font-weight:600;}
       }).join('');
     });
   })();
+
+  async function handleLogout(){
+    await supabaseClient.auth.signOut();
+    window.location.href = 'Login.html';
+  }
   </script>
 </body>
 </html>
