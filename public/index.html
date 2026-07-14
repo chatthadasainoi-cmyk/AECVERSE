@@ -3,7 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Biogas Twin - Interactive Safety Metaverse</title>
+    <title>AEC VERSE — Digital Twin 3D Viewer</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
 
     <!-- Three.js Libraries -->
@@ -26,53 +28,76 @@
 
   <!-- LEFT COLUMN: model upload + transform tools -->
   <div id="left-col" class="side-col">
-    <!-- แถบแท็บ: สลับดูทีละแผง แทนการกองซ้อนกันทั้ง 3 แผงพร้อมกัน -->
+    <!-- แถบแท็บ: สลับดูทีละแผง แทนการกองซ้อนกันทั้งหมดพร้อมกัน -->
     <div class="side-tabs" id="left-tabs">
-        <div class="side-tab" data-target="dashboard">📦 โมเดล</div>
-        <div class="side-tab" data-target="transform-panel">🛠️ ปรับตำแหน่ง</div>
+        <div class="side-tab" data-target="dashboard">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l9 5v10l-9 5-9-5V7l9-5z"/><path d="M3 7l9 5 9-5M12 12v10"/></svg>
+            โมเดล
+        </div>
+        <div class="side-tab" data-target="transform-panel">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
+            ปรับแต่ง
+        </div>
     </div>
 
     <!-- แผงซ้าย: อัปโหลดโมเดลโรงงานหลัก -->
     <div id="dashboard" class="panel">
-        <h3>⚡ Biogas Digital Twin</h3>
+        <div class="panel-head">
+            <h3><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l9 5v10l-9 5-9-5V7l9-5z"/><path d="M3 7l9 5 9-5M12 12v10"/></svg>โมเดลโรงงาน</h3>
+            <span class="panel-sub">Biogas Digital Twin</span>
+        </div>
+
         <div class="upload-section">
-            <label class="section-label">โมเดลโรงงานจำลอง (Factory Plant)</label>
+            <label class="section-label">อัปโหลดโมเดล 3D</label>
             <div class="upload-btn-wrapper">
-                <button class="btn">🏭 อัปโหลดไฟล์โมเดล (.gltf / .glb / .fbx)</button>
+                <button class="btn">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><path d="M17 8l-5-5-5 5M12 3v12"/></svg>
+                    เลือกไฟล์ .gltf / .glb / .fbx
+                </button>
                 <input type="file" id="factory-input" class="file-input" multiple accept=".gltf,.glb,.fbx,.jpg,.png" />
             </div>
             <div id="factory-status" class="status-msg">สถานะ: รอการอัปโหลดโมเดล...</div>
         </div>
 
-        <div style="margin-top: 15px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 12px;">
-            <label class="section-label">💾 เซฟ / โหลดฉาก (บันทึกตัวโมเดล + ข้อมูลทุกชิ้นส่วน)</label>
-            <button class="panel-action-btn btn-save" style="width: 100%; padding: 10px; margin-bottom: 8px;" onclick="saveScene()">💾 บันทึกฉากทั้งหมด (.zip)</button>
-            <div style="position: relative;">
-                <button class="panel-action-btn" style="width: 100%; padding: 10px; background:rgba(56,189,248,0.1); border-color:#38bdf8; color:#38bdf8;">📂 โหลดฉากที่บันทึกไว้ (.zip)</button>
-                <input type="file" id="scene-load-input" accept=".zip" class="file-input" style="cursor:pointer;" />
-            </div>
-            <div id="scene-save-status" class="status-msg" style="margin-top:6px;"></div>
+        <div class="hr"></div>
+
+        <label class="section-label">เซฟ / โหลดฉาก</label>
+        <button class="panel-action-btn btn-save action-block" style="margin-bottom: 8px;" onclick="saveScene()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>
+            บันทึกฉากทั้งหมด (.zip)
+        </button>
+        <div class="upload-btn-wrapper">
+            <button class="panel-action-btn btn-load action-block">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+                โหลดฉากที่บันทึกไว้ (.zip)
+            </button>
+            <input type="file" id="scene-load-input" accept=".zip" class="file-input" style="cursor:pointer;" />
         </div>
+        <div id="scene-save-status" class="status-msg"></div>
+        <div class="hint-text">ไฟล์เซฟเก็บทั้งตัวโมเดลและข้อมูลความปลอดภัยของทุกชิ้นส่วน</div>
     </div>
 
     <!-- แผงปรับตำแหน่งโมเดลโรงงาน -->
     <div id="transform-panel" class="panel" style="display: none;">
-        <h4 style="margin-bottom: 12px;">🛠️ เครื่องมือปรับตำแหน่งวัตถุ</h4>
+        <div class="panel-head">
+            <h3><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>เครื่องมือปรับตำแหน่ง</h3>
+            <span class="panel-sub">Transform Tools</span>
+        </div>
 
         <!-- REQ 1&2: Admin auth + Lock — เฉพาะ Admin ที่ปลดล็อกแล้วเท่านั้นที่ปรับ slider ด้านล่างได้ -->
-        <div id="admin-auth-section" style="margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.1);">
-            <label class="section-label">🔑 โหมดผู้ดูแลระบบ (Admin)</label>
+        <div id="admin-auth-section" style="margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border-soft);">
+            <label class="section-label">โหมดผู้ดูแลระบบ (Admin)</label>
             <div id="admin-login-row" style="display:flex; gap:6px;">
                 <input type="password" id="admin-password-input" class="ui-edit-input" placeholder="รหัสผ่าน Admin" style="flex:1;">
                 <button class="panel-action-btn btn-save" onclick="adminLogin()" style="white-space:nowrap;">เข้าสู่ระบบ</button>
             </div>
             <div id="admin-status-row" style="display:none; align-items:center; justify-content:space-between; gap:8px;">
-                <span style="color:#22c55e; font-size:12px;">✅ คุณคือ Admin</span>
+                <span style="color:var(--green); font-size:12px; font-weight:600;">✓ คุณคือ Admin</span>
                 <button class="panel-action-btn" onclick="adminLogout()" style="font-size:11px;">ออกจากโหมด Admin</button>
             </div>
-            <div id="lock-status-badge" style="margin-top:8px; font-size:11.5px; padding:6px 10px; border-radius:6px; text-align:center;"></div>
-            <button id="btn-toggle-lock" class="panel-action-btn" onclick="toggleModelLock()" style="width:100%; margin-top:8px; display:none;"></button>
-            <div style="font-size:10.5px; color:#64748b; margin-top:6px;">ผู้ใช้ทั่วไปจะเห็นตำแหน่งโมเดลแบบอ่านอย่างเดียว ปรับได้เฉพาะ Admin ที่ปลดล็อกไว้เท่านั้น</div>
+            <div id="lock-status-badge" style="margin-top:8px; font-size:11px; padding:7px 10px; border-radius:7px; text-align:center; font-weight:600;"></div>
+            <button id="btn-toggle-lock" class="panel-action-btn action-block" onclick="toggleModelLock()" style="margin-top:8px; display:none;"></button>
+            <div class="hint-text">ผู้ใช้ทั่วไปจะเห็นตำแหน่งโมเดลแบบอ่านอย่างเดียว ปรับได้เฉพาะ Admin ที่ปลดล็อกไว้เท่านั้น</div>
         </div>
 
         <div class="control-group">
@@ -113,8 +138,10 @@
             </div>
         </div>
 
-        <div class="control-group" style="margin-top: 10px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 8px;">
-            <label style="color:#00ffff; font-weight: bold; margin-bottom: 6px;">👁️ โหมดโครงสร้างพื้นผิว</label>
+        <div class="hr"></div>
+
+        <div class="control-group">
+            <label class="section-label" style="margin-bottom:7px;">โหมดโครงสร้างพื้นผิว</label>
             <div class="mode-container">
                 <button id="mode-solid" class="mode-btn active" onclick="setFactoryMaterialMode('solid')">Solid</button>
                 <button id="mode-wireframe" class="mode-btn" onclick="setFactoryMaterialMode('wireframe')">Wireframe</button>
@@ -122,20 +149,20 @@
             </div>
         </div>
 
-        <div class="control-group" style="margin-top: 12px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 10px;">
-            <button id="btn-delete-model" class="panel-action-btn" onclick="deleteCurrentModel()"
-                style="width:100%; padding:8px; background:rgba(239,68,68,0.1); border-color:#ef4444; color:#ef4444; display:none;">
-                🗑️ ลบโมเดลออกจากฉาก
+        <div class="control-group" style="margin-top: 12px;">
+            <button id="btn-delete-model" class="panel-action-btn btn-danger-outline action-block" onclick="deleteCurrentModel()" style="display:none;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg>
+                ลบโมเดลออกจากฉาก
             </button>
         </div>
     </div>
 
-    <!-- MULTIPLAYER PANEL -->
+    <!-- MULTIPLAYER PANEL (ซ่อนด้วย CSS — คง element ไว้ให้ app.js อ้างอิง) -->
     <div id="multiplayer-panel" class="panel">
-        <h3 style="margin-bottom: 10px;">🌐 Multiplayer</h3>
+        <h3 style="margin-bottom: 10px;">Multiplayer</h3>
 
-        <div id="mp-status" style="display:flex; align-items:center; gap:6px; margin-bottom:10px; font-size:12px; color:#64748b;">
-            <span id="mp-dot" style="width:8px;height:8px;border-radius:50%;background:#64748b;display:inline-block;"></span>
+        <div id="mp-status" style="display:flex; align-items:center; gap:6px; margin-bottom:10px; font-size:12px; color:var(--text-2);">
+            <span id="mp-dot" style="width:8px;height:8px;border-radius:50%;background:var(--text-2);display:inline-block;"></span>
             <span id="mp-status-text">กำลังเชื่อมต่อ...</span>
             <span style="margin-left:auto;">👑 Admin: <span id="mp-admin-count">0</span></span>
         </div>
@@ -155,7 +182,7 @@
 
         <div style="margin-top:10px;">
             <label class="section-label">แชท</label>
-            <div id="mp-chat-log" style="max-height:100px;overflow-y:auto;background:rgba(0,0,0,0.25);border-radius:6px;padding:6px;margin-bottom:6px;font-size:11px;font-family:monospace;"></div>
+            <div id="mp-chat-log" style="max-height:100px;overflow-y:auto;background:var(--panel-2);border-radius:6px;padding:6px;margin-bottom:6px;font-size:11px;font-family:monospace;"></div>
             <div style="display:flex;gap:6px;">
                 <input type="text" id="mp-chat-input" class="ui-edit-input" placeholder="พิมพ์ข้อความ..." style="flex:1;" maxlength="200">
                 <button class="panel-action-btn" onclick="sendChat()" style="white-space:nowrap;">ส่ง</button>
@@ -167,48 +194,56 @@
   <!-- CENTER COLUMN: pure 3D viewport + HUD strip underneath -->
   <div id="center-col">
     <div id="canvas-container">
+
+        <!-- empty state — ซ่อนอัตโนมัติเมื่อโหลดโมเดล (สคริปต์ด้านล่างเฝ้าดู #factory-status) -->
+        <div id="canvas-empty-hint">
+            <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M12 2l9 5v10l-9 5-9-5V7l9-5z"/><path d="M3 7l9 5 9-5M12 12v10"/></svg>
+            <div class="ce-title">ยังไม่มีโมเดลในฉาก</div>
+            <div class="ce-sub">อัปโหลดไฟล์ .gltf / .glb / .fbx จากแผง "โมเดล" ด้านซ้าย หรือโหลดฉากที่บันทึกไว้ (.zip) เพื่อเริ่มใช้งาน Digital Twin</div>
+        </div>
+
         <div id="mobile-controls-container">
             <div id="mobile-joystick-zone"></div>
             <div id="mobile-action-zone">
                 <button id="btn-mobile-interact" class="mobile-action-btn">🔍 Interact</button>
-                <button id="btn-mobile-jump" class="mobile-action-btn" style="background: rgba(0, 255, 255, 0.2); border-color: #00ffff;">🦘 Jump</button>
+                <button id="btn-mobile-jump" class="mobile-action-btn" style="background: rgba(59,130,246,0.25); border-color: #3b82f6;">🦘 Jump</button>
             </div>
         </div>
 
-        <!-- แผงข้อมูลความปลอดภัย — ลอยทับ canvas เหมือนเดิม (ไม่กินพื้นที่คอลัมน์) กว้างขึ้น และหายเองเมื่อเดินออกห่างหรือ deselect -->
+        <!-- แผงข้อมูลความปลอดภัย — ลอยทับ canvas กว้างขึ้น และหายเองเมื่อเดินออกห่างหรือ deselect -->
         <div id="process-panel" class="panel floating-safety-panel" style="display: none;">
             <div class="process-header" style="flex-direction: column; align-items: stretch; gap: 8px;">
                 <div id="title-container" style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-                    <span id="process-title" style="font-weight: bold; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">⚙️ ชิ้นส่วน: รอตรวจจับ...</span>
+                    <span id="process-title" style="font-weight: bold; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">ชิ้นส่วน: รอตรวจจับ...</span>
                     <span id="detection-method" class="method-tag" style="flex-shrink: 0;">ระบบตรวจจับ</span>
                 </div>
                 <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
-                    <button id="btn-assign-type" class="panel-action-btn" onclick="openTypeSelectorForActive()" style="background:rgba(168,85,247,0.15);border-color:#a855f7;color:#a855f7; font-size:12px; padding:6px 10px;">🏷️ กำหนด Type</button>
-                    <button id="btn-edit-mode" class="panel-action-btn btn-edit-trigger" onclick="enableLiveEdit()" style="font-size:12px; padding:6px 10px;">✏️ แก้ไข</button>
+                    <button id="btn-assign-type" class="panel-action-btn" onclick="openTypeSelectorForActive()" style="background:var(--purple-soft);border-color:rgba(168,85,247,0.35);color:var(--purple); font-size:11.5px; padding:6px 10px;">กำหนด Type</button>
+                    <button id="btn-edit-mode" class="panel-action-btn btn-edit-trigger" onclick="enableLiveEdit()" style="font-size:11.5px; padding:6px 10px;">แก้ไขข้อมูล</button>
                     <div id="edit-actions-group" style="display: none; gap: 6px;">
-                        <button class="panel-action-btn btn-save" onclick="saveLiveEdit()" style="font-size:12px; padding:6px 10px;">💾 บันทึก</button>
-                        <button class="panel-action-btn" onclick="cancelLiveEdit()" style="font-size:12px; padding:6px 10px;">❌ ยกเลิก</button>
+                        <button class="panel-action-btn btn-save" onclick="saveLiveEdit()" style="font-size:11.5px; padding:6px 10px;">บันทึก</button>
+                        <button class="panel-action-btn" onclick="cancelLiveEdit()" style="font-size:11.5px; padding:6px 10px;">ยกเลิก</button>
                     </div>
                 </div>
             </div>
 
             <div class="process-grid">
                 <div>
-                    <p style="margin-top:0;"><strong>📝 มาตรฐานความปลอดภัย:</strong></p>
-                    <div id="desc-view-area" style="color: #e0e0e0; font-size: 13px; min-height: 40px;">คำอธิบาย...</div>
+                    <p style="margin-top:0; font-weight:700; font-size:12px; color:var(--text-0);">มาตรฐานความปลอดภัย</p>
+                    <div id="desc-view-area" style="color: var(--text-1); font-size: 12.5px; min-height: 40px; line-height:1.6;">คำอธิบาย...</div>
                     <div id="desc-edit-area" style="display: none;">
                         <textarea id="input-edit-desc" class="ui-edit-textarea"></textarea>
                     </div>
 
                     <div class="telemetry-box">
-                        <div class="telemetry-title">📊 สัญญาณเซนเซอร์จำลอง (IoT Telemetry)</div>
-                        <div class="telemetry-row"><span>สถานะอุปกรณ์:</span><span class="telemetry-val" style="color:#00ff66;">ONLINE</span></div>
+                        <div class="telemetry-title">สัญญาณเซนเซอร์จำลอง (IoT Telemetry)</div>
+                        <div class="telemetry-row"><span>สถานะอุปกรณ์:</span><span class="telemetry-val" style="color:var(--green);">ONLINE</span></div>
                         <div class="telemetry-row"><span>แรงดันก๊าซ (Pressure):</span><span id="iot-pressure" class="telemetry-val">0.00 bar</span></div>
                         <div class="telemetry-row"><span>อุณหภูมิ (Temperature):</span><span id="iot-temp" class="telemetry-val">0.0 °C</span></div>
                     </div>
                 </div>
                 <div>
-                    <p style="margin-top:0;"><strong>🛡️ ข้อกำหนดวิศวกรรม & PPE:</strong></p>
+                    <p style="margin-top:0; font-weight:700; font-size:12px; color:var(--text-0);">ข้อกำหนดวิศวกรรม & PPE</p>
                     <div id="steps-view-area"></div>
                     <div id="steps-edit-area" style="display: none;">
                         <textarea id="input-edit-steps" class="ui-edit-textarea" style="height: 120px;" placeholder="แยกขั้นตอนด้วยเครื่องหมายจุลภาค (,)"></textarea>
@@ -235,41 +270,47 @@
   <div id="right-col" class="side-col">
     <!-- แผงรายชื่อชิ้นส่วนโครงสร้าง -->
     <div id="details-panel" class="panel">
-        <h4>📦 รายการชิ้นส่วนโครงสร้าง</h4>
+        <div class="panel-head">
+            <h3><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>รายการชิ้นส่วน</h3>
+            <span class="panel-sub">Structure Parts</span>
+        </div>
+        <div class="mesh-filter-box">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+            <input id="mesh-filter" placeholder="ค้นหาชิ้นส่วน..." autocomplete="off">
+        </div>
         <div id="model-meta"></div>
-        <div id="mesh-container"></div>
+        <div id="mesh-container">
+            <div class="mesh-empty-state">ยังไม่มีชิ้นส่วน<br>รายการจะแสดงเมื่อโหลดโมเดลแล้ว</div>
+        </div>
     </div>
   </div>
 
 </div>
 
-    
+
 <!-- TYPE SELECTOR MODAL — เลือกประเภทอุปกรณ์ -->
-<div id="type-selector-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:9999; align-items:center; justify-content:center;">
-    <div style="background:#0a121c; border:1px solid rgba(0,255,255,0.3); border-radius:16px; padding:24px; width:360px; box-shadow:0 0 40px rgba(0,255,255,0.15);">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-            <h3 style="margin:0; color:#00ffff; font-size:15px;">🏷️ กำหนดประเภทอุปกรณ์</h3>
-            <button onclick="closeTypeSelector()" style="background:none;border:none;color:#64748b;font-size:20px;cursor:pointer;line-height:1;">✕</button>
+<div id="type-selector-overlay" style="display:none;">
+    <div class="type-modal">
+        <div class="type-modal-head">
+            <h3>กำหนดประเภทอุปกรณ์</h3>
+            <button class="type-modal-close" onclick="closeTypeSelector()">✕</button>
         </div>
-        <p id="type-selector-mesh-name" style="margin:0 0 14px; font-size:12px; color:#94a3b8; font-family:monospace;"></p>
-        <div id="type-selector-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:8px;"></div>
-        <div style="margin-top:16px; border-top:1px solid rgba(255,255,255,0.08); padding-top:12px;">
-            <button onclick="clearMeshType()" style="width:100%; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); color:#ef4444; padding:8px; border-radius:8px; cursor:pointer; font-size:12px;">🗑️ ล้างการกำหนดประเภท</button>
+        <p id="type-selector-mesh-name"></p>
+        <div id="type-selector-grid"></div>
+        <div class="type-modal-footer">
+            <button class="panel-action-btn btn-danger-outline action-block" onclick="clearMeshType()">ล้างการกำหนดประเภท</button>
         </div>
     </div>
 </div>
-
-<!-- TYPE ASSIGNER MODAL -->
 
 
 <script src="app.js"></script>
 
     <!--
-      สคริปต์เสริมสำหรับแท็บซ้าย/ขวา — ไม่ได้แก้ app.js เดิมแม้แต่บรรทัดเดียว
-      แค่คุมว่าใน 1 คอลัมน์ให้เห็นแผงเดียวพร้อมกัน (แทนที่จะเห็นทั้ง 3 แผงกองกัน)
-      หมายเหตุ: ปุ่มลัดคีย์บอร์ด (H/T/M/P/U) เดิมยังทำงานได้ตามปกติ เพราะเรียก
-      togglePanelElement() ตัวเดิม แค่ถ้ากดสลับตอนอยู่แท็บอื่น จะเห็น 2 แผงซ้อนกัน
-      ชั่วคราว — เป็นพฤติกรรมที่ตั้งใจให้ยังใช้คีย์ลัดแบบเดิมได้อยู่
+      สคริปต์เสริมฝั่งหน้าเพจ — ไม่แตะ logic ใน app.js
+      1) แท็บคอลัมน์ซ้าย: โชว์ทีละแผง (คีย์ลัด H/T เดิมยังใช้ได้ผ่าน togglePanelElement)
+      2) ช่องค้นหาชิ้นส่วน: กรองรายการใน #mesh-container ตามข้อความ
+      3) empty state บน canvas: เฝ้าดูข้อความสถานะใน #factory-status แล้วซ่อน/แสดงเอง
     -->
     <script>
     (function () {
@@ -295,9 +336,28 @@
             // (ทำงานหลัง app.js โหลดเสร็จ จึงชนะการที่ app.js สั่งเปิด transform-panel ไว้ตอนเริ่มต้น)
             activate(panelIds[0]);
         }
-
         initTabs('left-tabs', ['dashboard', 'transform-panel']);
-        // right-tabs ถูกลบแล้ว — details-panel แสดงตลอด, process-panel ลอยทับ canvas แยกต่างหาก
+
+        // ---- ค้นหาชิ้นส่วนในรายการ (กรองเฉพาะการแสดงผล ไม่แตะข้อมูล) ----
+        const filter = document.getElementById('mesh-filter');
+        filter?.addEventListener('input', () => {
+            const q = filter.value.trim().toLowerCase();
+            document.querySelectorAll('#mesh-container .mesh-item').forEach(it => {
+                it.style.display = (!q || it.innerText.toLowerCase().includes(q)) ? '' : 'none';
+            });
+        });
+
+        // ---- empty state: ซ่อนเมื่อสถานะบอกว่ากำลังโหลด/โหลดสำเร็จ ----
+        const hint = document.getElementById('canvas-empty-hint');
+        const status = document.getElementById('factory-status');
+        if (hint && status) {
+            const sync = () => {
+                const t = status.innerText || '';
+                hint.style.display = t.includes('รอการอัปโหลด') ? 'flex' : 'none';
+            };
+            new MutationObserver(sync).observe(status, { childList: true, characterData: true, subtree: true });
+            sync();
+        }
     })();
     </script>
 </body>

@@ -1,12 +1,49 @@
-body, html { 
-    margin: 0; 
-    padding: 0;
-    overflow: hidden; 
-    background-color: #0a0f14; 
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-    color: #ffffff; 
-    height: 100%;
+/* ════════════════════════════════════════════════════════════════════════
+   AEC VERSE — 3D Digital Twin Viewer
+   ใช้ design system เดียวกับหน้าเว็บหลัก (Dashboard/Analytics/ฯลฯ) ทุกตัวแปร
+   เพื่อให้ตอนฝังใน iframe หน้า Digitaltwin.html กลืนเป็นเนื้อเดียวกับทั้งเว็บ
+   ⚠️ ห้ามลบ/เปลี่ยนชื่อ id และ class เดิม — app.js อ้างอิงอยู่ทั้งหมด
+   ════════════════════════════════════════════════════════════════════════ */
+
+:root{
+  --bg-0:#080b11;
+  --bg-1:#0b0f17;
+  --panel:#0e131c;
+  --panel-2:#111826;
+  --border:#1c2531;
+  --border-soft:#161d29;
+  --text-0:#eef2f7;
+  --text-1:#9aa7b8;
+  --text-2:#657182;
+  --blue:#3b82f6;
+  --blue-soft:rgba(59,130,246,0.14);
+  --green:#22c55e;
+  --green-soft:rgba(34,197,94,0.14);
+  --yellow:#f59e0b;
+  --yellow-soft:rgba(245,158,11,0.14);
+  --red:#ef4444;
+  --red-soft:rgba(239,68,68,0.14);
+  --purple:#a855f7;
+  --purple-soft:rgba(168,85,247,0.14);
+  --cyan:#22d3ee;
+  --cyan-soft:rgba(34,211,238,0.14);
+  --radius:12px;
+  --radius-sm:8px;
 }
+
+*{box-sizing:border-box;}
+body, html {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    background-color: var(--bg-0);
+    font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+    color: var(--text-0);
+    font-size: 13px;
+    height: 100%;
+    -webkit-font-smoothing: antialiased;
+}
+button{font-family:inherit;}
 
 /* ---------- 3-column fixed shell: no page scroll, canvas stays pure ---------- */
 #viewer-shell {
@@ -17,17 +54,17 @@ body, html {
 }
 
 .side-col {
-    width: 300px;
+    width: 288px;
     flex-shrink: 0;
-    background: #0a121c;
-    border-right: 1px solid rgba(255,255,255,0.06);
+    background: var(--bg-1);
+    border-right: 1px solid var(--border);
     overflow-y: auto;
-    padding: 16px;
+    padding: 14px;
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 12px;
 }
-#right-col { border-right: none; border-left: 1px solid rgba(255,255,255,0.06); }
+#right-col { border-right: none; border-left: 1px solid var(--border); }
 
 #center-col {
     flex: 1;
@@ -42,194 +79,326 @@ body, html {
     flex: 1;
     min-height: 0;
     width: 100%;
+    background: var(--bg-0);
 }
 #canvas-container canvas { display: block; }
 
-/* กล่องควบคุมแบบกระจกโปร่งแสง (Glassmorphism) — ตอนนี้อยู่ในคอลัมน์ปกติ ไม่ลอยทับ canvas อีกต่อไป */
+/* ---------- empty state ตอนยังไม่มีโมเดลในฉาก ---------- */
+#canvas-empty-hint {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    pointer-events: none;
+    z-index: 5;
+    text-align: center;
+    padding: 24px;
+}
+#canvas-empty-hint svg { color: var(--text-2); opacity: .55; }
+#canvas-empty-hint .ce-title {
+    font-family: "Sora", "Inter", sans-serif;
+    font-size: 15px; font-weight: 700; color: var(--text-1);
+}
+#canvas-empty-hint .ce-sub { font-size: 12px; color: var(--text-2); max-width: 340px; line-height: 1.6; }
+
+/* ---------- การ์ด (เหมือน .card ของหน้าเว็บหลัก) ---------- */
 .panel {
     position: relative;
     width: 100%;
-    background: rgba(10, 16, 26, 0.82); 
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    padding: 18px; 
-    border-radius: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.08); 
-    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.4);
+    background: var(--panel);
+    padding: 14px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
     box-sizing: border-box;
 }
+/* app.js สลับ display ของ #details-panel เป็น 'block'/'none' ตรงๆ (คีย์ M)
+   จึงห้ามพึ่ง flex layout บนตัว panel — คุมความสูงที่ตัวรายการแทน */
+#mesh-container { overflow-y: auto; max-height: calc(100vh - 265px); }
 
-/* เดิมแต่ละแผงมีสีขอบต่างกัน (ฟ้า/ส้ม/เขียว) ทำให้ดูมั่ว รวมเป็นสีเดียวให้ทั้งชุด
-   สีที่มีความหมาย (ป้ายเตือนความปลอดภัย tag-red/orange/blue/green) ยังคงไว้เหมือนเดิมด้านล่าง ไม่ได้แตะ */
-.panel { border-left: 3px solid rgba(0, 255, 255, 0.35); }
-#details-panel { max-height: 45vh; overflow-y: auto; }
-
-#process-panel {
-    background: rgba(10, 20, 30, 0.92); border: 1px solid rgba(0, 255, 255, 0.25);
-    box-shadow: 0 8px 32px rgba(0,0,0,0.5), 0 0 24px rgba(0,255,255,0.15);
+.panel-head { margin-bottom: 12px; }
+.panel-head h3 {
+    margin: 0; font-size: 13px; font-weight: 700; color: var(--text-0);
+    display: flex; align-items: center; gap: 7px; letter-spacing: .2px;
+}
+.panel-head h3 svg { color: var(--blue); flex-shrink: 0; }
+.panel-head .panel-sub {
+    display: block; font-size: 10.5px; color: var(--text-2);
+    margin-top: 2px; letter-spacing: .4px; text-transform: uppercase; font-weight: 600;
 }
 
-/* ลอยทับ canvas เหมือน UI เดิม — ไม่กินพื้นที่คอลัมน์ซ้าย-ขวา
-   กว้างกว่าเดิมมาก เพราะไม่ถูกบีบด้วยความกว้าง side-col (300px) อีกต่อไป */
+h3, h4 { margin: 0 0 10px 0; font-size: 13px; font-weight: 700; color: var(--text-0); display: flex; align-items: center; gap: 6px; }
+
+/* ---------- แผงข้อมูลความปลอดภัย (ลอยทับ canvas) ---------- */
+#process-panel {
+    background: rgba(14, 19, 28, 0.94);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid var(--border);
+    box-shadow: 0 16px 48px rgba(0,0,0,0.55);
+}
 .floating-safety-panel {
     position: fixed;
-    bottom: 90px; /* เว้นเหนือแถบ keybind-hud ด้านล่างพอดี */
-    left: 316px;  /* = side-col 300px + gutter 16px */
-    right: 316px;
+    bottom: 66px; /* เว้นเหนือแถบ keybind-hud ด้านล่างพอดี */
+    left: 304px;  /* = side-col 288px + gutter 16px */
+    right: 304px;
     width: auto;
-    max-width: 640px;
+    max-width: 660px;
     margin: 0 auto;
-    z-index: 500; /* ต้องสูงกว่า keybind-hud (z-index:20) แน่นอน */
-    max-height: 50vh;
+    z-index: 500;
+    max-height: 52vh;
     overflow-y: auto;
+    border-left: 3px solid var(--blue);
 }
 @media (max-width: 1100px) {
     .floating-safety-panel { left: 16px; right: 16px; max-width: none; }
 }
 @media (max-width: 900px) {
-    .floating-safety-panel { bottom: 100px; }
+    .floating-safety-panel { bottom: 90px; }
 }
 @media screen and (max-width: 920px) and (orientation: landscape) {
-    /* จอมือถือแนวนอน: side-col เหลือ 200px และ keybind-hud ถูกซ่อนไปแล้ว */
     .floating-safety-panel { left: 16px; right: 16px; bottom: 16px; max-height: 40vh; }
 }
 
-/* HUD คำสั่งด่วน — แถบล่างใต้ canvas เหมือนเดิม โชว์ตลอดเวลา ไม่ทับมุมมอง 3D */
+/* ---------- HUD แถบคีย์ลัดด้านล่าง ---------- */
 #keybind-hud {
     flex-shrink: 0;
     width: 100%;
-    background: rgba(13, 20, 30, 0.95);
-    padding: 10px 20px;
-    font-size: 13px;
-    border-top: 1px solid rgba(255,255,255,0.1);
+    background: var(--bg-1);
+    padding: 9px 18px;
+    font-size: 12px;
+    border-top: 1px solid var(--border);
     z-index: 20;
-    display: flex; gap: 15px; align-items: center; justify-content: center;
+    display: flex; gap: 6px; align-items: center; justify-content: center;
     flex-wrap: wrap;
     box-sizing: border-box;
 }
-
-.key-btn-item { display: flex; align-items: center; cursor: pointer; color: #b0c4de; transition: 0.2s; }
-.key-btn-item:hover { color: #00ffff; }
-.key-badge { 
-    background: rgba(255,255,255,0.15); color: #fff; padding: 2px 7px; border-radius: 6px; 
-    font-weight: bold; font-family: monospace; margin-right: 6px; font-size: 11px;
+.key-btn-item {
+    display: flex; align-items: center; cursor: pointer;
+    color: var(--text-1); transition: .15s;
+    padding: 5px 10px; border-radius: 7px; font-weight: 500;
 }
-.key-btn-item:hover .key-badge { background: #00ffff; color: #000; }
+.key-btn-item:hover { color: var(--text-0); background: var(--panel-2); }
+.key-badge {
+    background: var(--panel-2); color: var(--text-1);
+    border: 1px solid var(--border);
+    padding: 2px 7px; border-radius: 5px;
+    font-weight: 700; font-family: ui-monospace, "Cascadia Mono", monospace;
+    margin-right: 7px; font-size: 10.5px;
+}
+.key-btn-item:hover .key-badge { background: var(--blue); border-color: var(--blue); color: #fff; }
 
-h3, h4 { margin: 0 0 12px 0; font-size: 15px; letter-spacing: 0.5px; display: flex; align-items: center; gap: 5px; }
-h3 { color: #00ffff; }
-h4 { color: #00ffff; }
-
-/* ---------- แถบแท็บด้านบนคอลัมน์ซ้าย/ขวา — โชว์ทีละแผงแทนการกองซ้อนกันหมด ---------- */
+/* ---------- แถบแท็บคอลัมน์ซ้าย ---------- */
 .side-tabs {
     display: flex;
-    gap: 4px;
-    background: rgba(0,0,0,0.25);
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 10px;
-    padding: 4px;
+    gap: 3px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    padding: 3px;
+    flex-shrink: 0;
 }
 .side-tab {
     flex: 1;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
     text-align: center;
-    font-size: 11.5px;
+    font-size: 12px;
     font-weight: 600;
-    color: #94a3b8;
-    padding: 8px 4px;
+    color: var(--text-2);
+    padding: 7px 4px;
     border-radius: 7px;
     cursor: pointer;
     user-select: none;
-    transition: 0.15s;
+    transition: .15s;
 }
-.side-tab:hover { color: #e2e8f0; }
-.side-tab.active { background: rgba(0,255,255,0.12); color: #00ffff; }
+.side-tab svg { flex-shrink: 0; }
+.side-tab:hover { color: var(--text-0); }
+.side-tab.active { background: var(--blue); color: #fff; }
 
-.section-label { font-size: 12px; font-weight: 600; color: #94a3b8; display: block; margin-bottom: 6px; }
+.section-label {
+    font-size: 10.5px; font-weight: 700; color: var(--text-2);
+    display: block; margin-bottom: 7px;
+    letter-spacing: .6px; text-transform: uppercase;
+}
+.hint-text { font-size: 10.5px; color: var(--text-2); margin-top: 7px; line-height: 1.55; }
+.hr { height: 1px; background: var(--border-soft); border: none; margin: 13px 0; }
 
-/* 🔴 [แก้บั๊กสำคัญ] .upload-btn-wrapper ไม่เคยมี position:relative มาก่อน ทำให้ input
-   ไฟล์ที่ซ่อนอยู่ข้างใน (.file-input, position:absolute) ไปยึดเอา #dashboard (panel ที่มี
-   position:relative) เป็น containing block แทน — ผลคือพื้นที่คลิกของ "อัปโหลดโมเดล"
-   ขยายคลุมทั้ง panel ทับปุ่ม "บันทึกฉากทั้งหมด" ด้านล่างไปด้วย กดปุ่มไหนก็โดนเปิดหาไฟล์โมเดลหมด */
+/* .upload-btn-wrapper ต้องมี position:relative เสมอ — ไม่งั้น .file-input (absolute)
+   จะขยายพื้นที่คลิกคลุมทั้ง panel ทับปุ่มอื่น (บั๊กเก่าที่เคยแก้ไว้แล้ว ห้ามถอด) */
 .upload-btn-wrapper { position: relative; }
 
 .btn {
-    border: 1px dashed rgba(0, 255, 255, 0.4); color: #00ffff; background: rgba(0, 255, 255, 0.04);
-    padding: 10px; border-radius: 8px; font-size: 12px; font-weight: bold; cursor: pointer;
-    display: block; text-align: center; transition: 0.2s; width: 100%;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    border: 1px dashed rgba(59,130,246,0.45); color: #8fb8ff; background: var(--blue-soft);
+    padding: 11px; border-radius: var(--radius-sm); font-size: 12px; font-weight: 700; cursor: pointer;
+    text-align: center; transition: .15s; width: 100%;
 }
-.btn:hover { background: rgba(0, 255, 255, 0.12); border-color: #00ffff; }
+.btn:hover { background: rgba(59,130,246,0.22); border-color: var(--blue); color: #b5d0ff; }
 .file-input { position: absolute; left: 0; top: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
 
-.status-msg { color: #64748b; margin-top: 5px; font-size: 11px; font-family: monospace; }
-.info-tag { display: inline-block; background: rgba(0,255,255,0.1); border: 1px solid rgba(0,255,255,0.2); padding: 3px 8px; border-radius: 4px; font-size: 11px; color: #00ffff; margin-bottom: 10px; }
-.mesh-item { padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.04); font-size: 12px; cursor: pointer; color: #cbd5e1; transition: 0.15s; }
-.mesh-item:hover { background: rgba(0, 255, 255, 0.08); color: #00ffff; padding-left: 14px; }
+.status-msg { color: var(--text-2); margin-top: 7px; font-size: 11px; font-family: ui-monospace, "Cascadia Mono", monospace; line-height: 1.5; word-break: break-word; }
+.info-tag {
+    display: inline-block; background: var(--blue-soft); border: 1px solid rgba(59,130,246,0.25);
+    padding: 3px 9px; border-radius: 20px; font-size: 10.5px; font-weight: 700; color: #8fb8ff; margin-bottom: 10px;
+}
 
-.badge { background: #38bdf8; color: #000; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 10px; margin-right: 6px; inline-size: max-content; }
-.step-box { background: rgba(255,255,255,0.03); padding: 8px 12px; border-radius: 6px; margin-top: 6px; border-left: 3px solid #38bdf8; font-size: 12px; display: flex; align-items: flex-start; }
+/* ---------- ช่องค้นหาชิ้นส่วน ---------- */
+.mesh-filter-box {
+    display: flex; align-items: center; gap: 7px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 7px 10px;
+    margin-bottom: 10px;
+    color: var(--text-2);
+    flex-shrink: 0;
+}
+.mesh-filter-box input {
+    background: none; border: none; outline: none;
+    color: var(--text-0); font-size: 12px; width: 100%; font-family: inherit;
+}
+.mesh-filter-box input::placeholder { color: var(--text-2); }
 
-.control-group { margin-bottom: 8px; }
-.control-group label { display: block; font-size: 10px; color: #94a3b8; margin-bottom: 2px; }
-.slider-row { display: flex; align-items: center; gap: 6px; }
-.slider-row input[type="range"] { flex: 1; accent-color: #ffaa00; background: #1e293b; height: 3px; border-radius: 2px; outline: none; }
-.slider-row input[type="range"]:disabled { opacity: 0.35; cursor: not-allowed; accent-color: #64748b; }
-.slider-val { font-size: 10.5px; font-family: monospace; width: 32px; text-align: right; color: #ffaa00; }
+.mesh-item {
+    padding: 8px 10px; border-radius: 7px; margin-bottom: 1px;
+    font-size: 12px; cursor: pointer; color: var(--text-1); transition: .12s;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.mesh-item:hover { background: var(--blue-soft); color: #8fb8ff; }
 
-#transform-panel { padding: 12px; }
-#transform-panel h4 { font-size: 13px; margin-bottom: 8px; }
-#transform-panel .mode-btn { padding: 5px; font-size: 10.5px; }
+.mesh-empty-state { text-align: center; color: var(--text-2); font-size: 11.5px; padding: 26px 10px; line-height: 1.7; }
 
-.mode-container { display: flex; gap: 4px; }
-.mode-btn { flex: 1; background: #1e293b; border: 1px solid rgba(255,255,255,0.05); color: #94a3b8; padding: 6px; font-size: 11px; border-radius: 6px; cursor: pointer; }
-.mode-btn.active { border-color: #00ffff; color: #00ffff; background: rgba(0,255,255,0.1); font-weight: bold; }
+/* ---------- step boxes ในแผงความปลอดภัย ---------- */
+.badge {
+    background: var(--blue); color: #fff; padding: 2px 7px; border-radius: 4px;
+    font-weight: 700; font-size: 9.5px; margin-right: 7px; inline-size: max-content;
+    letter-spacing: .4px;
+}
+.step-box {
+    background: var(--panel-2); padding: 9px 12px; border-radius: 7px; margin-top: 6px;
+    border-left: 3px solid var(--blue); font-size: 12px; display: flex; align-items: flex-start;
+    color: var(--text-1); line-height: 1.55;
+}
 
-.process-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 8px; }
+/* ---------- sliders ---------- */
+.control-group { margin-bottom: 9px; }
+.control-group label { display: block; font-size: 10.5px; color: var(--text-2); margin-bottom: 3px; font-weight: 600; }
+.slider-row { display: flex; align-items: center; gap: 8px; }
+.slider-row input[type="range"] { flex: 1; accent-color: var(--blue); height: 3px; border-radius: 2px; outline: none; }
+.slider-row input[type="range"]:disabled { opacity: 0.3; cursor: not-allowed; accent-color: var(--text-2); }
+.slider-val { font-size: 10.5px; font-family: ui-monospace, "Cascadia Mono", monospace; width: 38px; text-align: right; color: #8fb8ff; font-weight: 600; }
+
+#transform-panel { padding: 14px; }
+#transform-panel .mode-btn { padding: 6px; font-size: 10.5px; }
+
+.mode-container { display: flex; gap: 3px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 3px; }
+.mode-btn { flex: 1; background: transparent; border: none; color: var(--text-2); padding: 6px; font-size: 11px; font-weight: 600; border-radius: 6px; cursor: pointer; transition: .15s; }
+.mode-btn:hover { color: var(--text-0); }
+.mode-btn.active { background: var(--blue); color: #fff; }
+
+/* ---------- process panel (ป้ายความปลอดภัย) ---------- */
+.process-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid var(--border-soft); padding-bottom: 10px; }
 .process-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 16px; }
 @media (max-width: 700px) {
     .process-grid { grid-template-columns: 1fr; }
 }
-.method-tag { font-size: 10px; background: #00ffff; color:#000; padding:2px 6px; border-radius:4px; font-weight: bold; }
+.method-tag {
+    font-size: 10px; background: var(--blue-soft); color: #8fb8ff;
+    border: 1px solid rgba(59,130,246,0.25);
+    padding: 3px 9px; border-radius: 20px; font-weight: 700;
+}
 
-.ui-edit-input { background: #0f172a; border: 1px solid #334155; color: #fff; padding: 6px; border-radius: 6px; width: 100%; box-sizing: border-box; font-size: 13px; }
-.ui-edit-textarea { background: #0f172a; border: 1px solid #334155; color: #fff; padding: 6px; border-radius: 6px; width: 100%; box-sizing: border-box; font-size: 12px; height: 75px; resize: none; }
-.panel-action-btn { background: #1e293b; color: #f1f5f9; border: 1px solid #334155; padding: 5px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 500; transition: 0.15s; }
-.panel-action-btn:hover { background: #334155; }
-.btn-edit-trigger { background: rgba(0, 255, 255, 0.08); color: #00ffff; border: 1px solid rgba(0,255,255,0.3); }
-.btn-edit-trigger:hover { background: rgba(0, 255, 255, 0.2); }
-.btn-save { background: rgba(255, 170, 0, 0.1); color: #ffaa00; border: 1px solid rgba(255,170,0,0.3); }
+.ui-edit-input { background: var(--panel-2); border: 1px solid var(--border); color: var(--text-0); padding: 8px 10px; border-radius: var(--radius-sm); width: 100%; box-sizing: border-box; font-size: 12.5px; font-family: inherit; outline: none; }
+.ui-edit-input:focus { border-color: var(--blue); }
+.ui-edit-textarea { background: var(--panel-2); border: 1px solid var(--border); color: var(--text-0); padding: 8px 10px; border-radius: var(--radius-sm); width: 100%; box-sizing: border-box; font-size: 12px; height: 75px; resize: none; font-family: inherit; outline: none; line-height: 1.5; }
+.ui-edit-textarea:focus { border-color: var(--blue); }
 
-.telemetry-box { background: rgba(0,0,0,0.25); padding: 10px; border-radius: 8px; border: 1px dashed rgba(255,255,255,0.1); margin-top: 12px; }
-.telemetry-title { font-size: 11px; color: #ffaa00; margin-bottom: 6px; font-weight: bold; letter-spacing: 0.3px; }
-.telemetry-row { display: flex; justify-content: space-between; font-family: monospace; font-size: 12px; margin-bottom: 4px; color: #94a3b8; }
-.telemetry-val { color: #00ffff; font-weight: bold; }
+.panel-action-btn {
+    background: var(--panel-2); color: var(--text-0);
+    border: 1px solid var(--border);
+    padding: 7px 12px; border-radius: var(--radius-sm);
+    cursor: pointer; font-size: 12px; font-weight: 600; transition: .15s;
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+}
+.panel-action-btn:hover { filter: brightness(1.15); border-color: #2a3644; }
+.action-block { width: 100%; padding: 9px; }
+.btn-edit-trigger { background: var(--blue-soft); color: #8fb8ff; border: 1px solid rgba(59,130,246,0.3); }
+.btn-edit-trigger:hover { background: rgba(59,130,246,0.22); }
+.btn-save {
+    background: linear-gradient(90deg, #3b82f6, #22c55e);
+    color: #03130a; border: none; font-weight: 700;
+}
+.btn-save:hover { filter: brightness(1.1); }
+.btn-load { background: var(--panel-2); color: var(--text-0); border: 1px solid var(--border); }
+.btn-danger-outline { background: var(--red-soft); color: var(--red); border: 1px solid rgba(239,68,68,0.35); }
+.btn-danger-outline:hover { background: rgba(239,68,68,0.22); }
 
-.tag-red { border-left-color: #ef4444 !important; }
-.tag-red .badge { background: #ef4444; color: white; }
-.tag-orange { border-left-color: #f97316 !important; }
-.tag-orange .badge { background: #f97316; color: white; }
-.tag-blue { border-left-color: #38bdf8 !important; }
-.tag-blue .badge { background: #38bdf8; color: black; }
-.tag-green { border-left-color: #22c55e !important; }
-.tag-green .badge { background: #22c55e; color: black; }
+/* ---------- telemetry ---------- */
+.telemetry-box { background: var(--panel-2); padding: 11px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border-soft); margin-top: 12px; }
+.telemetry-title { font-size: 10.5px; color: var(--text-2); margin-bottom: 7px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; }
+.telemetry-row { display: flex; justify-content: space-between; font-family: ui-monospace, "Cascadia Mono", monospace; font-size: 11.5px; margin-bottom: 4px; color: var(--text-1); }
+.telemetry-val { color: #8fb8ff; font-weight: 700; }
 
-/* ตกแต่ง Scrollbar ประจำกล่องข้อมูล */
-::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
+/* ---------- สีป้ายเตือนความปลอดภัย (ความหมายคงเดิม: แดง/ส้ม/ฟ้า/เขียว) ---------- */
+.tag-red { border-left-color: var(--red) !important; }
+.tag-red .badge { background: var(--red); color: #fff; }
+.tag-red .step-box { border-left-color: var(--red); }
+.tag-orange { border-left-color: var(--yellow) !important; }
+.tag-orange .badge { background: var(--yellow); color: #201400; }
+.tag-orange .step-box { border-left-color: var(--yellow); }
+.tag-blue { border-left-color: var(--blue) !important; }
+.tag-blue .badge { background: var(--blue); color: #fff; }
+.tag-blue .step-box { border-left-color: var(--blue); }
+.tag-green { border-left-color: var(--green) !important; }
+.tag-green .badge { background: var(--green); color: #04150b; }
+.tag-green .step-box { border-left-color: var(--green); }
+
+/* ---------- modal เลือกประเภทอุปกรณ์ ---------- */
+#type-selector-overlay {
+    position: fixed; inset: 0;
+    background: rgba(4, 6, 10, 0.72);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    z-index: 9999;
+    align-items: center; justify-content: center;
+}
+.type-modal {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px;
+    width: 380px;
+    max-width: calc(100vw - 32px);
+    box-shadow: 0 24px 64px rgba(0,0,0,0.6);
+}
+.type-modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+.type-modal-head h3 { margin: 0; color: var(--text-0); font-size: 14px; }
+.type-modal-close { background: none; border: none; color: var(--text-2); font-size: 18px; cursor: pointer; line-height: 1; padding: 4px; border-radius: 6px; }
+.type-modal-close:hover { color: var(--text-0); background: var(--panel-2); }
+#type-selector-mesh-name { margin: 0 0 13px; font-size: 11px; color: var(--text-2); font-family: ui-monospace, "Cascadia Mono", monospace; }
+#type-selector-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.type-modal-footer { margin-top: 15px; border-top: 1px solid var(--border-soft); padding-top: 13px; }
+
+/* ---------- scrollbar ---------- */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #24303f; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #33435a; }
+
 /* === MULTIPLAYER PANEL === */
 /* ซ่อนออกจาก UI ตามที่ขอ — คง element ไว้ในหน้าเพจเหมือนเดิม (ไม่ลบทิ้ง)
    เพื่อไม่ให้โค้ด socket/chat ใน app.js ที่อ้างอิง id พวกนี้ error */
 #multiplayer-panel {
     display: none !important;
 }
-/* --- CSS บังคับและปรับแต่งให้รองรับโทรศัพท์แนวนอนโดยเฉพาะ --- */
 
-/* 1. ซ่อนระบบจอยสติ๊กและปุ่มแอคชันไว้เป็นค่าเริ่มต้น */
+/* --- ระบบควบคุมบนโทรศัพท์ (แนวนอน) --- */
 #mobile-controls-container {
     display: none;
     position: absolute;
-    bottom: 25px; 
+    bottom: 25px;
     left: 0;
     width: 100%;
     height: 120px;
@@ -251,7 +420,7 @@ h4 { color: #00ffff; }
     right: 40px;
     bottom: 10px;
     display: flex;
-    flex-direction: row; /* จัดเรียงปุ่มแนวนอนบนโหมด Landscape เพื่อไม่ให้บังจอ */
+    flex-direction: row;
     gap: 16px;
     pointer-events: auto;
 }
@@ -260,9 +429,9 @@ h4 { color: #00ffff; }
     width: 65px;
     height: 65px;
     border-radius: 50%;
-    background: rgba(15, 23, 42, 0.6);
-    color: #00ffff;
-    border: 2px solid rgba(0, 255, 255, 0.4);
+    background: rgba(14, 19, 28, 0.72);
+    color: #8fb8ff;
+    border: 2px solid rgba(59, 130, 246, 0.5);
     font-size: 11px;
     font-weight: bold;
     box-shadow: 0 4px 12px rgba(0,0,0,0.5);
@@ -275,19 +444,15 @@ h4 { color: #00ffff; }
     -webkit-user-select: none;
 }
 
-/* 2. เปิดใช้งานกลไกทั้งหมดเฉพาะเมื่อหน้าจอเป็นแนวราบ/แนวนอนบนอุปกรณ์เคลื่อนที่ (Landscape Mode) */
 @media screen and (max-width: 920px) and (orientation: landscape) {
     #mobile-controls-container {
-        display: block; /* เปิดให้จอยและปุ่มกดเฉพาะแนวนอนเท่านั้น */
+        display: block;
     }
-
     #keybind-hud {
-        display: none !important; /* ซ่อนแถบปุ่มคีย์บอร์ดคอมพิวเตอร์ออกไป (ใช้จอยสติ๊ก/ปุ่มมือถือแทน) */
+        display: none !important;
     }
-
-    /* จัดระเบียบหน้าต่างสเตตัสซ้าย-ขวาบนมือถือแนวนอนไม่ให้บังตรงกลางฉาก */
     .side-col {
-        width: 200px; /* ลดความกว้างเมนูด้านข้างลงเพื่อให้เห็นตัวละครตรงกลางชัดเจน */
+        width: 200px;
     }
     .panel {
         max-height: 110px;
@@ -295,32 +460,30 @@ h4 { color: #00ffff; }
         padding: 8px;
     }
     #details-panel, #transform-panel {
-        display: none !important; /* ซ่อนเมนูจัดตำแหน่งขนาดใหญ่เพื่อคืนพื้นที่จอภาพ */
+        display: none !important;
     }
 }
 
-/* 3. ส่วนเสริม الاختياري: หากเปิดในแนวตั้ง (Portrait) บนมือถือ จะแสดงคำเตือนให้หมุนจออัตโนมัติ */
 @media screen and (max-width: 600px) and (orientation: portrait) {
     body::before {
-        content: "🔄 โปรดหมุนโทรศัพท์เป็นแนวนอน (Landscape Mode) เพื่อเริ่มควบคุมพนักงาน";
+        content: "🔄 โปรดหมุนโทรศัพท์เป็นแนวนอน (Landscape Mode) เพื่อใช้งาน Digital Twin";
         position: fixed;
         top: 0; left: 0; width: 100%; height: 100%;
-        background: #0a0f14;
-        color: #00ffff;
+        background: var(--bg-0);
+        color: var(--text-1);
         display: flex;
         align-items: center;
         justify-content: center;
         text-align: center;
         padding: 30px;
         box-sizing: border-box;
-        font-size: 16px;
-        font-weight: bold;
+        font-size: 15px;
+        font-weight: 600;
         z-index: 99999;
     }
 }
-/* --- สไตล์ปุ่มกากบาทปิดหน้าต่างบนมือถือ --- */
 
-/* ซ่อนไว้เป็นค่าเริ่มต้นเมื่อเปิดบน PC */
+/* --- ปุ่มกากบาทปิดหน้าต่างบนมือถือ --- */
 .mobile-close-panel-btn {
     display: none;
     position: absolute;
@@ -328,7 +491,7 @@ h4 { color: #00ffff; }
     right: 8px;
     width: 28px;
     height: 28px;
-    background: #ef4444; /* สีแดงสว่างสังเกตง่าย */
+    background: var(--red);
     color: #ffffff;
     border: none;
     border-radius: 50%;
@@ -340,19 +503,15 @@ h4 { color: #00ffff; }
     box-shadow: 0 2px 8px rgba(239, 68, 68, 0.4);
     z-index: 99;
 }
-
 .mobile-close-panel-btn:active {
-    background: #dc2626; /* สีแดงเข้มขึ้นเล็กน้อยตอนเอานิ้วกด */
+    background: #dc2626;
     transform: scale(0.95);
 }
-
-/* แสดงผลและจัดตำแหน่งให้ปุ่มกดง่ายขึ้น เฉพาะบนมือถือแนวนอน (Landscape) */
 @media screen and (max-width: 920px) and (orientation: landscape) {
     .panel {
-        padding-top: 32px !important; /* เว้นพื้นที่ด้านบนหลบปุ่มกากบาทไม่ให้ทับเนื้อหา */
+        padding-top: 32px !important;
     }
-
     .mobile-close-panel-btn {
-        display: flex; /* เปิดใช้งานปุ่มสีแดงเฉพาะบนมือถือ */
+        display: flex;
     }
 }

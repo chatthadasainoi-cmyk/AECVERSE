@@ -36,7 +36,8 @@ if (VIEWER_MODE) {
 // 1. SCENE / CAMERA / RENDERER
 // ============================================================
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0a0f14);
+scene.background = new THREE.Color(0x080b11); // ตรงกับ --bg-0 ของ design system ทั้งเว็บ
+scene.fog = new THREE.Fog(0x080b11, 45, 140); // หมอกจางๆ ให้ฉากมีมิติ ไม่ตัดขอบกริดแข็งๆ
 
 const canvasContainer = $('canvas-container');
 const camera = new THREE.PerspectiveCamera(60, canvasContainer.clientWidth / canvasContainer.clientHeight, 0.1, 1000);
@@ -53,12 +54,21 @@ controls.dampingFactor = 0.05;
 controls.minDistance = 0.5;
 controls.maxDistance = 60;
 
-scene.add(new THREE.AmbientLight(0xffffff, 0.8));
-const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+scene.add(new THREE.HemisphereLight(0xbcd4ff, 0x0e131c, 0.55)); // แสงนวลโทนฟ้าจากท้องฟ้า ให้โมเดลดูมีมิติกว่าแสงขาวแบนๆ
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.1);
 dirLight.position.set(10, 20, 10);
 scene.add(dirLight);
 
-scene.add(new THREE.GridHelper(60, 60, 0x00ffff, 0x1e293b));
+// พื้น + กริดโทนเดียวกับเว็บ (น้ำเงินหม่น) แทนกริด neon cyan เดิม
+const groundDisc = new THREE.Mesh(
+    new THREE.CircleGeometry(80, 64),
+    new THREE.MeshBasicMaterial({ color: 0x0a0e16 })
+);
+groundDisc.rotation.x = -Math.PI / 2;
+groundDisc.position.y = -0.02;
+scene.add(groundDisc);
+scene.add(new THREE.GridHelper(60, 60, 0x2e4a75, 0x141c2a));
 
 window.addEventListener('resize', () => {
     camera.aspect = canvasContainer.clientWidth / canvasContainer.clientHeight;
@@ -381,7 +391,7 @@ function initMobileJoystick() {
     const zone = $('mobile-joystick-zone');
     if (!zone || typeof nipplejs === 'undefined') return;
     zone.innerHTML = '';
-    const manager = nipplejs.create({ zone, mode: 'static', position: { left: '50%', top: '50%' }, color: '#00ffff', size: 100 });
+    const manager = nipplejs.create({ zone, mode: 'static', position: { left: '50%', top: '50%' }, color: '#3b82f6', size: 100 });
     manager.on('move', (evt, data) => {
         if (!data.vector) return;
         const forward = data.vector.y, turn = data.vector.x, threshold = 0.2;
@@ -617,8 +627,8 @@ function setFactoryMaterialMode(mode) {
         if (!orig) return;
         child.material.dispose();
         if (mode === 'solid') child.material = orig.clone();
-        else if (mode === 'wireframe') child.material = new THREE.MeshStandardMaterial({ color: 0x00ffff, wireframe: true });
-        else child.material = new THREE.MeshStandardMaterial({ color: 0x00aaff, transparent: true, opacity: 0.2, depthWrite: false });
+        else if (mode === 'wireframe') child.material = new THREE.MeshStandardMaterial({ color: 0x22d3ee, wireframe: true });
+        else child.material = new THREE.MeshStandardMaterial({ color: 0x3b82f6, transparent: true, opacity: 0.18, depthWrite: false });
     });
 }
 window.setFactoryMaterialMode = setFactoryMaterialMode;
@@ -644,7 +654,7 @@ function applyHighlight(uuid) {
     if (!factoryModel || currentMaterialMode !== 'solid') return;
     factoryModel.traverse(child => {
         if (!child.isMesh) return;
-        if (child.uuid === uuid) child.material = new THREE.MeshStandardMaterial({ color: 0x00ffff, emissive: 0x001a1a });
+        if (child.uuid === uuid) child.material = new THREE.MeshStandardMaterial({ color: 0x3b82f6, emissive: 0x0a1f4d });
         else if (originalMaterials.has(child.uuid)) child.material = originalMaterials.get(child.uuid).clone();
     });
 }
