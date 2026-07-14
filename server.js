@@ -2,14 +2,82 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
+const { createClient } = require('@supabase/supabase-js');
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*", methods: ["GET", "POST"] } });
 const PORT = process.env.PORT || 3000;
 
+app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public'), { index: false }));
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'Login.html')));
+
+// ============================================================
+// ADMIN USER MANAGEMENT (ต้องมี SUPABASE_SERVICE_ROLE_KEY เป็น env var
+// บน Railway เท่านั้น — ห้ามใส่ค่านี้ในโค้ดฝั่ง client เด็ดขาด เพราะ key นี้
+// เข้าถึง/แก้ไขบัญชีผู้ใช้ทุกคนได้ ไม่ใช่แค่ของตัวเอง)
+// ============================================================
+const SUPABASE_URL = 'https://hzlokmixfkfrmkuucfhg.supabase.co';
+const supabaseAdmin = process.env.SUPABASE_SERVICE_ROLE_KEY
+    ? createClient(SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
+    : null;
+
+// รายชื่ออีเมล admin ตั้งต้น (แก้ผ่าน env var บน Railway) — ใช้แก้ปัญหา
+// "ไข่กับไก่": ต้องมี admin คนแรกก่อนถึงจะมีใครมาโปรโมทคนอื่นผ่านหน้า User Management ได้
+const ADMIN_BOOTSTRAP_EMAILS = (process.env.ADMIN_BOOTSTRAP_EMAILS || '')
+    .split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
+
+function isAdminUser(user) {
+    if (!user || !user.email) return false;
+    if (ADMIN_BOOTSTRAP_EMAILS.includes(user.email.toLowerCase())) return true;
+    return user.app_metadata?.role === 'admin';
+}
+
+async function requireAdmin(req, res, next) {
+    if (!supabaseAdmin) return res.status(503).json({ error: 'Admin API ยังไม่ได้ตั้งค่า SUPABASE_SERVICE_ROLE_KEY บนเซิร์ฟเวอร์' });
+    const token = (req.headers.authorization || '').replace(/^Bearer /, '');
+    if (!token) return res.status(401).json({ error: 'ไม่พบ token การเข้าสู่ระบบ' });
+
+    const { data, error } = await supabaseAdmin.auth.getUser(token);
+    if (error || !data.user) return res.status(401).json({ error: 'Token ไม่ถูกต้องหรือหมดอายุ' });
+    if (!isAdminUser(data.user)) return res.status(403).json({ error: 'บัญชีนี้ไม่มีสิทธิ์ Admin' });
+
+    req.adminUser = data.user;
+    next();
+}
+
+app.get('/api/admin/users', requireAdmin, async (req, res) => {
+    const { data, error } = await supabaseAdmin.auth.admin.listUsers();
+    if (error) return res.status(500).json({ error: error.message });
+    const users = data.users.map(u => ({
+        id: u.id,
+        email: u.email,
+        role: isAdminUser(u) ? 'admin' : 'user',
+        isBootstrapAdmin: ADMIN_BOOTSTRAP_EMAILS.includes((u.email || '').toLowerCase()),
+        createdAt: u.created_at,
+        lastSignInAt: u.last_sign_in_at
+    }));
+    res.json({ users, me: req.adminUser.id });
+});
+
+app.post('/api/admin/users/:id/role', requireAdmin, async (req, res) => {
+    const { role } = req.body;
+    if (role !== 'admin' && role !== 'user') return res.status(400).json({ error: 'role ต้องเป็น admin หรือ user เท่านั้น' });
+
+    const { data: targetData, error: getErr } = await supabaseAdmin.auth.admin.getUserById(req.params.id);
+    if (getErr || !targetData.user) return res.status(404).json({ error: 'ไม่พบผู้ใช้นี้' });
+
+    if (ADMIN_BOOTSTRAP_EMAILS.includes((targetData.user.email || '').toLowerCase())) {
+        return res.status(400).json({ error: 'บัญชีนี้เป็น Admin ตั้งต้นจาก environment variable แก้ไขผ่านหน้านี้ไม่ได้' });
+    }
+
+    const { error } = await supabaseAdmin.auth.admin.updateUserById(req.params.id, {
+        app_metadata: { ...targetData.user.app_metadata, role }
+    });
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ success: true });
+});
 
 // ============================================================
 // ROOM STATE (single shared room — เหมือนเดิมทั้งระบบ)

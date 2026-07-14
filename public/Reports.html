@@ -6,6 +6,8 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <link rel="preconnect" href="https://fonts.googleapis.com">
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
+        <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+        <script>window.RAILWAY_SERVER_URL = "https://aecmultiplayertest-production.up.railway.app";</script>
         <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
         <script src="supabaseClient.js"></script>
         <style>
@@ -313,6 +315,15 @@
             .g2, .g12-8-4, .g12-4-8{grid-template-columns:1fr;}
         }
 
+        @media print{
+            body *{visibility:hidden;}
+            #report-modal, #report-modal *{visibility:visible;}
+            #report-modal{position:absolute;top:0;left:0;background:#fff !important;display:block !important;}
+            #report-modal > div{max-height:none;overflow:visible;color:#000;background:#fff;box-shadow:none;}
+            #report-modal-title, #report-modal-meta{color:#000;}
+            table, th, td{color:#000 !important;}
+        }
+
         </style>
     </head>
 
@@ -376,53 +387,68 @@
             <div class="tab">Custom Reports</div>
             <div class="tab">Scheduled Reports</div>
             </div>
-            <button class="btn">Export History</button>
+            <button class="btn" onclick="exportHistoryCsv()">Export History</button>
         </div>
         <div class="grid g4">
             <div class="card">
         <div class="icon-chip b-green" style="background:var(--green-soft, var(--panel-2));font-size:16px;">📄</div>
         <div style="font-weight:700;margin:12px 0 3px 0;font-size:12.5px;">Daily Production Report</div>
         <div style="color:var(--text-2);font-size:11px;margin-bottom:14px;">รายงานการผลิตประจำวัน</div>
-        <button class="btn btn-sm" style="width:100%;">Generate</button>
+        <button class="btn btn-sm" style="width:100%;" onclick="generateReport('production')">Generate</button>
         </div><div class="card">
         <div class="icon-chip b-purple" style="background:var(--purple-soft, var(--panel-2));font-size:16px;">📊</div>
         <div style="font-weight:700;margin:12px 0 3px 0;font-size:12.5px;">Equipment Performance Report</div>
         <div style="color:var(--text-2);font-size:11px;margin-bottom:14px;">รายงานประสิทธิภาพอุปกรณ์</div>
-        <button class="btn btn-sm" style="width:100%;">Generate</button>
+        <button class="btn btn-sm" style="width:100%;" onclick="generateReport('equipment')">Generate</button>
         </div><div class="card">
         <div class="icon-chip b-blue" style="background:var(--blue-soft, var(--panel-2));font-size:16px;">🛠</div>
         <div style="font-weight:700;margin:12px 0 3px 0;font-size:12.5px;">Maintenance Report</div>
         <div style="color:var(--text-2);font-size:11px;margin-bottom:14px;">รายงานการบำรุงรักษา</div>
-        <button class="btn btn-sm" style="width:100%;">Generate</button>
+        <button class="btn btn-sm" style="width:100%;" onclick="generateReport('maintenance')">Generate</button>
         </div><div class="card">
         <div class="icon-chip b-red" style="background:var(--red-soft, var(--panel-2));font-size:16px;">⚠</div>
         <div style="font-weight:700;margin:12px 0 3px 0;font-size:12.5px;">Incident Report</div>
         <div style="color:var(--text-2);font-size:11px;margin-bottom:14px;">รายงานเหตุการณ์</div>
-        <button class="btn btn-sm" style="width:100%;">Generate</button>
+        <button class="btn btn-sm" style="width:100%;" onclick="generateReport('incident')">Generate</button>
         </div><div class="card">
         <div class="icon-chip b-green" style="background:var(--green-soft, var(--panel-2));font-size:16px;">⚡</div>
         <div style="font-weight:700;margin:12px 0 3px 0;font-size:12.5px;">Energy Report</div>
         <div style="color:var(--text-2);font-size:11px;margin-bottom:14px;">รายงานพลังงาน</div>
-        <button class="btn btn-sm" style="width:100%;">Generate</button>
+        <button class="btn btn-sm" style="width:100%;" onclick="generateReport('energy')">Generate</button>
         </div><div class="card">
         <div class="icon-chip b-blue" style="background:var(--blue-soft, var(--panel-2));font-size:16px;">✅</div>
         <div style="font-weight:700;margin:12px 0 3px 0;font-size:12.5px;">PSM Compliance Report</div>
         <div style="color:var(--text-2);font-size:11px;margin-bottom:14px;">รายงานความสอดคล้อง PSM</div>
-        <button class="btn btn-sm" style="width:100%;">Generate</button>
+        <button class="btn btn-sm" style="width:100%;" onclick="generateReport('psm')">Generate</button>
         </div><div class="card">
         <div class="icon-chip b-yellow" style="background:var(--yellow-soft, var(--panel-2));font-size:16px;">📈</div>
         <div style="font-weight:700;margin:12px 0 3px 0;font-size:12.5px;">Trend Analysis Report</div>
         <div style="color:var(--text-2);font-size:11px;margin-bottom:14px;">รายงานวิเคราะห์แนวโน้ม</div>
-        <button class="btn btn-sm" style="width:100%;">Generate</button>
+        <button class="btn btn-sm" style="width:100%;" onclick="generateReport('trend')">Generate</button>
         </div><div class="card">
         <div class="icon-chip b-gray" style="background:var(--gray-soft, var(--panel-2));font-size:16px;">🧩</div>
         <div style="font-weight:700;margin:12px 0 3px 0;font-size:12.5px;">Custom Report</div>
-        <div style="color:var(--text-2);font-size:11px;margin-bottom:14px;">รายงานกำหนดเอง</div>
-        <button class="btn btn-sm" style="width:100%;">Generate</button>
+        <div style="color:var(--text-2);font-size:11px;margin-bottom:14px;">รายงานกำหนดเอง (ทุกข้อมูล)</div>
+        <button class="btn btn-sm" style="width:100%;" onclick="generateReport('full')">Generate</button>
         </div>
         </div>
 
         </div>
+        </div>
+    </div>
+
+    <div id="report-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;align-items:center;justify-content:center;">
+        <div style="background:var(--bg-1);border:1px solid var(--border);border-radius:14px;padding:24px;width:640px;max-width:92vw;max-height:86vh;overflow-y:auto;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+                <h3 id="report-modal-title" style="margin:0;font-size:15px;">Report</h3>
+                <button onclick="closeReportModal()" style="background:none;border:none;color:var(--text-2);font-size:20px;cursor:pointer;line-height:1;">✕</button>
+            </div>
+            <div id="report-modal-meta" style="color:var(--text-2);font-size:11px;margin-bottom:14px;"></div>
+            <div id="report-modal-body"></div>
+            <div style="display:flex;gap:8px;margin-top:18px;border-top:1px solid var(--border-soft);padding-top:14px;">
+                <button class="btn primary" onclick="window.print()" style="flex:1;">🖨️ พิมพ์ / บันทึกเป็น PDF</button>
+                <button class="btn" onclick="closeReportModal()" style="flex:1;">ปิด</button>
+            </div>
         </div>
     </div>
 
@@ -432,6 +458,136 @@
         window.location.href = 'Login.html';
     }
     initUserChip();
+
+    (function(){
+        const SERVER = window.RAILWAY_SERVER_URL || window.location.origin;
+        const socket = io(SERVER, { transports: ['websocket', 'polling'] });
+
+        let latestPlantData = null;
+        let latestWorkflowDb = {};
+
+        socket.on('plant_update', data => { latestPlantData = data; });
+        socket.on('self_init', data => { if (data.workflowDb) latestWorkflowDb = data.workflowDb; });
+
+        function fmt(n, d){ return (typeof n === 'number') ? n.toFixed(d != null ? d : 1) : '-'; }
+        function nowStr(){ return new Date().toLocaleString('th-TH'); }
+
+        function openReportModal(title){
+            document.getElementById('report-modal-title').textContent = title;
+            document.getElementById('report-modal-meta').textContent = 'สร้างเมื่อ: ' + nowStr();
+            document.getElementById('report-modal').style.display = 'flex';
+        }
+        window.closeReportModal = function(){ document.getElementById('report-modal').style.display = 'none'; };
+
+        function riskBadge(risk){
+            const map = { critical: 'b-red', high: 'b-red', medium: 'b-yellow', low: 'b-blue' };
+            const label = { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low' };
+            return '<span class="badge ' + (map[risk] || 'b-gray') + '">' + (label[risk] || risk) + '</span>';
+        }
+        function alertBadge(level){
+            const map = { critical: 'b-red', warning: 'b-yellow', normal: 'b-green' };
+            const label = { critical: 'Critical', warning: 'Warning', normal: 'Normal' };
+            return '<span class="badge ' + (map[level] || 'b-gray') + '">' + (label[level] || level) + '</span>';
+        }
+        function noDataMsg(){ return '<p style="color:var(--text-2);">ยังไม่ได้รับข้อมูลจากเซิร์ฟเวอร์ กรุณารอสักครู่แล้วลองใหม่</p>'; }
+
+        const reportBuilders = {
+            production(d){
+                return '<div class="grid g3" style="margin-bottom:14px;">' +
+                    '<div class="kpi"><div class="k-label">CH4 Production</div><div class="k-value">' + fmt(d.plant.ch4Percent) + ' %</div></div>' +
+                    '<div class="kpi"><div class="k-label">Biogas Flow Rate</div><div class="k-value">' + fmt(d.plant.flowRate) + ' m³/h</div></div>' +
+                    '<div class="kpi"><div class="k-label">Overall Efficiency</div><div class="k-value">' + fmt(d.plant.efficiency) + ' %</div></div>' +
+                    '</div>' +
+                    '<div class="card-head"><h3 style="font-size:12.5px;">TANK-01 Status</h3></div>' +
+                    '<table><tbody>' +
+                    '<tr><td>Pressure</td><td class="strong">' + fmt(d.tank1.pressure, 2) + ' bar</td></tr>' +
+                    '<tr><td>Temperature</td><td class="strong">' + fmt(d.tank1.temperature) + ' °C</td></tr>' +
+                    '<tr><td>pH</td><td class="strong">' + fmt(d.tank1.ph, 2) + '</td></tr>' +
+                    '<tr><td>Level</td><td class="strong">' + Math.round(d.tank1.level).toLocaleString() + ' m³</td></tr>' +
+                    '</tbody></table>';
+            },
+            equipment(d){
+                return '<table><thead><tr><th>Equipment</th><th>Wear</th><th>Risk</th><th>Failure Prob.</th><th>Days to Maintenance</th></tr></thead><tbody>' +
+                    d.equipment.map(e => '<tr><td class="strong">' + e.id + ' (' + e.name + ')</td><td>' + fmt(e.wear) + '%</td><td>' + riskBadge(e.risk) + '</td><td>' + e.failureProb + '%</td><td>' + e.daysToMaintenance + '</td></tr>').join('') +
+                    '</tbody></table>';
+            },
+            maintenance(d){
+                const sorted = d.equipment.slice().sort((a, b) => a.daysToMaintenance - b.daysToMaintenance);
+                return '<p style="color:var(--text-1);font-size:12px;">เรียงตามความเร่งด่วน (วันที่เหลือน้อยที่สุดก่อน)</p>' +
+                    '<table><thead><tr><th>Equipment</th><th>Wear</th><th>Days Left</th><th>Recommended Action</th></tr></thead><tbody>' +
+                    sorted.map(e => {
+                        const action = e.daysToMaintenance <= 15 ? 'ตรวจสอบด่วนภายในสัปดาห์นี้' : e.daysToMaintenance <= 30 ? 'วางแผนบำรุงรักษาเร็วๆ นี้' : 'ติดตามตามรอบปกติ';
+                        return '<tr><td class="strong">' + e.id + '</td><td>' + fmt(e.wear) + '%</td><td>' + e.daysToMaintenance + ' วัน</td><td>' + action + '</td></tr>';
+                    }).join('') + '</tbody></table>';
+            },
+            incident(d){
+                const active = d.alerts.filter(a => a.level !== 'normal');
+                if (!active.length) return '<p style="color:var(--green);">✓ ไม่มีเหตุการณ์ผิดปกติ ณ เวลาปัจจุบัน</p>';
+                return '<table><thead><tr><th>รายการ</th><th>ระดับ</th></tr></thead><tbody>' +
+                    active.map(a => '<tr><td>' + a.tag + '</td><td>' + alertBadge(a.level) + '</td></tr>').join('') + '</tbody></table>';
+            },
+            energy(d){
+                return '<div class="grid g3">' +
+                    '<div class="kpi"><div class="k-label">CH4 %</div><div class="k-value">' + fmt(d.plant.ch4Percent) + '</div></div>' +
+                    '<div class="kpi"><div class="k-label">Flow Rate</div><div class="k-value">' + fmt(d.plant.flowRate) + '</div></div>' +
+                    '<div class="kpi"><div class="k-label">Efficiency</div><div class="k-value">' + fmt(d.plant.efficiency) + '</div></div>' +
+                    '</div>';
+            },
+            psm(workflowDb){
+                const entries = Object.entries(workflowDb || {}).filter(([k, v]) => v && v.requiresPPE);
+                if (!entries.length) return '<p style="color:var(--text-2);">ยังไม่มีการกำหนดชิ้นส่วนที่ต้องใช้ PPE ในระบบ (กำหนดผ่านหน้าโมเดล 3D)</p>';
+                return '<table><thead><tr><th>ชิ้นส่วน</th><th>คำอธิบาย</th><th>ขั้นตอน/ข้อกำหนด</th></tr></thead><tbody>' +
+                    entries.map(([k, v]) => '<tr><td class="strong">' + (v.name || k) + '</td><td>' + (v.desc || '-') + '</td><td>' + (Array.isArray(v.steps) ? v.steps.join(', ') : (v.steps || '-')) + '</td></tr>').join('') +
+                    '</tbody></table>';
+            },
+            trend(d){
+                const hist = d.history || [];
+                if (!hist.length) return '<p style="color:var(--text-2);">ยังไม่มีข้อมูลย้อนหลังเพียงพอ</p>';
+                const last20 = hist.slice(-20);
+                return '<p style="color:var(--text-1);font-size:12px;">ข้อมูล ' + last20.length + ' จุดล่าสุด (ทุก 4 วินาที)</p>' +
+                    '<table><thead><tr><th>เวลา</th><th>CH4%</th><th>Flow</th><th>Efficiency</th></tr></thead><tbody>' +
+                    last20.map(h => '<tr><td>' + new Date(h.t).toLocaleTimeString('th-TH') + '</td><td>' + fmt(h.ch4Percent) + '</td><td>' + fmt(h.flowRate) + '</td><td>' + fmt(h.efficiency) + '</td></tr>').join('') +
+                    '</tbody></table>';
+            },
+            full(d, workflowDb){
+                return '<h4>Production</h4>' + reportBuilders.production(d) +
+                    '<h4 style="margin-top:16px;">Equipment</h4>' + reportBuilders.equipment(d) +
+                    '<h4 style="margin-top:16px;">Active Incidents</h4>' + reportBuilders.incident(d) +
+                    '<h4 style="margin-top:16px;">PSM Compliance</h4>' + reportBuilders.psm(workflowDb);
+            }
+        };
+
+        const titles = {
+            production: 'Daily Production Report', equipment: 'Equipment Performance Report',
+            maintenance: 'Maintenance Report', incident: 'Incident Report', energy: 'Energy Report',
+            psm: 'PSM Compliance Report', trend: 'Trend Analysis Report', full: 'Custom Report (ทุกข้อมูล)'
+        };
+
+        window.generateReport = function(type){
+            openReportModal(titles[type] || 'Report');
+            const bodyEl = document.getElementById('report-modal-body');
+            if (!latestPlantData) { bodyEl.innerHTML = noDataMsg(); return; }
+            bodyEl.innerHTML = (type === 'psm') ? reportBuilders.psm(latestWorkflowDb)
+                : (type === 'full') ? reportBuilders.full(latestPlantData, latestWorkflowDb)
+                : reportBuilders[type](latestPlantData);
+        };
+
+        window.exportHistoryCsv = function(){
+            if (!latestPlantData || !latestPlantData.history || !latestPlantData.history.length) {
+                alert('ยังไม่มีข้อมูลย้อนหลังให้ export กรุณารอสักครู่แล้วลองใหม่');
+                return;
+            }
+            const rows = [['timestamp', 'ch4Percent', 'flowRate', 'efficiency', 'pressure', 'temperature', 'ph', 'level']];
+            latestPlantData.history.forEach(h => rows.push([new Date(h.t).toISOString(), h.ch4Percent, h.flowRate, h.efficiency, h.pressure, h.temperature, h.ph, h.level]));
+            const csv = rows.map(r => r.join(',')).join('\n');
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = 'plant-history-' + Date.now() + '.csv';
+            document.body.appendChild(a); a.click(); document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        };
+    })();
     </script>
     </body>
     </html>
