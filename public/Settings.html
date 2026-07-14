@@ -371,14 +371,16 @@
 
             <div class="page-content">
 
-            <div class="tabs" style="margin-bottom:14px;">
-                <div class="tab active">General</div>
-                <div class="tab">User Management</div>
-                <div class="tab">System Configuration</div>
-                <div class="tab">PSM Settings</div>
-                <div class="tab">Notifications</div>
-                <div class="tab">Backup</div>
+            <div class="tabs" style="margin-bottom:14px;" id="settings-tabs">
+                <div class="tab active" data-tab="general">General</div>
+                <div class="tab" data-tab="usermgmt">User Management</div>
+                <div class="tab" data-tab="sysconfig">System Configuration</div>
+                <div class="tab" data-tab="psm">PSM Settings</div>
+                <div class="tab" data-tab="notifications">Notifications</div>
+                <div class="tab" data-tab="backup">Backup</div>
             </div>
+
+            <div id="settings-panel-general" class="settings-panel">
             <div class="grid g2">
                 <div class="card">
                 <div class="card-head"><h3>General Settings</h3></div>
@@ -426,6 +428,19 @@
                 </div>
                 </div>
             </div>
+            </div>
+
+            <div id="settings-panel-usermgmt" class="settings-panel" style="display:none;">
+                <div class="card">
+                    <div class="card-head"><h3>User Management</h3><span class="muted" id="usermgmt-status" style="color:var(--text-2);font-size:11.5px;">กำลังโหลด...</span></div>
+                    <div id="usermgmt-body"></div>
+                </div>
+            </div>
+
+            <div id="settings-panel-sysconfig" class="settings-panel" style="display:none;"><div class="card"><p style="color:var(--text-2);">ฟีเจอร์นี้ยังไม่พร้อมใช้งาน</p></div></div>
+            <div id="settings-panel-psm" class="settings-panel" style="display:none;"><div class="card"><p style="color:var(--text-2);">ฟีเจอร์นี้ยังไม่พร้อมใช้งาน</p></div></div>
+            <div id="settings-panel-notifications" class="settings-panel" style="display:none;"><div class="card"><p style="color:var(--text-2);">ฟีเจอร์นี้ยังไม่พร้อมใช้งาน</p></div></div>
+            <div id="settings-panel-backup" class="settings-panel" style="display:none;"><div class="card"><p style="color:var(--text-2);">ฟีเจอร์นี้ยังไม่พร้อมใช้งาน</p></div></div>
 
             </div>
             </div>
@@ -437,6 +452,79 @@
             window.location.href = 'Login.html';
         }
         initUserChip();
+
+        document.getElementById('settings-tabs').addEventListener('click', e => {
+            const tabEl = e.target.closest('.tab');
+            if (!tabEl) return;
+            document.querySelectorAll('#settings-tabs .tab').forEach(t => t.classList.remove('active'));
+            tabEl.classList.add('active');
+            document.querySelectorAll('.settings-panel').forEach(p => p.style.display = 'none');
+            const panel = document.getElementById('settings-panel-' + tabEl.dataset.tab);
+            if (panel) panel.style.display = 'block';
+            if (tabEl.dataset.tab === 'usermgmt') loadUserManagement();
+        });
+
+        const roleBadge = role => role === 'admin'
+            ? '<span class="badge b-purple">Admin</span>'
+            : '<span class="badge b-gray">User</span>';
+
+        async function loadUserManagement(){
+            const statusEl = document.getElementById('usermgmt-status');
+            const bodyEl = document.getElementById('usermgmt-body');
+            statusEl.textContent = 'กำลังโหลด...';
+            bodyEl.innerHTML = '';
+
+            const { data: { session } } = await supabaseClient.auth.getSession();
+            if (!session) { statusEl.textContent = 'ไม่พบ session'; return; }
+
+            try {
+                const res = await fetch('/api/admin/users', {
+                    headers: { Authorization: 'Bearer ' + session.access_token }
+                });
+                const data = await res.json();
+
+                if (!res.ok) {
+                    statusEl.textContent = '';
+                    bodyEl.innerHTML = '<p style="color:var(--red);">' + (data.error || 'เกิดข้อผิดพลาด') + '</p>';
+                    return;
+                }
+
+                statusEl.textContent = data.users.length + ' บัญชี';
+                bodyEl.innerHTML = '<table><thead><tr><th>Email</th><th>Role</th><th>Last Sign In</th><th></th></tr></thead><tbody>' +
+                    data.users.map(u => {
+                        const isMe = u.id === data.me;
+                        const lastSignIn = u.lastSignInAt ? new Date(u.lastSignInAt).toLocaleString('th-TH') : '—';
+                        let actionCell;
+                        if (u.isBootstrapAdmin) {
+                            actionCell = '<span style="color:var(--text-2);font-size:11px;">Admin ตั้งต้น (env var)</span>';
+                        } else if (u.role === 'admin') {
+                            actionCell = '<button class="btn btn-sm" onclick="setRole(\'' + u.id + '\',\'user\')">ถอด Admin</button>';
+                        } else {
+                            actionCell = '<button class="btn btn-sm primary" onclick="setRole(\'' + u.id + '\',\'admin\')">ตั้งเป็น Admin</button>';
+                        }
+                        return '<tr><td class="strong">' + u.email + (isMe ? ' <span style="color:var(--text-2);">(คุณ)</span>' : '') + '</td>' +
+                            '<td>' + roleBadge(u.role) + '</td>' +
+                            '<td>' + lastSignIn + '</td>' +
+                            '<td style="text-align:right;">' + actionCell + '</td></tr>';
+                    }).join('') + '</tbody></table>';
+            } catch (err) {
+                statusEl.textContent = '';
+                bodyEl.innerHTML = '<p style="color:var(--red);">เชื่อมต่อเซิร์ฟเวอร์ไม่ได้</p>';
+            }
+        }
+
+        async function setRole(userId, role){
+            const { data: { session } } = await supabaseClient.auth.getSession();
+            if (!session) return;
+            const res = await fetch('/api/admin/users/' + userId + '/role', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + session.access_token },
+                body: JSON.stringify({ role })
+            });
+            const data = await res.json();
+            if (!res.ok) { alert(data.error || 'เกิดข้อผิดพลาด'); return; }
+            loadUserManagement();
+        }
         </script>
         </body>
         </html>
