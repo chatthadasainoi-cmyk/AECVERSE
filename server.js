@@ -370,6 +370,21 @@ io.on('connection', socket => {
         io.emit('chat_message', { id: socket.id, name: players[socket.id].name, color: players[socket.id].color, text: String(text).slice(0, 200).replace(/</g, '&lt;') });
     });
 
+    // ---------- VOICE CHAT (WebRTC mesh) ----------
+    // server ทำหน้าที่แค่ "ส่งต่อสัญญาณ" (offer/answer/ICE) ระหว่างผู้เล่นสองคน
+    // เสียงจริงวิ่งตรงถึงกันแบบ P2P ไม่ผ่าน server — เฉพาะ player (บัญชีจริง) เท่านั้น
+    socket.on('voice_signal', payload => {
+        if (!players[socket.id] || !payload || !payload.to || !players[payload.to]) return;
+        const target = io.sockets.sockets.get(payload.to);
+        if (target) target.emit('voice_signal', { from: socket.id, data: payload.data });
+    });
+
+    socket.on('voice_state', state => {
+        if (!players[socket.id]) return;
+        players[socket.id].micOn = !!(state && state.micOn);
+        socket.broadcast.emit('voice_state', { id: socket.id, micOn: players[socket.id].micOn });
+    });
+
     socket.on('disconnect', () => {
         const wasPlayer = !!players[socket.id];
         const wasAdmin = admins.has(socket.id);

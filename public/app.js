@@ -28,7 +28,8 @@ function hexToRgb(hex) {
 // ยังทำงานตามปกติทุกอย่างถ้าไม่มี ?mode=viewer ต่อท้าย URL
 const VIEWER_MODE = new URLSearchParams(window.location.search).get('mode') === 'viewer';
 if (VIEWER_MODE) {
-    ['multiplayer-panel', 'mobile-controls-container', 'hud-multiplayer', 'hud-reset-camera', 'freelook-btn', 'hud-jump']
+    // watcher ดูอย่างเดียว: ไม่มีตัวละคร ไม่มีแชท/ไมค์ (server ก็บล็อกอยู่แล้ว — ซ่อน UI ให้ตรงกัน)
+    ['multiplayer-panel', 'mobile-controls-container', 'hud-multiplayer', 'hud-reset-camera', 'freelook-btn', 'hud-jump', 'hud-voice', 'hud-chat', 'chat-overlay']
         .forEach(id => { const el = $(id); if (el) el.style.display = 'none'; });
 }
 
@@ -368,11 +369,14 @@ window.addEventListener('keydown', (e) => {
     if (e.key === 'ArrowRight' || key === 'd' || key === 'ด' || key === 'ก') moveStatus.right = true;
     if (e.key === ' ' && !jumpConfig.isJumping && !isFreeLook) triggerAvatarJump();
 
-    if (key === 'h' || key === 'อ') togglePanelElement('dashboard');
+    // หมายเหตุแป้นไทย (เกษมณี): H=้, M=ท, T=ะ, R=พ, V=อ, /=ฝ
+    if (key === 'h' || key === '้') togglePanelElement('dashboard');
     if (key === 'm' || key === 'ท') togglePanelElement('details-panel');
     if (key === 't' || key === 'ะ') togglePanelElement('transform-panel');
     if (key === 'u') togglePanelElement('multiplayer-panel');
     if (key === 'r' || key === 'พ') resetCameraToAvatar();
+    if (key === 'v' || key === 'อ') toggleMic();                          // เปิด/ปิดไมค์
+    if (e.key === '/' || e.key === 'ฝ') { e.preventDefault(); openChatInput(); } // เปิดช่องพิมพ์แชท
 });
 window.addEventListener('keyup', (e) => {
     const key = e.key.toLowerCase();
@@ -1228,24 +1232,34 @@ function updateMpUI() {
     }).join('');
 }
 function mpAppendChat(msg) {
-    const log = $('mp-chat-log');
+    const log = $('chat-log');
     if (!log) return;
     const d = document.createElement('div');
-    d.style.cssText = `margin-bottom:4px;color:${msg.color || '#fff'};word-break:break-all;font-size:11px;`;
+    d.className = 'chat-msg';
     const strong = document.createElement('strong');
-    strong.innerText = msg.name + ': ';
+    strong.style.color = msg.color || 'var(--text-0, #fff)';
+    strong.innerText = msg.name;
     d.appendChild(strong);
-    d.appendChild(document.createTextNode(msg.text));
-    log.appendChild(d); log.scrollTop = log.scrollHeight;
+    d.appendChild(document.createTextNode(' ' + msg.text));
+    log.appendChild(d);
+    while (log.children.length > 120) log.removeChild(log.firstChild); // กัน DOM บวมในเซสชันยาว
+    log.scrollTop = log.scrollHeight;
+
+    // ป้ายจำนวนข้อความใหม่บนปุ่มแชท เมื่อหน้าต่างแชทถูกปิดอยู่
+    const overlay = $('chat-overlay');
+    if (overlay && overlay.style.display === 'none') {
+        chatUnread++;
+        updateChatUnreadBadge();
+    }
 }
 // ชื่อผู้เล่นล็อกตามบัญชีที่ล็อกอิน — ไม่มี setMyName/set_name อีกต่อไป
 window.sendChat = function () {
-    const inp = $('mp-chat-input');
+    const inp = $('chat-input');
+    if (!inp) return;
     const text = inp.value.trim();
     if (!text || !mpSocket) return;
     mpSocket.emit('chat_message', text); inp.value = '';
 };
-$('mp-chat-input')?.addEventListener('keydown', e => { if (e.key === 'Enter') window.sendChat(); });
 
 async function initMultiplayer() {
     const dot = $('mp-dot'), txt = $('mp-status-text');
@@ -1309,10 +1323,15 @@ async function initMultiplayer() {
         updateMpUI();
     });
 
-    mpSocket.on('player_joined', data => { if (!VIEWER_MODE) addRemote(data); mpAppendChat({ name: 'ระบบ', color: '#64748b', text: `${data.name} เข้าร่วมโลก` }); });
+    mpSocket.on('player_joined', data => {
+        if (!VIEWER_MODE) addRemote(data);
+        if (micOn) connectVoiceTo(data.id); // ไมค์เราเปิดค้างอยู่ -> ต่อสายหาคนที่เพิ่งเข้ามาด้วย
+        mpAppendChat({ name: 'ระบบ', color: '#64748b', text: `${data.name} เข้าร่วมโลก` });
+    });
     mpSocket.on('player_left', data => {
         const name = mpPlayerNames[data.id] || data.id;
         removeRemote(data.id);
+        closeVoicePeer(data.id);
         mpAppendChat({ name: 'ระบบ', color: '#64748b', text: `${name} ออกจากโลก` });
     });
     mpSocket.on('player_moved', data => {
@@ -1368,12 +1387,263 @@ async function initMultiplayer() {
     });
 
     mpSocket.on('chat_message', msg => mpAppendChat(msg));
+
+    // ---------- voice chat signaling + live plant data ----------
+    mpSocket.on('voice_signal', handleVoiceSignal);
+    mpSocket.on('voice_state', data => {
+        remoteMicOn[data.id] = !!data.micOn;
+        updateVoiceIndicator();
+        const name = mpPlayerNames[data.id] || 'ผู้เล่น';
+        if (data.micOn) mpAppendChat({ name: '🎙️', color: '#22d3ee', text: `${name} เปิดไมค์` });
+    });
+    mpSocket.on('plant_update', updatePlantStrip);
+
+    // ตัดการเชื่อมต่อ (รวมโดนเตะเพราะบัญชีซ้ำ) -> เก็บกวาดสายเสียงทั้งหมด
+    mpSocket.on('disconnect', () => {
+        Object.keys(voicePeers).forEach(closeVoicePeer);
+        if (micOn) {
+            if (micStream) micStream.getAudioTracks().forEach(t => { t.enabled = false; });
+            micOn = false;
+            updateMicHudButton();
+            updateVoiceIndicator();
+        }
+    });
 }
 function updateMpAdminBadge(count) {
     const el = $('mp-admin-count');
     if (el) el.innerText = count;
 }
 initMultiplayer();
+
+// ============================================================
+// 11.5 CHAT OVERLAY — หน้าต่างแชทลอยบน canvas
+// เปิดช่องพิมพ์ด้วยปุ่ม / (ฝ) — เปิด/ปิดหน้าต่างด้วยปุ่มไอคอนแชทใน HUD
+// ============================================================
+let chatUnread = 0;
+function updateChatUnreadBadge() {
+    const b = $('chat-unread-badge');
+    if (!b) return;
+    b.style.display = chatUnread > 0 ? 'flex' : 'none';
+    b.innerText = chatUnread > 9 ? '9+' : chatUnread;
+}
+function toggleChatPanel(force) {
+    const overlay = $('chat-overlay');
+    if (!overlay) return;
+    const show = force !== undefined ? force : overlay.style.display === 'none';
+    overlay.style.display = show ? 'flex' : 'none';
+    if (show) {
+        chatUnread = 0; updateChatUnreadBadge();
+        const log = $('chat-log'); if (log) log.scrollTop = log.scrollHeight;
+    }
+}
+function openChatInput() {
+    if (VIEWER_MODE) return;
+    if (localStorage.getItem('aec_chat_enabled') === 'off') return;
+    toggleChatPanel(true);
+    $('chat-input')?.focus();
+}
+window.toggleChatPanel = toggleChatPanel;
+window.openChatInput = openChatInput;
+$('chat-input')?.addEventListener('keydown', e => {
+    if (e.key === 'Enter') window.sendChat();
+    if (e.key === 'Escape') e.target.blur();
+});
+
+// ============================================================
+// 11.6 VOICE CHAT — WebRTC mesh: เสียงวิ่งตรงระหว่างผู้เล่น (P2P)
+// server ทำหน้าที่ส่งสัญญาณ offer/answer/ICE เท่านั้น ไม่ได้ยินเสียงใคร
+// กด V (อ) เพื่อเปิด/ปิดไมค์ — ตั้งค่าระบบและระดับเสียงได้ที่ Settings → Chat & Voice
+// ============================================================
+const VOICE_RTC_CONFIG = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+const voicePrefs = { voiceEnabled: true, chatEnabled: true, volume: 0.8 };
+let micOn = false;
+let micStream = null;
+const voicePeers = {};   // peerId -> { pc, audioEl, polite, makingOffer }
+const remoteMicOn = {};  // peerId -> ไมค์อีกฝ่ายเปิดอยู่มั้ย (โชว์ตัวเลขใน header แชท)
+
+function applyChatVoicePrefs() {
+    voicePrefs.voiceEnabled = localStorage.getItem('aec_voice_enabled') !== 'off';
+    voicePrefs.chatEnabled = localStorage.getItem('aec_chat_enabled') !== 'off';
+    const rawVol = parseInt(localStorage.getItem('aec_voice_volume') ?? '80', 10);
+    voicePrefs.volume = Math.min(1, Math.max(0, (isNaN(rawVol) ? 80 : rawVol) / 100));
+    Object.values(voicePeers).forEach(p => { if (p.audioEl) p.audioEl.volume = voicePrefs.volume; });
+    if (!voicePrefs.voiceEnabled && micOn) toggleMic(); // ถูกปิดจากหน้า Settings -> ดับไมค์ทันที
+    if (!VIEWER_MODE) {
+        const chatBtn = $('hud-chat');
+        if (chatBtn) chatBtn.style.display = voicePrefs.chatEnabled ? '' : 'none';
+        if (!voicePrefs.chatEnabled) toggleChatPanel(false);
+        const voiceBtn = $('hud-voice');
+        if (voiceBtn) voiceBtn.style.display = voicePrefs.voiceEnabled ? '' : 'none';
+    }
+}
+// หน้า Settings แก้ค่าใน localStorage -> แท็บนี้รับ event แล้วปรับตามทันที ไม่ต้องรีเฟรช
+window.addEventListener('storage', e => { if (e.key && e.key.startsWith('aec_')) applyChatVoicePrefs(); });
+
+function getVoicePeer(peerId) {
+    if (voicePeers[peerId]) return voicePeers[peerId];
+    const pc = new RTCPeerConnection(VOICE_RTC_CONFIG);
+    // กติกา "perfect negotiation": ฝ่าย polite ยอมถอยเมื่อ offer ชนกันกลางอากาศ
+    const entry = { pc, polite: String(mpMyId) > String(peerId), makingOffer: false, audioEl: null };
+    voicePeers[peerId] = entry;
+
+    pc.onnegotiationneeded = async () => {
+        try {
+            entry.makingOffer = true;
+            await pc.setLocalDescription();
+            mpSocket.emit('voice_signal', { to: peerId, data: { description: pc.localDescription } });
+        } catch (err) { console.error('[VOICE] negotiate:', err); }
+        finally { entry.makingOffer = false; }
+    };
+    pc.onicecandidate = e => { if (e.candidate) mpSocket.emit('voice_signal', { to: peerId, data: { candidate: e.candidate } }); };
+    pc.ontrack = e => {
+        if (!entry.audioEl) {
+            entry.audioEl = document.createElement('audio');
+            entry.audioEl.autoplay = true;
+            entry.audioEl.style.display = 'none';
+            document.body.appendChild(entry.audioEl);
+        }
+        entry.audioEl.srcObject = e.streams[0];
+        entry.audioEl.volume = voicePrefs.volume;
+    };
+    if (micStream) micStream.getTracks().forEach(t => pc.addTrack(t, micStream));
+    return entry;
+}
+
+function connectVoiceTo(peerId) {
+    const entry = getVoicePeer(peerId);
+    if (micStream && entry.pc.getSenders().every(s => !s.track)) {
+        micStream.getTracks().forEach(t => entry.pc.addTrack(t, micStream));
+    }
+}
+
+function closeVoicePeer(peerId) {
+    const p = voicePeers[peerId];
+    if (!p) return;
+    try { p.pc.close(); } catch (err) { /* ปิดซ้ำได้ ไม่เป็นไร */ }
+    if (p.audioEl) p.audioEl.remove();
+    delete voicePeers[peerId];
+    delete remoteMicOn[peerId];
+    updateVoiceIndicator();
+}
+
+async function handleVoiceSignal(payload) {
+    if (!payload || !payload.from) return;
+    const entry = getVoicePeer(payload.from);
+    const pc = entry.pc;
+    const data = payload.data || {};
+    try {
+        if (data.description) {
+            const collision = data.description.type === 'offer' && (entry.makingOffer || pc.signalingState !== 'stable');
+            if (collision && !entry.polite) return; // ฝ่ายไม่ polite ทิ้ง offer ที่ชนกัน แล้วรอรอบใหม่
+            await pc.setRemoteDescription(data.description);
+            if (data.description.type === 'offer') {
+                await pc.setLocalDescription();
+                mpSocket.emit('voice_signal', { to: payload.from, data: { description: pc.localDescription } });
+            }
+        } else if (data.candidate) {
+            await pc.addIceCandidate(data.candidate).catch(() => {});
+        }
+    } catch (err) { console.error('[VOICE] signal:', err); }
+}
+
+async function toggleMic() {
+    if (VIEWER_MODE) return;
+    if (!voicePrefs.voiceEnabled) {
+        mpAppendChat({ name: '🎙️ ระบบ', color: '#f59e0b', text: 'ระบบเสียงถูกปิดไว้ — เปิดได้ที่ Settings → Chat & Voice' });
+        return;
+    }
+    if (!mpSocket || !mpSocket.connected) {
+        mpAppendChat({ name: '🎙️ ระบบ', color: '#ef4444', text: 'ยังไม่ได้เชื่อมต่อเซิร์ฟเวอร์' });
+        return;
+    }
+    if (!micOn) {
+        try {
+            if (!micStream) {
+                micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+                // มี peer อยู่แล้ว (เคยรับเสียงคนอื่น) -> ยัด track ของเราเข้าไป ระบบจะ negotiate ใหม่เอง
+                Object.values(voicePeers).forEach(p => {
+                    if (p.pc.getSenders().every(s => !s.track)) micStream.getTracks().forEach(t => p.pc.addTrack(t, micStream));
+                });
+            }
+            micStream.getAudioTracks().forEach(t => { t.enabled = true; });
+            micOn = true;
+            Object.keys(remoteAvatars).forEach(id => connectVoiceTo(id)); // ต่อ P2P หาทุกคนที่ออนไลน์
+        } catch (err) {
+            console.error('[VOICE] getUserMedia:', err);
+            mpAppendChat({ name: '🎙️ ระบบ', color: '#ef4444', text: 'เปิดไมค์ไม่สำเร็จ — เบราว์เซอร์ไม่ได้รับอนุญาตให้ใช้ไมโครโฟน' });
+            return;
+        }
+    } else {
+        if (micStream) micStream.getAudioTracks().forEach(t => { t.enabled = false; });
+        micOn = false;
+    }
+    mpSocket.emit('voice_state', { micOn });
+    updateMicHudButton();
+    updateVoiceIndicator();
+    mpAppendChat({
+        name: '🎙️ ระบบ', color: micOn ? '#22c55e' : '#9aa7b8',
+        text: micOn ? 'ไมค์เปิดแล้ว — ผู้เล่นทุกคนได้ยินคุณ (กด V เพื่อปิด)' : 'ปิดไมค์แล้ว'
+    });
+}
+window.toggleMic = toggleMic;
+
+function updateMicHudButton() {
+    const btn = $('hud-voice');
+    if (btn) btn.classList.toggle('mic-on', micOn);
+    const label = $('hud-voice-label');
+    if (label) label.innerText = micOn ? 'ไมค์: เปิด' : 'ไมค์';
+}
+
+function updateVoiceIndicator() {
+    const el = $('chat-voice-indicator');
+    if (!el) return;
+    const count = Object.values(remoteMicOn).filter(Boolean).length + (micOn ? 1 : 0);
+    el.innerText = count > 0 ? `🎙️ ${count}` : '';
+}
+
+// ============================================================
+// 11.7 LIVE PLANT DATA STRIP — ตัวเลขโรงงานเรียลไทม์ใต้จอ 3D
+// ใช้ feed 'plant_update' เดียวกับหน้า Metaverse/Analytics — ทุกจอเห็นเลขเดียวกัน
+// ============================================================
+const prevPlantVals = {};
+function updatePlantStrip(data) {
+    if (!data || !data.plant) return;
+    const setVal = (id, val, unit, prevKey) => {
+        const el = $(id); if (!el) return;
+        el.innerText = val + unit;
+        const deltaEl = $(id + '-delta');
+        if (deltaEl) {
+            const prev = prevPlantVals[prevKey];
+            if (prev !== undefined && prev !== val) {
+                const diff = val - prev;
+                deltaEl.innerText = (diff >= 0 ? '▲' : '▼') + Math.abs(diff).toFixed(1);
+                deltaEl.className = 'strip-delta ' + (diff >= 0 ? 'up' : 'down');
+            }
+            prevPlantVals[prevKey] = val;
+        }
+    };
+    setVal('strip-ch4', data.plant.ch4Percent, '%', 'ch4');
+    setVal('strip-flow', data.plant.flowRate, ' m³/h', 'flow');
+    setVal('strip-eff', data.plant.efficiency, '%', 'eff');
+
+    if (Array.isArray(data.alerts)) {
+        const critical = data.alerts.filter(a => a.level === 'critical').length;
+        const warning = data.alerts.filter(a => a.level === 'warning').length;
+        const level = critical ? 'crit' : warning ? 'warn' : 'ok';
+        const alertEl = $('strip-alert');
+        if (alertEl) {
+            alertEl.innerText = (critical + warning) > 0 ? data.alerts[0].tag : 'All Systems Normal';
+            alertEl.className = 'strip-alert-text ' + level;
+        }
+        const cnt = $('strip-alert-count');
+        if (cnt) {
+            cnt.innerText = (critical + warning) > 0 ? (critical + warning) : '✓';
+            cnt.className = 'strip-alert-badge ' + level;
+        }
+    }
+}
+
+applyChatVoicePrefs();
 
 // ============================================================
 // 12. SAVE / LOAD SCENE (.zip) — เก็บไฟล์โมเดลต้นฉบับตรงๆ ไม่ผ่านการ re-export
