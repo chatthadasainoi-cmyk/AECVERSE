@@ -19,6 +19,10 @@ app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'Login.ht
 // เข้าถึง/แก้ไขบัญชีผู้ใช้ทุกคนได้ ไม่ใช่แค่ของตัวเอง)
 // ============================================================
 const SUPABASE_URL = 'https://hzlokmixfkfrmkuucfhg.supabase.co';
+// anon key เป็น public key อยู่แล้ว (ฝังในโค้ดฝั่ง client ทุกหน้า) — ใช้ตรวจสอบ
+// access token ของผู้ใช้ (auth.getUser) ได้โดยไม่ต้องพึ่ง service role key
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh6bG9rbWl4Zmtmcm1rdXVjZmhnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1NzA5NTUsImV4cCI6MjA5ODE0Njk1NX0.DSj0c7XN979948Iq5rGmWqI9ddcbg56OmfKFin--Luo';
+const supabaseVerify = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const supabaseAdmin = process.env.SUPABASE_SERVICE_ROLE_KEY
     ? createClient(SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
     : null;
@@ -95,10 +99,10 @@ let modelTransform = { posX: 0, posY: 0, posZ: 0, rotY: 0, scale: 1 };
 // เริ่มต้น "ล็อก" ไว้เสมอ กันแก้ไขพลาดตั้งแต่ผู้เล่นคนแรกเข้าห้อง — ต้องให้ admin ปลดล็อกเองเท่านั้น
 let modelLocked = true;
 
-// ADMIN AUTH (แบบง่ายสำหรับต้นแบบงานวิจัย — ไม่ใช่ระบบยืนยันตัวตนระดับ production)
-// ตั้งรหัสผ่านผ่าน environment variable ADMIN_PASSWORD ได้ตอน deploy จริง
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'biogas-admin';
-const admins = new Set(); // socket.id ที่ล็อกอินเป็น admin แล้วในรอบนี้
+// ADMIN AUTH — ผูกกับบัญชี Supabase โดยตรง (ไม่มีรหัสผ่าน admin แยกอีกต่อไป)
+// ใครเป็น admin ดูจาก isAdminUser(): app_metadata.role === 'admin' (ตั้งผ่านหน้า
+// Settings → User Management) หรืออยู่ใน ADMIN_BOOTSTRAP_EMAILS
+const admins = new Set(); // socket.id ของผู้เล่นที่บัญชีเป็น admin (ใส่ให้อัตโนมัติตอนเชื่อมต่อ)
 
 function publicState() {
     return {
@@ -214,25 +218,88 @@ function stepPlantSimulation() {
 
 setInterval(stepPlantSimulation, 4000);
 
-io.on('connection', socket => {
-    console.log(`[+] ${socket.id}`);
-    const player = {
-        id: socket.id,
-        name: `Player_${socket.id.slice(0, 4).toUpperCase()}`,
-        color: COLORS[Math.floor(Math.random() * COLORS.length)],
-        position: { x: (Math.random() - 0.5) * 6, y: 0.9, z: 8 + (Math.random() - 0.5) * 4 },
-        rotation: { y: 0 }
-    };
-    players[socket.id] = player;
+// ============================================================
+// SOCKET AUTH MIDDLEWARE — ตัวตนผูกกับบัญชี Supabase
+// - role 'player'  = ตัวละครในโลก 3D (หน้า index.html) ต้องล็อกอินเท่านั้น
+// - role 'watcher' = ผู้ชมข้อมูล (Dashboard/Analytics/Reports/Emergency และ
+//   iframe viewer ในหน้า Digital Twin) — รับข้อมูลได้ แต่"ไม่เป็นตัวละคร"
+//   ← นี่คือตัวแก้บั๊กตัวละครผี Player_XXXX ที่ duplicate ออกมาก่อนหน้านี้
+//   (เดิมทุก connection ถูกนับเป็นผู้เล่นหมด แม้แต่หน้า Dashboard)
+// ============================================================
+io.use(async (socket, next) => {
+    const { token, role } = socket.handshake.auth || {};
+    socket.data.role = role === 'player' ? 'player' : 'watcher';
+    socket.data.user = null;
+    if (token) {
+        try {
+            const { data, error } = await supabaseVerify.auth.getUser(token);
+            if (!error && data.user) socket.data.user = data.user;
+        } catch (err) {
+            console.warn('[AUTH] ตรวจสอบ token ล้มเหลว:', err.message);
+        }
+    }
+    // ผู้เล่นในโลก 3D ต้องมีบัญชีจริงเสมอ — watcher ไม่บังคับ (แค่ดูข้อมูล)
+    if (socket.data.role === 'player' && !socket.data.user) return next(new Error('AUTH_REQUIRED'));
+    next();
+});
 
-    socket.emit('self_init', {
-        self: player,
-        others: Object.values(players).filter(p => p.id !== socket.id),
-        isAdmin: false,
-        ...publicState()
-    });
-    socket.emit('plant_update', computePlantSnapshot());
-    socket.broadcast.emit('player_joined', player);
+// สีประจำตัวคงที่ต่อบัญชี — บัญชีเดิมเข้ามากี่ครั้งก็ได้สีเดิม
+function colorForUserId(userId) {
+    let h = 0;
+    for (const ch of String(userId)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    return COLORS[h % COLORS.length];
+}
+
+io.on('connection', socket => {
+    const user = socket.data.user;
+    const isPlayer = socket.data.role === 'player';
+
+    // ---------- WATCHER: รับ state อย่างเดียว ไม่มีตัวละคร ----------
+    if (!isPlayer) {
+        console.log(`[+watcher] ${socket.id}`);
+        socket.emit('self_init', { self: null, others: [], isAdmin: false, ...publicState() });
+        socket.emit('plant_update', computePlantSnapshot());
+    } else {
+        // ---------- PLAYER: หนึ่งบัญชี = หนึ่งตัวละคร ----------
+        // ถ้าบัญชีเดียวกันเชื่อมต่อซ้ำ (เปิดหลายแท็บ/รีเฟรช) เตะ connection เก่าออกก่อน
+        const existing = Object.values(players).find(p => p.userId === user.id);
+        if (existing) {
+            const oldSocket = io.sockets.sockets.get(existing.id);
+            if (oldSocket) {
+                oldSocket.emit('kicked_duplicate');
+                oldSocket.disconnect(true); // trigger disconnect handler -> ลบ players entry + broadcast player_left
+            } else {
+                delete players[existing.id]; // socket หายไปแล้วแต่ entry ค้าง — เก็บกวาด
+            }
+        }
+
+        const displayName = String(
+            user.user_metadata?.display_name || (user.email || '').split('@')[0] || 'User'
+        ).slice(0, 20).replace(/[<>]/g, '');
+        const userIsAdmin = isAdminUser(user);
+
+        const player = {
+            id: socket.id,
+            userId: user.id,
+            name: displayName,
+            color: colorForUserId(user.id),
+            position: { x: (Math.random() - 0.5) * 6, y: 0.9, z: 8 + (Math.random() - 0.5) * 4 },
+            rotation: { y: 0 }
+        };
+        players[socket.id] = player;
+        if (userIsAdmin) admins.add(socket.id);
+        console.log(`[+player] ${displayName} <${user.email}>${userIsAdmin ? ' (admin)' : ''}`);
+
+        socket.emit('self_init', {
+            self: player,
+            others: Object.values(players).filter(p => p.id !== socket.id),
+            isAdmin: userIsAdmin,
+            ...publicState()
+        });
+        socket.emit('plant_update', computePlantSnapshot());
+        socket.broadcast.emit('player_joined', player);
+        if (userIsAdmin) io.emit('admin_presence', { adminCount: admins.size });
+    }
 
     // ---------- movement ----------
     socket.on('player_move', data => {
@@ -253,6 +320,7 @@ io.on('connection', socket => {
     });
 
     socket.on('model_removed', () => {
+        if (!admins.has(socket.id)) return; // UI ฝั่ง client จำกัดปุ่มลบไว้ที่ admin อยู่แล้ว — บังคับซ้ำฝั่ง server
         currentModelUrl = null;
         currentModelName = null;
         modelTransform = { posX: 0, posY: 0, posZ: 0, rotY: 0, scale: 1 };
@@ -261,19 +329,7 @@ io.on('connection', socket => {
         console.log(`[MODEL] Removed by ${socket.id}`);
     });
 
-    // ---------- REQ 1&2: admin auth + lock + transform sync ----------
-    socket.on('admin_login', (password, ack) => {
-        const ok = typeof password === 'string' && password === ADMIN_PASSWORD;
-        if (ok) admins.add(socket.id);
-        if (typeof ack === 'function') ack({ success: ok, modelLocked, modelTransform });
-        if (ok) io.emit('admin_presence', { adminCount: admins.size });
-    });
-
-    socket.on('admin_logout', () => {
-        admins.delete(socket.id);
-        io.emit('admin_presence', { adminCount: admins.size });
-    });
-
+    // ---------- REQ 1&2: lock + transform sync (สิทธิ์ admin มาจากบัญชีอัตโนมัติ) ----------
     socket.on('toggle_lock', () => {
         if (!admins.has(socket.id)) return; // เฉพาะ admin เท่านั้นที่ล็อก/ปลดล็อกได้
         modelLocked = !modelLocked;
@@ -308,24 +364,20 @@ io.on('connection', socket => {
         console.log(`[WORKFLOW] key:${data.key} name:${data.name}`);
     });
 
-    // ---------- identity / chat ----------
-    socket.on('set_name', name => {
-        if (!players[socket.id]) return;
-        players[socket.id].name = String(name).slice(0, 20).replace(/[<>]/g, '');
-        io.emit('player_renamed', { id: socket.id, name: players[socket.id].name });
-    });
-
+    // ---------- chat (ชื่อผู้เล่นล็อกตามบัญชี — ไม่มี set_name อีกต่อไป) ----------
     socket.on('chat_message', text => {
         if (!players[socket.id]) return;
         io.emit('chat_message', { id: socket.id, name: players[socket.id].name, color: players[socket.id].color, text: String(text).slice(0, 200).replace(/</g, '&lt;') });
     });
 
     socket.on('disconnect', () => {
+        const wasPlayer = !!players[socket.id];
+        const wasAdmin = admins.has(socket.id);
         delete players[socket.id];
         admins.delete(socket.id);
-        io.emit('player_left', { id: socket.id });
-        io.emit('admin_presence', { adminCount: admins.size });
-        console.log(`[-] ${socket.id}`);
+        if (wasPlayer) io.emit('player_left', { id: socket.id });
+        if (wasAdmin) io.emit('admin_presence', { adminCount: admins.size });
+        console.log(`[-${wasPlayer ? 'player' : 'watcher'}] ${socket.id}`);
     });
 });
 

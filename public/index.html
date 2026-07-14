@@ -16,10 +16,14 @@
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/FBXLoader.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
+    <!-- Supabase JS — อ่าน session ของบัญชีที่ล็อกอิน เพื่อผูกตัวละครกับบัญชีจริง -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
     <!-- Socket.IO Client — CDN first, fallback to local server -->
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-    <!-- ✏️ ใส่ Railway URL ของคุณตรงนี้ -->
-    <script>window.RAILWAY_SERVER_URL = "https://aecmultiplayertest-production.up.railway.app";</script>
+    <!-- ✏️ ใส่ Railway URL ของคุณตรงนี้ (ถ้าเปิดจาก localhost จะต่อ server ตัวเองแทนอัตโนมัติ) -->
+    <script>window.RAILWAY_SERVER_URL = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+        ? '' : "https://aecmultiplayertest-production.up.railway.app";</script>
 </head>
 <body>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
@@ -84,20 +88,16 @@
             <span class="panel-sub">Transform Tools</span>
         </div>
 
-        <!-- REQ 1&2: Admin auth + Lock — เฉพาะ Admin ที่ปลดล็อกแล้วเท่านั้นที่ปรับ slider ด้านล่างได้ -->
+        <!-- REQ 1&2: สิทธิ์ Admin ตรวจจากบัญชีที่ล็อกอินอัตโนมัติ (ไม่มีรหัสผ่านแยก)
+             จัดการว่าใครเป็น Admin ได้ที่หน้า Settings → User Management -->
         <div id="admin-auth-section" style="margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border-soft);">
-            <label class="section-label">โหมดผู้ดูแลระบบ (Admin)</label>
-            <div id="admin-login-row" style="display:flex; gap:6px;">
-                <input type="password" id="admin-password-input" class="ui-edit-input" placeholder="รหัสผ่าน Admin" style="flex:1;">
-                <button class="panel-action-btn btn-save" onclick="adminLogin()" style="white-space:nowrap;">เข้าสู่ระบบ</button>
-            </div>
-            <div id="admin-status-row" style="display:none; align-items:center; justify-content:space-between; gap:8px;">
-                <span style="color:var(--green); font-size:12px; font-weight:600;">✓ คุณคือ Admin</span>
-                <button class="panel-action-btn" onclick="adminLogout()" style="font-size:11px;">ออกจากโหมด Admin</button>
+            <label class="section-label">สิทธิ์การแก้ไข</label>
+            <div id="admin-status-row" style="display:none; align-items:center; gap:8px;">
+                <span style="color:var(--green); font-size:12px; font-weight:600;">✓ บัญชีของคุณเป็น Admin — ปรับตำแหน่งโมเดลได้</span>
             </div>
             <div id="lock-status-badge" style="margin-top:8px; font-size:11px; padding:7px 10px; border-radius:7px; text-align:center; font-weight:600;"></div>
             <button id="btn-toggle-lock" class="panel-action-btn action-block" onclick="toggleModelLock()" style="margin-top:8px; display:none;"></button>
-            <div class="hint-text">ผู้ใช้ทั่วไปจะเห็นตำแหน่งโมเดลแบบอ่านอย่างเดียว ปรับได้เฉพาะ Admin ที่ปลดล็อกไว้เท่านั้น</div>
+            <div class="hint-text">ระบบตรวจสิทธิ์จากบัญชีที่ล็อกอินให้อัตโนมัติ — กำหนดใครเป็น Admin ได้ที่ Settings → User Management การปรับตำแหน่งจะแสดงให้ทุกคนเห็นแบบเรียลไทม์</div>
         </div>
 
         <div class="control-group">
@@ -167,14 +167,7 @@
             <span style="margin-left:auto;">👑 Admin: <span id="mp-admin-count">0</span></span>
         </div>
 
-        <div style="margin-bottom:10px;">
-            <label class="section-label">ชื่อผู้เล่น</label>
-            <div style="display:flex;gap:6px;">
-                <input type="text" id="mp-name-input" class="ui-edit-input" placeholder="ตั้งชื่อของคุณ" style="flex:1;" maxlength="20">
-                <button class="panel-action-btn btn-save" onclick="setMyName()" style="white-space:nowrap;">ตั้งชื่อ</button>
-            </div>
-        </div>
-
+        <!-- ชื่อผู้เล่นล็อกตามบัญชีที่ล็อกอิน — ไม่มีช่องตั้งชื่อเองอีกต่อไป -->
         <div>
             <label class="section-label">ผู้เล่นออนไลน์ (<span id="mp-player-count">1</span>)</label>
             <div id="mp-player-list" style="max-height:100px;overflow-y:auto;"></div>
