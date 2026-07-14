@@ -141,7 +141,7 @@ h3, h4 { margin: 0 0 10px 0; font-size: 13px; font-weight: 700; color: var(--tex
 }
 .floating-safety-panel {
     position: fixed;
-    bottom: 66px; /* เว้นเหนือแถบ keybind-hud ด้านล่างพอดี */
+    bottom: 112px; /* เว้นเหนือแถบ plant-strip + keybind-hud ด้านล่างพอดี */
     left: 304px;  /* = side-col 288px + gutter 16px */
     right: 304px;
     width: auto;
@@ -160,6 +160,87 @@ h3, h4 { margin: 0 0 10px 0; font-size: 13px; font-weight: 700; color: var(--tex
 }
 @media screen and (max-width: 920px) and (orientation: landscape) {
     .floating-safety-panel { left: 16px; right: 16px; bottom: 16px; max-height: 40vh; }
+}
+
+/* ---------- LIVE PLANT DATA STRIP — ตัวเลขโรงงานเรียลไทม์ใต้จอ 3D ---------- */
+#plant-strip {
+    flex-shrink: 0;
+    display: flex; gap: 8px; align-items: stretch;
+    background: var(--bg-1);
+    border-top: 1px solid var(--border);
+    padding: 8px 14px;
+    overflow-x: auto;
+}
+.strip-item {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 12px;
+    white-space: nowrap;
+}
+.strip-label { font-size: 10px; color: var(--text-2); font-weight: 700; text-transform: uppercase; letter-spacing: .5px; }
+.strip-value { font-size: 14px; font-weight: 800; color: var(--text-0); font-family: "Sora", "Inter", sans-serif; }
+.strip-delta { font-size: 10.5px; font-weight: 700; }
+.strip-delta.up { color: var(--green); }
+.strip-delta.down { color: var(--red); }
+.strip-item-alert { flex: 1; min-width: 120px; justify-content: flex-start; overflow: hidden; }
+.strip-alert-badge {
+    min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10.5px; font-weight: 800; flex-shrink: 0;
+}
+.strip-alert-badge.ok { background: var(--green-soft); color: var(--green); }
+.strip-alert-badge.warn { background: var(--yellow-soft); color: var(--yellow); }
+.strip-alert-badge.crit { background: var(--red-soft); color: var(--red); }
+.strip-alert-text { font-size: 11.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.strip-alert-text.ok { color: var(--text-1); }
+.strip-alert-text.warn { color: var(--yellow); }
+.strip-alert-text.crit { color: var(--red); }
+
+/* ---------- CHAT OVERLAY — แชทลอยมุมซ้ายล่างของจอ 3D ---------- */
+#chat-overlay {
+    position: absolute;
+    left: 14px; bottom: 14px;
+    width: 300px; max-width: calc(100% - 28px);
+    height: 260px; max-height: 46%;
+    display: flex; flex-direction: column;
+    background: rgba(14, 19, 28, 0.92);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    z-index: 40;
+    overflow: hidden;
+}
+.chat-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--border-soft); flex-shrink: 0; }
+.chat-title { display: flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 700; color: var(--text-0); }
+.chat-title svg { color: var(--blue); }
+.chat-voice-ind { font-size: 10.5px; color: var(--cyan); font-weight: 700; margin-left: auto; }
+.chat-close-btn { background: none; border: none; color: var(--text-2); cursor: pointer; font-size: 13px; padding: 2px 5px; border-radius: 5px; line-height: 1; }
+.chat-close-btn:hover { color: var(--text-0); background: var(--panel-2); }
+#chat-log { flex: 1; overflow-y: auto; padding: 8px 10px; min-height: 0; }
+.chat-msg { font-size: 11.5px; color: var(--text-1); margin-bottom: 5px; line-height: 1.5; word-break: break-word; }
+.chat-msg strong { font-weight: 700; }
+.chat-input-row { display: flex; gap: 6px; padding: 8px; border-top: 1px solid var(--border-soft); flex-shrink: 0; }
+.chat-input-row input {
+    flex: 1; min-width: 0; background: var(--panel-2); border: 1px solid var(--border);
+    color: var(--text-0); border-radius: 7px; padding: 7px 10px; font-size: 12px; outline: none; font-family: inherit;
+}
+.chat-input-row input:focus { border-color: var(--blue); }
+.chat-send-btn {
+    background: var(--blue); border: none; color: #fff; border-radius: 7px;
+    width: 34px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.chat-send-btn:hover { filter: brightness(1.12); }
+
+/* สถานะไมค์บนปุ่ม HUD + ป้ายจำนวนข้อความที่ยังไม่ได้อ่าน */
+#hud-voice.mic-on { color: var(--green); }
+#hud-voice.mic-on .key-badge { background: var(--green); border-color: var(--green); color: #04150b; }
+.chat-unread-badge {
+    background: var(--red); color: #fff; font-size: 9px; font-weight: 800;
+    min-width: 15px; height: 15px; padding: 0 4px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center; margin-left: 5px;
 }
 
 /* ---------- HUD แถบคีย์ลัดด้านล่าง ---------- */
@@ -450,6 +531,13 @@ h3, h4 { margin: 0 0 10px 0; font-size: 13px; font-weight: 700; color: var(--tex
     }
     #keybind-hud {
         display: none !important;
+    }
+    #plant-strip {
+        display: none !important; /* จอเล็กแนวนอน: คืนพื้นที่ให้ฉาก 3D */
+    }
+    #chat-overlay {
+        width: 220px;
+        height: 180px;
     }
     .side-col {
         width: 200px;

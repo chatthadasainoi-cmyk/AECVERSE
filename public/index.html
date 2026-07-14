@@ -203,6 +203,25 @@
             </div>
         </div>
 
+        <!-- CHAT OVERLAY — แชทของโลก 3D (เปิดพิมพ์: กด / — เปิด/ปิดหน้าต่าง: ปุ่มแชทใน HUD) -->
+        <div id="chat-overlay">
+            <div class="chat-head">
+                <span class="chat-title">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+                    แชท
+                </span>
+                <span id="chat-voice-indicator" class="chat-voice-ind"></span>
+                <button class="chat-close-btn" onclick="toggleChatPanel(false)" title="ปิดหน้าต่างแชท">✕</button>
+            </div>
+            <div id="chat-log"></div>
+            <div class="chat-input-row">
+                <input id="chat-input" placeholder="พิมพ์ข้อความ... (Enter ส่ง)" maxlength="200" autocomplete="off">
+                <button class="chat-send-btn" onclick="sendChat()" title="ส่งข้อความ">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+                </button>
+            </div>
+        </div>
+
         <!-- แผงข้อมูลความปลอดภัย — ลอยทับ canvas กว้างขึ้น และหายเองเมื่อเดินออกห่างหรือ deselect -->
         <div id="process-panel" class="panel floating-safety-panel" style="display: none;">
             <div class="process-header" style="flex-direction: column; align-items: stretch; gap: 8px;">
@@ -246,16 +265,44 @@
         </div>
     </div>
 
+    <!-- แถบข้อมูลโรงงานเรียลไทม์ — feed เดียวกับหน้า Metaverse/Analytics -->
+    <div id="plant-strip">
+        <div class="strip-item">
+            <span class="strip-label">CH4</span>
+            <span id="strip-ch4" class="strip-value">— %</span>
+            <span id="strip-ch4-delta" class="strip-delta"></span>
+        </div>
+        <div class="strip-item">
+            <span class="strip-label">Flow</span>
+            <span id="strip-flow" class="strip-value">— m³/h</span>
+            <span id="strip-flow-delta" class="strip-delta"></span>
+        </div>
+        <div class="strip-item">
+            <span class="strip-label">Efficiency</span>
+            <span id="strip-eff" class="strip-value">— %</span>
+            <span id="strip-eff-delta" class="strip-delta"></span>
+        </div>
+        <div class="strip-item strip-item-alert">
+            <span id="strip-alert-count" class="strip-alert-badge ok">✓</span>
+            <span id="strip-alert" class="strip-alert-text ok">กำลังเชื่อมต่อข้อมูล...</span>
+        </div>
+    </div>
+
     <!-- แผงควบคุมด่วน HUD -->
     <div id="keybind-hud">
         <div class="key-btn-item" onclick="togglePanelElement('dashboard')"><span class="key-badge">H</span> เมนูหลัก</div>
         <div class="key-btn-item" onclick="togglePanelElement('transform-panel')"><span class="key-badge">T</span> ปรับตำแหน่ง</div>
         <div class="key-btn-item" onclick="togglePanelElement('details-panel')"><span class="key-badge">M</span> รายชื่อชิ้นส่วน</div>
         <!-- ปุ่ม "บอร์ดความปลอดภัย" ถูกตัดออก — ป็อปอัพนี้แสดงอัตโนมัติเมื่อคลิก/เดินชนชิ้นส่วนเท่านั้น -->
-        <div id="hud-multiplayer" class="key-btn-item" onclick="togglePanelElement('multiplayer-panel')"><span class="key-badge">U</span> Multiplayer</div>
         <div id="hud-reset-camera" class="key-btn-item" onclick="resetCameraToAvatar()"><span class="key-badge">R</span> รีเซ็ตมุมกล้อง</div>
         <div id="freelook-btn" class="key-btn-item" onclick="document.dispatchEvent(new KeyboardEvent('keydown',{key:'f'}))"><span class="key-badge">F</span> Free Look</div>
         <div id="hud-jump" class="key-btn-item" onclick="triggerAvatarJump()"><span class="key-badge">Space</span> กระโดด</div>
+        <div id="hud-voice" class="key-btn-item" onclick="toggleMic()" title="เปิด/ปิดไมค์คุยกับผู้เล่นในโลก"><span class="key-badge">V</span> <span id="hud-voice-label">ไมค์</span></div>
+        <div id="hud-chat" class="key-btn-item" onclick="toggleChatPanel()" title="เปิด/ปิดหน้าต่างแชท (กด / เพื่อพิมพ์)">
+            <span class="key-badge">/</span> แชท
+            <span id="chat-unread-badge" class="chat-unread-badge" style="display:none;">0</span>
+        </div>
+        <div id="hud-multiplayer" class="key-btn-item" onclick="togglePanelElement('multiplayer-panel')" style="display:none;"><span class="key-badge">U</span> Multiplayer</div>
     </div>
   </div>
 

@@ -325,7 +325,7 @@
                 <div class="lg-text"><b>AEC <span class="verse">VERS</span></b><span>SMART BIOGAS DIGITAL TWIN</span></div>
             </div>
             <nav class="sb-nav">
-                <div class="nav-item" onclick="location.href='Dashboard.html'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg><span>Dashboard</span></div>
+                <div class="nav-item" onclick="location.href='Dashboard.html'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg><span>Metaverse</span></div>
                 <div class="nav-item" onclick="location.href='Digitaltwin.html'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l9 5v10l-9 5-9-5V7l9-5z"/><path d="M3 7l9 5 9-5M12 12v10"/></svg><span>Digital Twin</span></div>
                 <div class="nav-item" onclick="location.href='Analytics.html'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg><span>Analytics</span></div>
                 <div class="nav-item" onclick="location.href='WorkOrder.html'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 3v2h6V3M9 10h6M9 14h6M9 18h3"/></svg><span>Work Order</span></div>
@@ -374,6 +374,7 @@
             <div class="tabs" style="margin-bottom:14px;" id="settings-tabs">
                 <div class="tab active" data-tab="general">General</div>
                 <div class="tab" data-tab="usermgmt">User Management</div>
+                <div class="tab" data-tab="chatvoice">Chat & Voice</div>
                 <div class="tab" data-tab="sysconfig">System Configuration</div>
                 <div class="tab" data-tab="psm">PSM Settings</div>
                 <div class="tab" data-tab="notifications">Notifications</div>
@@ -437,6 +438,56 @@
                 </div>
             </div>
 
+            <!-- CHAT & VOICE — การตั้งค่าแชท/เสียงของโลก Metaverse
+                 เก็บใน localStorage: หน้า Metaverse (3D) ที่เปิดอยู่รับ storage event แล้วปรับตามทันที -->
+            <div id="settings-panel-chatvoice" class="settings-panel" style="display:none;">
+                <div class="grid g2">
+                    <div class="card">
+                        <div class="card-head"><h3>Chat & Voice ในโลก Metaverse</h3></div>
+                        <div style="display:flex;flex-direction:column;gap:16px;">
+                            <label style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;">
+                                <div>
+                                    <div style="font-weight:600;font-size:12.5px;">แชทข้อความ</div>
+                                    <div style="color:var(--text-2);font-size:11px;margin-top:2px;">หน้าต่างแชทในโลก 3D (กด / เพื่อพิมพ์)</div>
+                                </div>
+                                <input type="checkbox" id="cv-chat-enabled" style="width:16px;height:16px;accent-color:var(--blue);">
+                            </label>
+                            <label style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;">
+                                <div>
+                                    <div style="font-weight:600;font-size:12.5px;">เสียงพูดคุย (Voice Chat)</div>
+                                    <div style="color:var(--text-2);font-size:11px;margin-top:2px;">คุยเสียงกับผู้เล่นในโลกแบบ P2P (กด V เพื่อเปิด/ปิดไมค์)</div>
+                                </div>
+                                <input type="checkbox" id="cv-voice-enabled" style="width:16px;height:16px;accent-color:var(--blue);">
+                            </label>
+                            <div>
+                                <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+                                    <span style="font-weight:600;font-size:12.5px;">ระดับเสียงเพื่อนร่วมโลก</span>
+                                    <span id="cv-volume-val" style="color:var(--text-2);font-size:11.5px;">80%</span>
+                                </div>
+                                <input type="range" id="cv-voice-volume" min="0" max="100" step="5" style="width:100%;accent-color:var(--blue);">
+                            </div>
+                            <div id="cv-save-status" style="color:var(--green);font-size:11px;min-height:14px;"></div>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-head"><h3>คีย์ลัดในโลก Metaverse</h3></div>
+                        <div style="display:flex;flex-direction:column;gap:10px;font-size:12px;">
+                            <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-2);">เปิด/ปิดไมค์</span><span style="font-weight:700;font-family:monospace;">V (อ)</span></div>
+                            <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-2);">พิมพ์แชท</span><span style="font-weight:700;font-family:monospace;">/ (ฝ)</span></div>
+                            <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-2);">เปิด/ปิดหน้าต่างแชท</span><span style="font-weight:700;">ปุ่มไอคอนแชทใน HUD</span></div>
+                            <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-2);">เดิน</span><span style="font-weight:700;font-family:monospace;">W A S D / ลูกศร</span></div>
+                            <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-2);">กระโดด</span><span style="font-weight:700;font-family:monospace;">Space</span></div>
+                            <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-2);">Free Look</span><span style="font-weight:700;font-family:monospace;">F</span></div>
+                            <div class="hr" style="margin:4px 0;"></div>
+                            <div style="color:var(--text-2);font-size:11px;line-height:1.6;">
+                                การตั้งค่ามีผลทันทีกับแท็บ Metaverse ที่เปิดอยู่ — เสียงพูดวิ่งตรงระหว่างผู้เล่น (P2P)
+                                ไม่ผ่านเซิร์ฟเวอร์ และเปิดไมค์ได้เฉพาะตอนที่คุณกด V เท่านั้น
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <div id="settings-panel-sysconfig" class="settings-panel" style="display:none;"><div class="card"><p style="color:var(--text-2);">ฟีเจอร์นี้ยังไม่พร้อมใช้งาน</p></div></div>
             <div id="settings-panel-psm" class="settings-panel" style="display:none;"><div class="card"><p style="color:var(--text-2);">ฟีเจอร์นี้ยังไม่พร้อมใช้งาน</p></div></div>
             <div id="settings-panel-notifications" class="settings-panel" style="display:none;"><div class="card"><p style="color:var(--text-2);">ฟีเจอร์นี้ยังไม่พร้อมใช้งาน</p></div></div>
@@ -463,6 +514,32 @@
             if (panel) panel.style.display = 'block';
             if (tabEl.dataset.tab === 'usermgmt') loadUserManagement();
         });
+
+        // ---------- Chat & Voice settings (localStorage — โลก 3D อ่านค่าพวกนี้) ----------
+        (function () {
+            const chatCb = document.getElementById('cv-chat-enabled');
+            const voiceCb = document.getElementById('cv-voice-enabled');
+            const volRange = document.getElementById('cv-voice-volume');
+            const volVal = document.getElementById('cv-volume-val');
+            const status = document.getElementById('cv-save-status');
+
+            chatCb.checked = localStorage.getItem('aec_chat_enabled') !== 'off';
+            voiceCb.checked = localStorage.getItem('aec_voice_enabled') !== 'off';
+            const savedVol = parseInt(localStorage.getItem('aec_voice_volume') ?? '80', 10);
+            volRange.value = isNaN(savedVol) ? 80 : savedVol;
+            volVal.textContent = volRange.value + '%';
+
+            let statusTimer = null;
+            function saved() {
+                status.textContent = '✓ บันทึกแล้ว — มีผลกับแท็บ Metaverse ที่เปิดอยู่ทันที';
+                clearTimeout(statusTimer);
+                statusTimer = setTimeout(() => { status.textContent = ''; }, 2500);
+            }
+            chatCb.addEventListener('change', () => { localStorage.setItem('aec_chat_enabled', chatCb.checked ? 'on' : 'off'); saved(); });
+            voiceCb.addEventListener('change', () => { localStorage.setItem('aec_voice_enabled', voiceCb.checked ? 'on' : 'off'); saved(); });
+            volRange.addEventListener('input', () => { volVal.textContent = volRange.value + '%'; });
+            volRange.addEventListener('change', () => { localStorage.setItem('aec_voice_volume', volRange.value); saved(); });
+        })();
 
         const roleBadge = role => role === 'admin'
             ? '<span class="badge b-purple">Admin</span>'
