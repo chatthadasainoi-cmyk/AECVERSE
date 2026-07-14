@@ -224,10 +224,10 @@
         <div class="key-btn-item" onclick="togglePanelElement('transform-panel')"><span class="key-badge">T</span> ปรับตำแหน่ง</div>
         <div class="key-btn-item" onclick="togglePanelElement('details-panel')"><span class="key-badge">M</span> รายชื่อชิ้นส่วน</div>
         <!-- ปุ่ม "บอร์ดความปลอดภัย" ถูกตัดออก — ป็อปอัพนี้แสดงอัตโนมัติเมื่อคลิก/เดินชนชิ้นส่วนเท่านั้น -->
-        <div class="key-btn-item" onclick="togglePanelElement('multiplayer-panel')"><span class="key-badge">U</span> Multiplayer</div>
-        <div class="key-btn-item" onclick="resetCameraToAvatar()"><span class="key-badge">R</span> รีเซ็ตมุมกล้อง</div>
+        <div id="hud-multiplayer" class="key-btn-item" onclick="togglePanelElement('multiplayer-panel')"><span class="key-badge">U</span> Multiplayer</div>
+        <div id="hud-reset-camera" class="key-btn-item" onclick="resetCameraToAvatar()"><span class="key-badge">R</span> รีเซ็ตมุมกล้อง</div>
         <div id="freelook-btn" class="key-btn-item" onclick="document.dispatchEvent(new KeyboardEvent('keydown',{key:'f'}))"><span class="key-badge">F</span> Free Look</div>
-        <div class="key-btn-item" onclick="triggerAvatarJump()"><span class="key-badge">Space</span> กระโดด</div>
+        <div id="hud-jump" class="key-btn-item" onclick="triggerAvatarJump()"><span class="key-badge">Space</span> กระโดด</div>
     </div>
   </div>
 
