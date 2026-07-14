@@ -23,6 +23,15 @@ function hexToRgb(hex) {
     return `${r},${g},${b}`;
 }
 
+// โหมด viewer: ไม่มี avatar/ตัวละคร — ใช้สำหรับฝัง iframe ในหน้า Digital Twin
+// (Dashboard-style inspection view) แยกจากประสบการณ์ multiplayer เดิมที่ index.html
+// ยังทำงานตามปกติทุกอย่างถ้าไม่มี ?mode=viewer ต่อท้าย URL
+const VIEWER_MODE = new URLSearchParams(window.location.search).get('mode') === 'viewer';
+if (VIEWER_MODE) {
+    ['multiplayer-panel', 'mobile-controls-container', 'hud-multiplayer', 'hud-reset-camera', 'freelook-btn', 'hud-jump']
+        .forEach(id => { const el = $(id); if (el) el.style.display = 'none'; });
+}
+
 // ============================================================
 // 1. SCENE / CAMERA / RENDERER
 // ============================================================
@@ -305,7 +314,7 @@ function createProceduralAvatar() {
     scene.add(avatarGroup);
     avatarModel = avatarGroup;
 }
-createProceduralAvatar();
+if (!VIEWER_MODE) createProceduralAvatar();
 
 function triggerAvatarJump() {
     if (avatarModel && !jumpConfig.isJumping) {
@@ -325,7 +334,7 @@ function resetCameraToAvatar() {
 // ============================================================
 const moveStatus = { forward: false, backward: false, left: false, right: false };
 const avatarConfig = { speed: 0.12, turnSpeed: 0.045, radius: 0.35 };
-let isFreeLook = false;
+let isFreeLook = VIEWER_MODE;
 const freeLookSpeed = 0.2;
 
 function isTypingInField() {
@@ -1268,7 +1277,7 @@ function initMultiplayer() {
         mpPlayerColors[mpMyId] = mpMyColor;
         $('mp-name-input').value = data.self.name;
         if (avatarModel) avatarModel.position.set(data.self.position.x, data.self.position.y, data.self.position.z);
-        data.others.forEach(p => addRemote(p));
+        if (!VIEWER_MODE) data.others.forEach(p => addRemote(p));
 
         if (data.workflowDb) Object.assign(workflowDatabase, data.workflowDb);
         if (data.typeAssignments) Object.assign(userDefinedTypes, data.typeAssignments);
@@ -1281,7 +1290,7 @@ function initMultiplayer() {
         updateMpUI();
     });
 
-    mpSocket.on('player_joined', data => { addRemote(data); mpAppendChat({ name: 'ระบบ', color: '#64748b', text: `${data.name} เข้าร่วมโลก` }); });
+    mpSocket.on('player_joined', data => { if (!VIEWER_MODE) addRemote(data); mpAppendChat({ name: 'ระบบ', color: '#64748b', text: `${data.name} เข้าร่วมโลก` }); });
     mpSocket.on('player_left', data => {
         const name = mpPlayerNames[data.id] || data.id;
         removeRemote(data.id);
