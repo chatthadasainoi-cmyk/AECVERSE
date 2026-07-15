@@ -305,6 +305,29 @@ h3, h4 { margin: 0 0 10px 0; font-size: 13px; font-weight: 700; color: var(--tex
 }
 .chat-send-btn:hover { filter: brightness(1.12); }
 
+/* ---------- แท็บ "เลเยอร์" — ชั้นความปลอดภัยตามแบบประเมิน IOC ---------- */
+.layer-row {
+    display: flex; align-items: center; gap: 9px;
+    padding: 8px 4px;
+    font-size: 12px; color: var(--text-1); font-weight: 600;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border-soft);
+}
+.layer-row:hover { color: var(--text-0); }
+.layer-row input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--blue); flex-shrink: 0; cursor: pointer; }
+.exzone-legend {
+    display: flex; gap: 12px;
+    padding: 6px 4px 8px 28px;
+    border-bottom: 1px solid var(--border-soft);
+}
+.legend-item { display: flex; align-items: center; gap: 5px; font-size: 10.5px; color: var(--text-2); font-weight: 600; }
+.legend-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+
+/* ปุ่มวัดระยะตอนเปิดโหมดอยู่ */
+#hud-measure.measure-on { color: var(--cyan); }
+#hud-measure.measure-on .key-badge { background: var(--cyan); border-color: var(--cyan); color: #04252b; }
+#btn-measure-panel.measure-on { background: var(--cyan-soft); color: var(--cyan); border-color: rgba(34,211,238,0.4); }
+
 /* สถานะไมค์บนปุ่ม HUD + ป้ายจำนวนข้อความที่ยังไม่ได้อ่าน */
 #hud-voice.mic-on { color: var(--green); }
 #hud-voice.mic-on .key-badge { background: var(--green); border-color: var(--green); color: #04150b; }

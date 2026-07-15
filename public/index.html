@@ -43,6 +43,10 @@
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
             ปรับแต่ง
         </div>
+        <div class="side-tab" data-target="safety-panel">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            เลเยอร์
+        </div>
     </div>
 
     <!-- แผงซ้าย: อัปโหลดโมเดลโรงงานหลัก -->
@@ -156,6 +160,48 @@
                 ลบโมเดลออกจากฉาก
             </button>
         </div>
+    </div>
+
+    <!-- SAFETY LAYERS PANEL — ชั้นแสดงผลความปลอดภัยตามแบบประเมิน IOC -->
+    <div id="safety-panel" class="panel" style="display: none;">
+        <div class="panel-head">
+            <h3><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>เลเยอร์ความปลอดภัย</h3>
+            <span class="panel-sub">Safety Visualization Layers</span>
+        </div>
+
+        <label class="layer-row">
+            <input type="checkbox" id="layer-exzone" checked onchange="setSafetyLayer('exzone', this.checked)">
+            <span>พื้นที่อันตราย Ex-Zone 0/1/2</span>
+        </label>
+        <div class="exzone-legend">
+            <span class="legend-item"><span class="legend-dot" style="background:#ef4444;"></span>Zone 0</span>
+            <span class="legend-item"><span class="legend-dot" style="background:#f97316;"></span>Zone 1</span>
+            <span class="legend-item"><span class="legend-dot" style="background:#facc15;"></span>Zone 2</span>
+        </div>
+        <label class="layer-row">
+            <input type="checkbox" id="layer-setback" checked onchange="setSafetyLayer('setback', this.checked)">
+            <span>ระยะปลอดภัย / ระยะร่น (Setback)</span>
+        </label>
+        <label class="layer-row">
+            <input type="checkbox" id="layer-lightning" checked onchange="setSafetyLayer('lightning', this.checked)">
+            <span>รัศมีป้องกันฟ้าผ่า (Rolling Sphere)</span>
+        </label>
+        <label class="layer-row">
+            <input type="checkbox" id="layer-ppe" checked onchange="setSafetyLayer('ppe', this.checked)">
+            <span>วงเตือนสวม PPE (15 ม.)</span>
+        </label>
+        <label class="layer-row">
+            <input type="checkbox" id="layer-tags" checked onchange="setSafetyLayer('tags', this.checked)">
+            <span>ป้ายเตือนลอยเหนืออุปกรณ์</span>
+        </label>
+
+        <div class="hr"></div>
+        <label class="section-label">เครื่องมือตรวจสอบ</label>
+        <button id="btn-measure-panel" class="panel-action-btn action-block" onclick="toggleMeasureMode()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.3 8.7L15.3 2.7a1 1 0 00-1.4 0L2.7 13.9a1 1 0 000 1.4l6 6a1 1 0 001.4 0L21.3 10a1 1 0 000-1.3zM7.5 10.5l2 2M10.5 7.5l2 2M13.5 4.5l2 2"/></svg>
+            วัดระยะ (คลิก 2 จุด)
+        </button>
+        <div class="hint-text">เลเยอร์อ้างอิงข้อกำหนดมาตรฐานความปลอดภัยโรงไฟฟ้าก๊าซชีวภาพ: ระยะร่นแนวเขต ≥30 ม., หอเผา ≥7.5 ม., เครื่องยนต์ ≥15 ม., Rolling Sphere ป้องกันฟ้าผ่า ≈20 ม. — วงจะแสดงรอบอุปกรณ์ที่ถูกกำหนด Type ไว้</div>
     </div>
 
     <!-- MULTIPLAYER PANEL (ซ่อนด้วย CSS — คง element ไว้ให้ app.js อ้างอิง) -->
@@ -308,6 +354,7 @@
         <div id="hud-reset-camera" class="key-btn-item" onclick="resetCameraToAvatar()"><span class="key-badge">R</span> รีเซ็ตมุมกล้อง</div>
         <div id="freelook-btn" class="key-btn-item" onclick="document.dispatchEvent(new KeyboardEvent('keydown',{key:'f'}))"><span class="key-badge">F</span> Free Look</div>
         <div id="hud-jump" class="key-btn-item" onclick="triggerAvatarJump()"><span class="key-badge">Space</span> กระโดด</div>
+        <div id="hud-measure" class="key-btn-item" onclick="toggleMeasureMode()" title="วัดระยะระหว่าง 2 จุดในแบบจำลอง (หน่วยเมตร)"><span class="key-badge">📏</span> วัดระยะ</div>
         <div id="hud-fullscreen" class="key-btn-item" onclick="toggleFullscreen()" title="ขยายโลก 3D เต็มหน้าจอ"><span class="key-badge">⛶</span> เต็มจอ</div>
         <div id="hud-voice" class="key-btn-item" onclick="toggleMic()" title="เปิด/ปิดไมค์คุยกับผู้เล่นในโลก"><span class="key-badge">V</span> <span id="hud-voice-label">ไมค์</span></div>
         <div id="hud-chat" class="key-btn-item" onclick="toggleChatPanel()" title="เปิด/ปิดหน้าต่างแชท (กด / เพื่อพิมพ์)">
@@ -388,7 +435,7 @@
             // (ทำงานหลัง app.js โหลดเสร็จ จึงชนะการที่ app.js สั่งเปิด transform-panel ไว้ตอนเริ่มต้น)
             activate(panelIds[0]);
         }
-        initTabs('left-tabs', ['dashboard', 'transform-panel']);
+        initTabs('left-tabs', ['dashboard', 'transform-panel', 'safety-panel']);
 
         // ---- ค้นหาชิ้นส่วนในรายการ (กรองเฉพาะการแสดงผล ไม่แตะข้อมูล) ----
         const filter = document.getElementById('mesh-filter');
