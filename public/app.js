@@ -222,17 +222,10 @@ function getIconForType(typeKeyOrColorClass) {
 // mapping ที่ admin กำหนดเอง: meshUUID / originalName -> typeKey
 const userDefinedTypes = {};
 
-function resolveDatabaseKey(mesh, fallbackName) {
-    if (!mesh) return 'default';
-    if (userDefinedTypes[mesh.uuid]) return userDefinedTypes[mesh.uuid];
-    const nameKey = mesh._original3DName || mesh.name;
-    if (nameKey && userDefinedTypes[nameKey]) return userDefinedTypes[nameKey];
-
-    if (workflowDatabase[nameKey]) return nameKey;
-    if (workflowDatabase[mesh.name]) return mesh.name;
-    if (workflowDatabase[mesh.uuid]) return mesh.uuid;
-
-    const n = (nameKey || fallbackName || '').toLowerCase();
+// เดาชนิดอุปกรณ์จากชื่อ mesh — คืน null ถ้าเดาไม่ได้
+function heuristicTypeFromName(name) {
+    const n = (name || '').toLowerCase();
+    if (!n) return null;
     if (n.includes('manhole') || n.includes('แมนโฮล')) return 'manhole';
     if (n.includes('pvrv')) return 'pvrv';
     if (n.includes('water') && n.includes('seal') || n.includes('ซีลน้ำ')) return 'water_seal';
@@ -247,7 +240,29 @@ function resolveDatabaseKey(mesh, fallbackName) {
     if (n.includes('pipe') || n.includes('ท่อ') || n.includes('line')) return 'pipe';
     if (n.includes('engine') || n.includes('อาคาร') || n.includes('generator') || n.includes('utilization') || n.includes('genset')) return 'utilization';
     if (n.includes('flare') || n.includes('เผา')) return 'flare';
-    return 'default';
+    return null;
+}
+
+// "ชนิดอุปกรณ์" ของชิ้นส่วน — ใช้จำแนกไอคอน/วง Ex-Zone/ระยะร่น/โดมล่อฟ้า
+function resolveTypeKey(mesh, fallbackName) {
+    if (!mesh) return null;
+    if (userDefinedTypes[mesh.uuid]) return userDefinedTypes[mesh.uuid];
+    const nameKey = mesh._original3DName || mesh.name;
+    if (nameKey && userDefinedTypes[nameKey]) return userDefinedTypes[nameKey];
+    return heuristicTypeFromName(nameKey || fallbackName);
+}
+
+// "ข้อมูลความปลอดภัย" ของชิ้นส่วน — ข้อมูลเฉพาะชิ้นที่ผู้ใช้เซฟ (แก้ไขเอง หรือสำเนา
+// จากการกำหนด type) ชนะข้อมูลกลางของ type เสมอ — เดิมสลับกันทำให้ข้อมูลที่แก้ไว้
+// "หาย" หลังรีเฟรชทั้งที่ server เก็บไว้ครบ (โดนข้อมูลกลางของ type ทับตอนแสดงผล)
+function resolveDatabaseKey(mesh, fallbackName) {
+    if (!mesh) return 'default';
+    const nameKey = mesh._original3DName || mesh.name;
+    if (nameKey && workflowDatabase[nameKey]) return nameKey;
+    if (workflowDatabase[mesh.name]) return mesh.name;
+    if (workflowDatabase[mesh.uuid]) return mesh.uuid;
+    const typeKey = resolveTypeKey(mesh, fallbackName);
+    return (typeKey && workflowDatabase[typeKey]) ? typeKey : (typeKey || 'default');
 }
 
 // ============================================================
@@ -631,10 +646,16 @@ function populateMeshList(root) {
         if (!child._original3DName) child._original3DName = child.name || `Object_${meshCount}`;
         optimizeMeshForRender(child);
 
+        // คืนชื่อที่ผู้ใช้เคยแก้ไว้ — ข้อมูล sync มาจาก server ก่อนโมเดลโหลดเสร็จเสมอ
+        // (เดิมทำเฉพาะตอนโหลดจากไฟล์ .zip ทำให้ชื่อที่แก้หายหลังรีเฟรช)
+        const savedRec = workflowDatabase[child._original3DName];
+        if (savedRec && savedRec.name) child.name = savedRec.name;
+
         const key = resolveDatabaseKey(child, child.name);
+        const typeKey = resolveTypeKey(child, child.name);
         const item = document.createElement('div');
         item.className = 'mesh-item';
-        item.innerText = `${getIconForType(key)} ${child.name || child._original3DName}`;
+        item.innerText = `${getIconForType(typeKey || key)} ${child.name || child._original3DName}`;
         item.id = `mesh-item-${child.uuid}`;
         item.addEventListener('click', () => selectPart(child, '📋 คลิกจากรายการ'));
         item.addEventListener('contextmenu', (e) => { e.preventDefault(); openTypeSelector(child, child.name); });
@@ -978,30 +999,32 @@ function saveLiveEdit() {
 
     let nameKey = selection.uuid;
     let requiresPPE = false;
+    let colorClass = 'tag-blue';
     factoryModel.traverse(child => {
         if (child.isMesh && child.uuid === selection.uuid) {
             nameKey = child._original3DName || child.name || child.uuid;
             if (!child._original3DName) child._original3DName = nameKey;
             child.name = newTitle;
+            // คงสี/สถานะ PPE จากข้อมูลเดิม (เช่น type ที่กำหนดไว้) — แก้ข้อความไม่ควรรีเซ็ตความเสี่ยง
             const existing = workflowDatabase[resolveDatabaseKey(child, newTitle)];
-            requiresPPE = existing ? !!existing.requiresPPE : false;
+            if (existing) { requiresPPE = !!existing.requiresPPE; colorClass = existing.colorClass || 'tag-blue'; }
         }
     });
 
-    const record = { name: newTitle, desc: newDesc, steps: newSteps, colorClass: 'tag-blue', requiresPPE };
+    const record = { name: newTitle, desc: newDesc, steps: newSteps, colorClass, requiresPPE };
     workflowDatabase[nameKey] = record;
     selection.key = nameKey;
 
     const listItem = $(`mesh-item-${selection.uuid}`);
-    if (listItem) listItem.innerText = `${getIconForType(userDefinedTypes[selection.uuid] || nameKey)} ${newTitle}`;
+    if (listItem) listItem.innerText = `${getIconForType(userDefinedTypes[selection.uuid] || userDefinedTypes[nameKey] || nameKey)} ${newTitle}`;
 
-    renderWorkflowUI(newTitle, newDesc, newSteps, '✏️ บันทึกโดยผู้ใช้', 'tag-blue');
+    renderWorkflowUI(newTitle, newDesc, newSteps, '✏️ บันทึกโดยผู้ใช้', colorClass);
     closeLiveEditFields();
     buildProximityTags();
     buildPPEZones();
 
     if (mpSocket && mpSocket.connected) {
-        mpSocket.emit('workflow_update', { key: nameKey, name: newTitle, desc: newDesc, steps: newSteps, colorClass: 'tag-blue', requiresPPE, targetUuid: selection.uuid });
+        mpSocket.emit('workflow_update', { key: nameKey, name: newTitle, desc: newDesc, steps: newSteps, colorClass, requiresPPE, targetUuid: selection.uuid });
     }
 }
 window.enableLiveEdit = enableLiveEdit;
@@ -1015,7 +1038,7 @@ function openTypeSelector(mesh, meshName) {
     const overlay = $('type-selector-overlay'), grid = $('type-selector-grid');
     if (!overlay || !grid) return;
     $('type-selector-mesh-name').innerText = `📦 ชิ้นส่วน: ${meshName || mesh.name || mesh.uuid.slice(0, 8)}`;
-    const currentKey = userDefinedTypes[mesh.uuid] || resolveDatabaseKey(mesh, meshName);
+    const currentKey = resolveTypeKey(mesh, meshName) || 'default';
     const colorMap = { 'tag-red': '#ef4444', 'tag-orange': '#f97316', 'tag-blue': '#38bdf8', 'tag-green': '#22c55e' };
 
     grid.innerHTML = TYPE_OPTIONS.map(opt => {
@@ -1070,8 +1093,17 @@ function assignMeshType(typeKey) {
 }
 function clearMeshType() {
     if (!typeSelectorTargetMesh) return;
-    delete userDefinedTypes[typeSelectorTargetMesh.uuid];
-    delete workflowDatabase[typeSelectorTargetMesh.uuid];
+    const uuid = typeSelectorTargetMesh.uuid;
+    const nameKey = typeSelectorTargetMesh._original3DName || typeSelectorTargetMesh.name || uuid;
+    // เดิมลบแค่ entry ของ uuid — entry ของ nameKey ค้างอยู่ทำให้ล้างไม่ออกจริง
+    // และไม่เคยแจ้ง server เลย (คนอื่น + การรีเฟรชยังเห็น type เดิม)
+    delete userDefinedTypes[uuid];
+    delete userDefinedTypes[nameKey];
+    delete workflowDatabase[uuid];
+    delete workflowDatabase[nameKey];
+    const listItem = $(`mesh-item-${uuid}`);
+    if (listItem) listItem.innerText = `${getIconForType(resolveTypeKey(typeSelectorTargetMesh))} ${typeSelectorTargetMesh.name || nameKey}`;
+    if (mpSocket && mpSocket.connected) mpSocket.emit('type_clear', { key: nameKey });
     closeTypeSelector();
     buildProximityTags();
     buildPPEZones();
@@ -1313,7 +1345,10 @@ function buildExtraSafetyLayers() {
 
     factoryModel.traverse(child => {
         if (!child.isMesh) return;
-        const key = resolveDatabaseKey(child, child.name);
+        // จำแนกด้วย "ชนิดอุปกรณ์" โดยตรง — แม้ชิ้นส่วนจะถูกแก้ชื่อ/ข้อมูลเองไปแล้ว
+        // วงยังต้องอยู่ตาม type ที่กำหนดไว้
+        const key = resolveTypeKey(child, child.name);
+        if (!key) return;
         const pos = new THREE.Vector3(); child.getWorldPosition(pos);
 
         // ---- IOC ข้อ 4: Ex-Zone 0/1/2 วงสีซ้อนกันรอบจุดเสี่ยงก๊าซไวไฟ ----
@@ -1362,11 +1397,39 @@ function buildExtraSafetyLayers() {
 // ============================================================
 let measureMode = false;
 let measureStart = null;
-const measureObjects = [];
+const measureObjects = [];         // เส้นวัดของเราเอง
+const remoteMeasureObjects = {};   // เส้นวัดของผู้อื่น: socketId -> [objects] (ทุกคนเห็นเหมือนกัน)
+
+// วาดชุดวัดระยะ (หมุด 2 + เส้น + ป้ายเมตร) ลง array ที่กำหนด — ใช้ทั้งของเราและของเพื่อน
+function drawMeasureVisual(a, b, store, color) {
+    const c = color || 0x38bdf8;
+    [a, b].forEach(p => {
+        const marker = new THREE.Mesh(new THREE.SphereGeometry(0.14, 12, 12), new THREE.MeshBasicMaterial({ color: c }));
+        marker.position.copy(p);
+        scene.add(marker); store.push(marker);
+    });
+    const line = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints([a, b]),
+        new THREE.LineBasicMaterial({ color: c })
+    );
+    scene.add(line); store.push(line);
+    const dist = a.distanceTo(b);
+    const mid = a.clone().add(b).multiplyScalar(0.5);
+    const label = makeTextSprite(dist.toFixed(2) + ' เมตร', 'rgba(14,116,178,0.92)', 4);
+    label.position.set(mid.x, mid.y + 0.7, mid.z);
+    scene.add(label); store.push(label);
+    return dist;
+}
 function clearMeasurement() {
     measureObjects.forEach(o => scene.remove(o));
     measureObjects.length = 0;
     measureStart = null;
+    // แจ้งทุกคนให้ลบเส้นวัดของเราด้วย
+    if (mpSocket && mpSocket.connected) mpSocket.emit('measure_clear');
+}
+function clearRemoteMeasurement(id) {
+    (remoteMeasureObjects[id] || []).forEach(o => scene.remove(o));
+    delete remoteMeasureObjects[id];
 }
 window.toggleMeasureMode = function () {
     measureMode = !measureMode;
@@ -1374,7 +1437,7 @@ window.toggleMeasureMode = function () {
     ['hud-measure', 'btn-measure-panel'].forEach(id => { const b = $(id); if (b) b.classList.toggle('measure-on', measureMode); });
     mpAppendChat({
         name: '📏 ระบบ', color: '#38bdf8',
-        text: measureMode ? 'โหมดวัดระยะ: คลิกจุดที่ 1 แล้วคลิกจุดที่ 2 บนโมเดลหรือพื้น (กดปุ่มวัดระยะซ้ำเพื่อออก)' : 'ปิดโหมดวัดระยะแล้ว'
+        text: measureMode ? 'โหมดวัดระยะ: คลิกจุดที่ 1 แล้วคลิกจุดที่ 2 บนโมเดลหรือพื้น (ทุกคนในห้องเห็นเส้นวัดด้วย — กดปุ่มซ้ำเพื่อออก)' : 'ปิดโหมดวัดระยะแล้ว'
     });
 };
 function handleMeasureClick(e) {
@@ -1388,22 +1451,23 @@ function handleMeasureClick(e) {
     if (!hits.length) return;
     const pt = hits[0].point.clone();
 
-    const marker = new THREE.Mesh(new THREE.SphereGeometry(0.14, 12, 12), new THREE.MeshBasicMaterial({ color: 0x38bdf8 }));
-    marker.position.copy(pt);
-    scene.add(marker); measureObjects.push(marker);
-
-    if (!measureStart) { measureStart = pt; return; }
-    const line = new THREE.Line(
-        new THREE.BufferGeometry().setFromPoints([measureStart, pt]),
-        new THREE.LineBasicMaterial({ color: 0x38bdf8 })
-    );
-    scene.add(line); measureObjects.push(line);
-    const dist = measureStart.distanceTo(pt);
-    const mid = measureStart.clone().add(pt).multiplyScalar(0.5);
-    const label = makeTextSprite(dist.toFixed(2) + ' เมตร', 'rgba(14,116,178,0.92)', 4);
-    label.position.set(mid.x, mid.y + 0.7, mid.z);
-    scene.add(label); measureObjects.push(label);
+    if (!measureStart) {
+        // จุดแรก: ปักหมุดชั่วคราวรอจุดที่สอง
+        const marker = new THREE.Mesh(new THREE.SphereGeometry(0.14, 12, 12), new THREE.MeshBasicMaterial({ color: 0x38bdf8 }));
+        marker.position.copy(pt);
+        scene.add(marker); measureObjects.push(marker);
+        measureStart = pt;
+        return;
+    }
+    const dist = drawMeasureVisual(measureStart, pt, measureObjects);
     mpAppendChat({ name: '📏 วัดระยะ', color: '#38bdf8', text: `ระยะที่วัดได้: ${dist.toFixed(2)} เมตร` });
+    // แชร์เส้นวัดให้ทุกคนในห้องเห็นเหมือนกัน
+    if (mpSocket && mpSocket.connected) {
+        mpSocket.emit('measure_add', {
+            a: { x: measureStart.x, y: measureStart.y, z: measureStart.z },
+            b: { x: pt.x, y: pt.y, z: pt.z }
+        });
+    }
     measureStart = null; // พร้อมวัดคู่ถัดไป
 }
 
@@ -1730,6 +1794,39 @@ async function initMultiplayer() {
     });
 
     mpSocket.on('chat_message', msg => mpAppendChat(msg));
+
+    // ---------- sync การล้าง type ----------
+    mpSocket.on('type_cleared', data => {
+        if (!data || !data.key) return;
+        delete userDefinedTypes[data.key];
+        delete workflowDatabase[data.key];
+        if (factoryModel) {
+            factoryModel.traverse(child => {
+                if (!child.isMesh) return;
+                if ((child._original3DName || child.name) === data.key) {
+                    delete userDefinedTypes[child.uuid];
+                    delete workflowDatabase[child.uuid];
+                    const item = $(`mesh-item-${child.uuid}`);
+                    if (item) item.innerText = `${getIconForType(resolveTypeKey(child))} ${child.name}`;
+                }
+            });
+        }
+        buildProximityTags();
+        buildPPEZones();
+    });
+
+    // ---------- sync เส้นวัดระยะ — ทุกคนในห้องเห็นเส้นเดียวกัน ----------
+    mpSocket.on('measure_added', data => {
+        if (!data || !data.a || !data.b || !data.id) return;
+        if (!remoteMeasureObjects[data.id]) remoteMeasureObjects[data.id] = [];
+        drawMeasureVisual(
+            new THREE.Vector3(data.a.x, data.a.y, data.a.z),
+            new THREE.Vector3(data.b.x, data.b.y, data.b.z),
+            remoteMeasureObjects[data.id],
+            0x22d3ee // สีต่างเล็กน้อย ให้รู้ว่าเป็นเส้นวัดของเพื่อน
+        );
+    });
+    mpSocket.on('measure_cleared', data => { if (data && data.id) clearRemoteMeasurement(data.id); });
 
     // ---------- voice chat signaling + live plant data ----------
     mpSocket.on('voice_signal', handleVoiceSignal);

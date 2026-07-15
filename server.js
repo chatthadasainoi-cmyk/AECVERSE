@@ -105,7 +105,10 @@ let modelLocked = true;
 // โมเดล + ข้อมูลความปลอดภัยที่แก้ + type ที่กำหนด หายเกลี้ยง ผู้เล่นเลยเห็นไม่ตรงกัน
 // ตอนนี้: server โหลด state กลับมาตอนบูต และเซฟทุกครั้งที่มีการแก้ไข (debounce 1.5s)
 // ============================================================
-const SCENE_STATE_FILE = 'scene_state_v1.json';
+// production (Railway) กับเครื่อง dev ใช้ไฟล์ state คนละไฟล์ — กัน server ทดสอบ
+// ในเครื่องเขียนทับ "โลกจริง" ของผู้ใช้บน production (Railway ตั้ง env RAILWAY_* ให้อัตโนมัติ)
+const IS_PRODUCTION = !!(process.env.RAILWAY_ENVIRONMENT_NAME || process.env.RAILWAY_PROJECT_ID || process.env.RAILWAY_STATIC_URL);
+const SCENE_STATE_FILE = IS_PRODUCTION ? 'scene_state_v1.json' : 'scene_state_dev.json';
 let persistTimer = null;
 
 function schedulePersistSceneState() {
@@ -437,6 +440,30 @@ io.on('connection', socket => {
         console.log(`[WORKFLOW] key:${data.key} name:${data.name}`);
     });
 
+    // ล้างการกำหนด type — ต้อง sync + persist เหมือนการกำหนด (เดิมเป็น local อย่างเดียว)
+    socket.on('type_clear', data => {
+        if (!data || !data.key) return;
+        delete workflowDb[data.key];
+        delete typeAssignments[data.key];
+        socket.broadcast.emit('type_cleared', { key: data.key });
+        schedulePersistSceneState();
+        console.log(`[WORKFLOW] cleared key:${data.key}`);
+    });
+
+    // ---------- เส้นวัดระยะ — แชร์ให้ทุกคนเห็นเหมือนกัน (ชั่วคราว ไม่ persist) ----------
+    socket.on('measure_add', data => {
+        if (!data || !data.a || !data.b) return;
+        const num = v => Number(v) || 0;
+        socket.broadcast.emit('measure_added', {
+            id: socket.id,
+            a: { x: num(data.a.x), y: num(data.a.y), z: num(data.a.z) },
+            b: { x: num(data.b.x), y: num(data.b.y), z: num(data.b.z) }
+        });
+    });
+    socket.on('measure_clear', () => {
+        socket.broadcast.emit('measure_cleared', { id: socket.id });
+    });
+
     // ---------- chat (ชื่อผู้เล่นล็อกตามบัญชี — ไม่มี set_name อีกต่อไป) ----------
     socket.on('chat_message', text => {
         if (!players[socket.id]) return;
@@ -465,6 +492,7 @@ io.on('connection', socket => {
         admins.delete(socket.id);
         if (wasPlayer) io.emit('player_left', { id: socket.id });
         if (wasAdmin) io.emit('admin_presence', { adminCount: admins.size });
+        io.emit('measure_cleared', { id: socket.id }); // เก็บกวาดเส้นวัดของคนที่ออกไป
         console.log(`[-${wasPlayer ? 'player' : 'watcher'}] ${socket.id}`);
     });
 });
