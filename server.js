@@ -356,6 +356,12 @@ io.on('connection', socket => {
 
     // ---------- model share / remove ----------
     socket.on('model_shared', data => {
+        // มีโมเดลอยู่แล้วและถูกล็อก -> เฉพาะ admin เท่านั้นที่อัปโหลดทับได้
+        // (ไม่งั้นผู้ใช้ทั่วไป "ลบ" ฉากของห้องได้ทางอ้อมด้วยการอัปโหลดโมเดลใหม่ทับ)
+        if (currentModelUrl && modelLocked && !admins.has(socket.id)) {
+            socket.emit('model_share_rejected', { reason: 'โมเดลปัจจุบันถูกล็อกอยู่ — ให้ Admin ปลดล็อกก่อนจึงจะเปลี่ยนโมเดลได้' });
+            return;
+        }
         currentModelUrl = data.url;
         currentModelName = data.fileName;
         // โมเดลใหม่ -> รีเซ็ต transform กลับค่าเริ่มต้น รอ admin จัดตำแหน่งใหม่ และล็อกไว้ก่อนเพื่อความปลอดภัย
@@ -367,7 +373,8 @@ io.on('connection', socket => {
     });
 
     socket.on('model_removed', () => {
-        if (!admins.has(socket.id)) return; // UI ฝั่ง client จำกัดปุ่มลบไว้ที่ admin อยู่แล้ว — บังคับซ้ำฝั่ง server
+        // ลบได้เฉพาะ admin ที่ "ปลดล็อกโมเดลแล้ว" เท่านั้น — ล็อกอยู่ = ห้ามลบ (กันลบพลาด/ผู้ใช้ลบ)
+        if (!admins.has(socket.id) || modelLocked) return;
         currentModelUrl = null;
         currentModelName = null;
         modelTransform = { posX: 0, posY: 0, posZ: 0, rotY: 0, scale: 1 };

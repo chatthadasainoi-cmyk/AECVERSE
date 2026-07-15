@@ -1350,6 +1350,11 @@ async function initMultiplayer() {
         clearFactoryModelFromScene();
         mpAppendChat({ name: '🗑️ ระบบ', color: '#ef4444', text: 'โมเดลถูกลบออกจากฉากแล้ว' });
     });
+    // server ปฏิเสธการอัปโหลดทับโมเดลที่ล็อกอยู่ (กันผู้ใช้ทั่วไปแทนที่/ลบฉากของห้อง)
+    mpSocket.on('model_share_rejected', data => {
+        $('factory-status').innerText = '🔒 ' + (data?.reason || 'โมเดลปัจจุบันถูกล็อกอยู่ — ให้ Admin ปลดล็อกก่อน');
+        mpAppendChat({ name: '🔒 ระบบ', color: '#f59e0b', text: data?.reason || 'โมเดลถูกล็อกอยู่ — อัปโหลดทับไม่ได้' });
+    });
     mpSocket.on('admin_presence', data => { updateMpAdminBadge(data.adminCount); });
     mpSocket.on('lock_state', data => {
         modelLocked = data.locked;
@@ -1641,6 +1646,18 @@ function updateVoiceIndicator() {
 // 11.7 LIVE PLANT DATA STRIP — ตัวเลขโรงงานเรียลไทม์ใต้จอ 3D
 // ใช้ feed 'plant_update' เดียวกับหน้า Metaverse/Analytics — ทุกจอเห็นเลขเดียวกัน
 // ============================================================
+// ย่อ/ขยายแถบข้อมูล — จำสถานะไว้ข้ามเซสชัน (ค่าเริ่มต้น: ย่อ ไม่บังฉาก)
+function toggleDock() {
+    const dock = $('plant-dock');
+    if (!dock) return;
+    dock.classList.toggle('collapsed');
+    const arrow = $('dock-toggle-arrow');
+    if (arrow) arrow.innerText = dock.classList.contains('collapsed') ? '▴' : '▾';
+    localStorage.setItem('aec_dock_expanded', dock.classList.contains('collapsed') ? 'no' : 'yes');
+}
+window.toggleDock = toggleDock;
+if (localStorage.getItem('aec_dock_expanded') === 'yes') toggleDock();
+
 const prevPlantVals = {};
 function updatePlantStrip(data) {
     if (!data || !data.plant) return;
@@ -1690,6 +1707,8 @@ function updatePlantStrip(data) {
             cnt.innerText = activeCount > 0 ? activeCount : '✓';
             cnt.className = 'dock-badge ' + level;
         }
+        const topEl = $('dock-alert-top');
+        if (topEl) topEl.innerText = activeCount > 0 ? data.alerts[0].tag : 'All Systems Normal';
         const list = $('dock-alerts-list');
         if (list) {
             list.innerHTML = '';
@@ -1852,6 +1871,7 @@ function clearFactoryModelFromScene() {
 window.deleteCurrentModel = async function () {
     if (!factoryModel && !currentSceneModelUrl) { mpAppendChat({ name: 'ระบบ', color: '#ef4444', text: 'ยังไม่มีโมเดลในฉากให้ลบ' }); return; }
     if (!isAdmin) { mpAppendChat({ name: 'ระบบ', color: '#ef4444', text: 'เฉพาะ Admin เท่านั้นที่ลบโมเดลได้' }); return; }
+    if (modelLocked) { mpAppendChat({ name: '🔒 ระบบ', color: '#f59e0b', text: 'โมเดลถูกล็อกอยู่ — ปลดล็อกก่อนจึงจะลบได้ (กันลบพลาด)' }); return; }
     const urlToDelete = currentSceneModelUrl;
     clearFactoryModelFromScene();
     currentSceneModelUrl = null; currentSceneModelName = null;
@@ -1863,7 +1883,8 @@ window.deleteCurrentModel = async function () {
 setInterval(() => {
     const btn = $('btn-delete-model');
     if (!btn) return;
-    const shouldShow = !!factoryModel;
+    // ปุ่มลบโผล่เฉพาะ Admin ที่ปลดล็อกโมเดลแล้วเท่านั้น — ตอนล็อกอยู่ห้ามลบ
+    const shouldShow = !!factoryModel && isAdmin && !modelLocked;
     if ((btn.style.display !== 'none') !== shouldShow) btn.style.display = shouldShow ? 'block' : 'none';
 }, 500);
 
