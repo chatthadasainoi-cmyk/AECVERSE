@@ -141,7 +141,7 @@ h3, h4 { margin: 0 0 10px 0; font-size: 13px; font-weight: 700; color: var(--tex
 }
 .floating-safety-panel {
     position: fixed;
-    bottom: 158px; /* เว้นเหนือแถบ plant-dock + keybind-hud ด้านล่างพอดี */
+    bottom: 104px; /* เว้นเหนือ keybind-hud + แถบ dock ที่ลอยขอบล่างฉากพอดี */
     left: 304px;  /* = side-col 288px + gutter 16px */
     right: 304px;
     width: auto;
@@ -162,55 +162,77 @@ h3, h4 { margin: 0 0 10px 0; font-size: 13px; font-weight: 700; color: var(--tex
     .floating-safety-panel { left: 16px; right: 16px; bottom: 16px; max-height: 40vh; }
 }
 
-/* ---------- LIVE DATA DOCK — ข้อมูลโรงงานเต็มชุดใต้จอ 3D ----------
-   KPI สามตัว + Selected Equipment (TANK-01) + Active Alerts
-   ย้ายมาจากส่วนล่างของหน้า Metaverse เดิม ให้อยู่ในจอเดียวกับโลก 3D */
+/* ---------- LIVE DATA DOCK — แถบข้อมูลโปร่งแสงลอยขอบล่างของฉาก 3D ----------
+   ออกแบบให้ "ไม่ขัดตา": ปกติเป็นแถบชิปบางบรรทัดเดียว โปร่งแสงกลืนกับฉาก
+   คลิกเพื่อขยายดูรายละเอียด TANK-01 + Active Alerts เต็มรายการ */
 #plant-dock {
-    flex-shrink: 0;
+    position: absolute;
+    left: 50%; bottom: 12px;
+    transform: translateX(-50%);
+    max-width: calc(100% - 28px);
+    background: rgba(11, 15, 23, 0.72);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(28, 37, 49, 0.9);
+    border-radius: 10px;
+    z-index: 30;
+    overflow: hidden;
+}
+.dock-compact {
+    display: flex; align-items: center; gap: 4px;
+    padding: 6px 10px;
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+    overflow-x: auto;
+}
+.dock-chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 10px; color: var(--text-2); font-weight: 700;
+    letter-spacing: .3px;
+    padding: 2px 8px;
+    border-right: 1px solid var(--border-soft);
+}
+.dock-chip:last-of-type { border-right: none; }
+.dock-chip b { font-size: 12px; color: var(--text-0); font-weight: 800; font-family: "Sora", "Inter", sans-serif; }
+.dock-chip-alert { max-width: 240px; }
+.dock-chip-alert #dock-alert-top { overflow: hidden; text-overflow: ellipsis; font-weight: 600; color: var(--text-1); text-transform: none; }
+.dock-toggle-arrow { color: var(--text-2); font-size: 10px; padding: 0 4px; flex-shrink: 0; }
+.dock-compact:hover .dock-toggle-arrow { color: var(--text-0); }
+
+.dock-expanded {
     display: grid;
-    grid-template-columns: 1fr 1fr 1fr 1.7fr 1.9fr;
-    gap: 8px;
-    background: var(--bg-1);
-    border-top: 1px solid var(--border);
-    padding: 8px 14px;
+    grid-template-columns: 1fr 1.2fr;
+    gap: 12px;
+    padding: 10px 14px 12px;
+    border-top: 1px solid var(--border-soft);
 }
-.dock-kpi {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 8px 12px;
-    min-width: 0;
-    display: flex; flex-direction: column; gap: 4px; justify-content: center;
-}
+#plant-dock.collapsed .dock-expanded { display: none; }
+
 .dock-label {
     font-size: 9.5px; color: var(--text-2); font-weight: 700;
     text-transform: uppercase; letter-spacing: .4px;
-    display: flex; align-items: center; gap: 6px;
+    margin-bottom: 6px;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.dock-value {
-    font-size: 17px; font-weight: 800; color: var(--text-0);
-    font-family: "Sora", "Inter", sans-serif;
-    display: flex; align-items: baseline; gap: 7px; white-space: nowrap;
-}
-.strip-delta { font-size: 10.5px; font-weight: 700; font-family: "Inter", sans-serif; }
+.strip-delta { font-size: 9.5px; font-weight: 700; font-family: "Inter", sans-serif; }
 .strip-delta.up { color: var(--green); }
 .strip-delta.down { color: var(--red); }
 
-.dock-tank-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.dock-tank-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .dock-tank-grid > div { display: flex; flex-direction: column; min-width: 0; }
 .dock-mini-label { font-size: 9px; color: var(--text-2); font-weight: 600; }
-.dock-mini-val { font-size: 12.5px; font-weight: 700; color: var(--text-0); white-space: nowrap; }
+.dock-mini-val { font-size: 12px; font-weight: 700; color: var(--text-0); white-space: nowrap; }
 
 .dock-badge {
     font-size: 9px; font-weight: 800; padding: 1px 7px; border-radius: 9px;
-    flex-shrink: 0; letter-spacing: .3px;
+    flex-shrink: 0; letter-spacing: .3px; text-transform: none;
 }
 .dock-badge.ok { background: var(--green-soft); color: var(--green); }
 .dock-badge.warn { background: var(--yellow-soft); color: var(--yellow); }
 .dock-badge.crit { background: var(--red-soft); color: var(--red); }
 
-.dock-alerts-list { overflow-y: auto; max-height: 44px; display: flex; flex-direction: column; gap: 3px; }
+.dock-alerts-list { overflow-y: auto; max-height: 62px; display: flex; flex-direction: column; gap: 3px; min-width: 200px; }
 .dock-alert-row {
     display: flex; justify-content: space-between; align-items: center; gap: 8px;
     font-size: 10.5px; padding: 2px 7px; border-radius: 5px;
@@ -224,15 +246,10 @@ h3, h4 { margin: 0 0 10px 0; font-size: 13px; font-weight: 700; color: var(--tex
 .dock-alert-row.ok { background: var(--green-soft); }
 .dock-alert-row.ok span:first-child { color: var(--green); }
 
-@media (max-width: 1500px) {
-    #plant-dock { grid-template-columns: 1fr 1fr 1fr; }
-    .dock-tank { grid-column: span 2; }
-}
-
 /* ---------- CHAT OVERLAY — แชทลอยมุมซ้ายล่างของจอ 3D ---------- */
 #chat-overlay {
     position: absolute;
-    left: 14px; bottom: 14px;
+    left: 14px; bottom: 60px; /* ลอยเหนือแถบ dock ที่ขอบล่างฉาก */
     width: 300px; max-width: calc(100% - 28px);
     height: 260px; max-height: 46%;
     display: flex; flex-direction: column;
