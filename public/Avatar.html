@@ -133,8 +133,29 @@ a{color:inherit;text-decoration:none;} button{font-family:inherit;}
             <div class="model-option" data-model="character" onclick="selectModel('character')">
               <div class="mo-icon">🧍</div>
               <div>
-                <div class="mo-name">Character (สมจริง)</div>
-                <div class="mo-desc">ตัวละคร 3D เต็มรูปแบบพร้อมแอนิเมชันเดินแบบสมจริง</div>
+                <div class="mo-name">Character 1</div>
+                <div class="mo-desc">ตัวละคร 3D สมจริงพร้อมแอนิเมชันเดิน</div>
+              </div>
+            </div>
+            <div class="model-option" data-model="ch22" onclick="selectModel('ch22')">
+              <div class="mo-icon">🧑</div>
+              <div>
+                <div class="mo-name">Character 2</div>
+                <div class="mo-desc">ตัวละครสมจริงแบบที่สอง</div>
+              </div>
+            </div>
+            <div class="model-option" data-model="ch07" onclick="selectModel('ch07')">
+              <div class="mo-icon">🧑‍🔧</div>
+              <div>
+                <div class="mo-name">Character 3</div>
+                <div class="mo-desc">ตัวละครสมจริงแบบที่สาม</div>
+              </div>
+            </div>
+            <div class="model-option" data-model="remy" onclick="selectModel('remy')">
+              <div class="mo-icon">🧒</div>
+              <div>
+                <div class="mo-name">Remy</div>
+                <div class="mo-desc">ตัวละครสไตล์การ์ตูน</div>
               </div>
             </div>
             <div class="model-option" data-model="engineer" onclick="selectModel('engineer')">
@@ -142,6 +163,22 @@ a{color:inherit;text-decoration:none;} button{font-family:inherit;}
               <div>
                 <div class="mo-name">Engineer (คลาสสิก)</div>
                 <div class="mo-desc">วิศวกรชุดส้มสไตล์บล็อก — เบาและโหลดเร็วที่สุด</div>
+              </div>
+            </div>
+
+            <div class="section-label" style="margin-top:18px;">ท่าเดิน</div>
+            <div class="model-option" data-anim="walking" onclick="selectAnim('walking')">
+              <div class="mo-icon">🚶</div>
+              <div>
+                <div class="mo-name">Walking</div>
+                <div class="mo-desc">ท่าเดินปกติ เป็นธรรมชาติ</div>
+              </div>
+            </div>
+            <div class="model-option" data-anim="catwalk" onclick="selectAnim('catwalk')">
+              <div class="mo-icon">💃</div>
+              <div>
+                <div class="mo-name">Catwalk High Knees</div>
+                <div class="mo-desc">ท่าเดินยกเข่าสูงสไตล์แคทวอล์ก</div>
               </div>
             </div>
 
@@ -171,13 +208,15 @@ initUserChip();
 // สถานะที่ผู้ใช้เลือก (โหลดค่าเดิมจากบัญชีตอนเปิดหน้า)
 // ============================================================
 const COLORS = ['#ff6b6b', '#ffd93d', '#6bcb77', '#4d96ff', '#c77dff', '#ff9f43', '#00d2d3', '#ff6b9d'];
-let selected = { model: 'character', color: COLORS[3] };
+let selected = { model: 'character', anim: 'walking', color: COLORS[3] };
 
 function refreshOptionUI(){
-  document.querySelectorAll('.model-option').forEach(el => el.classList.toggle('selected', el.dataset.model === selected.model));
+  document.querySelectorAll('.model-option[data-model]').forEach(el => el.classList.toggle('selected', el.dataset.model === selected.model));
+  document.querySelectorAll('.model-option[data-anim]').forEach(el => el.classList.toggle('selected', el.dataset.anim === selected.anim));
   document.querySelectorAll('.swatch').forEach(el => el.classList.toggle('selected', el.dataset.color === selected.color));
 }
 function selectModel(m){ selected.model = m; refreshOptionUI(); rebuildPreviewAvatar(); }
+function selectAnim(a){ selected.anim = a; refreshOptionUI(); rebuildPreviewAvatar(); }
 function selectColor(c){ selected.color = c; refreshOptionUI(); rebuildPreviewAvatar(); }
 
 const swatchBox = document.getElementById('color-swatches');
@@ -193,7 +232,8 @@ async function loadSavedConfig(){
     const { data: { session } } = await supabaseClient.auth.getSession();
     const saved = session?.user?.user_metadata?.avatar;
     if (saved) {
-      if (saved.model === 'engineer' || saved.model === 'character') selected.model = saved.model;
+      if (['engineer', 'character', 'ch22', 'ch07', 'remy'].includes(saved.model)) selected.model = saved.model;
+      if (['catwalk', 'walking'].includes(saved.anim)) selected.anim = saved.anim;
       if (typeof saved.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(saved.color)) selected.color = saved.color;
     }
   } catch (err) { /* ใช้ค่าเริ่มต้น */ }
@@ -206,7 +246,7 @@ async function saveAvatar(){
   status.style.color = 'var(--text-2)';
   status.textContent = 'กำลังบันทึก...';
   try {
-    const { error } = await supabaseClient.auth.updateUser({ data: { avatar: { model: selected.model, color: selected.color } } });
+    const { error } = await supabaseClient.auth.updateUser({ data: { avatar: { model: selected.model, anim: selected.anim, color: selected.color } } });
     if (error) throw error;
     status.style.color = 'var(--green)';
     status.textContent = '✓ บันทึกแล้ว — รีเฟรชหน้า Metaverse เพื่อสวมร่างใหม่';
@@ -268,41 +308,58 @@ function buildEngineerPreview(color){
 }
 
 let pvAvatar = null, pvMixer = null, pvWalkAction = null, pvIdleAction = null, pvWalking = false;
-let pvAssets = null, pvAssetsPromise = null;
-function loadPvAssets(){
-  if (pvAssetsPromise) return pvAssetsPromise;
-  pvAssetsPromise = new Promise((resolve, reject) => {
-    const gl = new THREE.GLTFLoader();
-    gl.load('avatars/character.glb', charGltf => {
-      gl.load('avatars/walk_anim.glb', animGltf => {
-        resolve({ scene: charGltf.scene, walkClip: animGltf.animations[0] });
-      }, undefined, reject);
-    }, undefined, reject);
+const PV_MODEL_FILES = { character: 'avatars/character.glb', ch22: 'avatars/ch22.glb', ch07: 'avatars/ch07.glb', remy: 'avatars/remy.glb' };
+const PV_ANIM_FILES = { catwalk: 'avatars/walk_anim.glb', walking: 'avatars/walking_anim.glb' };
+const pvCache = {};
+function pvLoad(url){
+  if (!pvCache[url]) pvCache[url] = new Promise((res, rej) => new THREE.GLTFLoader().load(url, res, undefined, rej));
+  return pvCache[url];
+}
+// ไฟล์ Mixamo แต่ละไฟล์ใช้ prefix กระดูกต่างกัน (mixamorig / mixamorig1 / ...) — จับคู่ด้วยชื่อจริงหลังตัด prefix
+function pvRetarget(clip, model){
+  const bones = {};
+  model.traverse(o => { if (o.isBone) bones[o.name.replace(/^mixamorig\d*/, '')] = o.name; });
+  const tracks = [];
+  clip.tracks.forEach(t => {
+    const dot = t.name.lastIndexOf('.');
+    const target = bones[t.name.slice(0, dot).replace(/^mixamorig\d*/, '')];
+    if (target) { const nt = t.clone(); nt.name = target + t.name.slice(dot); tracks.push(nt); }
   });
-  return pvAssetsPromise;
+  return new THREE.AnimationClip(clip.name, clip.duration, tracks);
 }
 
+let pvBuildSeq = 0; // กันการกดสลับเร็วๆ แล้วผลโหลดช้ามาทับตัวเลือกล่าสุด
 async function rebuildPreviewAvatar(){
-  if (pvAvatar) { pvScene.remove(pvAvatar); pvAvatar = null; }
-  pvMixer = null; pvWalkAction = null; pvIdleAction = null;
+  const seq = ++pvBuildSeq;
   const container = new THREE.Group();
-  if (selected.model === 'character') {
+  if (PV_MODEL_FILES[selected.model]) {
     try {
-      if (!pvAssets) pvAssets = await loadPvAssets();
-      // หน้าพรีวิวมีตัวเดียว — ใช้ scene ตรงๆ ได้ ไม่ต้อง SkeletonUtils.clone
-      const visual = pvAssets.scene;
+      const [charGltf, animGltf] = await Promise.all([pvLoad(PV_MODEL_FILES[selected.model]), pvLoad(PV_ANIM_FILES[selected.anim] || PV_ANIM_FILES.catwalk)]);
+      if (seq !== pvBuildSeq) return; // มีการเลือกใหม่ระหว่างโหลด — ทิ้งผลนี้
+      const visual = charGltf.scene;
       visual.rotation.y = 0;
+      // reset scale ก่อนวัดเสมอ — scene ถูก cache ใช้ซ้ำ ถ้าวัดทั้งที่ scale ค้างอยู่จะเพี้ยน
+      visual.scale.setScalar(1);
+      visual.updateMatrixWorld(true);
+      const h = new THREE.Box3().setFromObject(visual).getSize(new THREE.Vector3()).y;
+      if (h > 0.1) visual.scale.setScalar(1.75 / h);
       container.add(visual);
+      const walkClip = pvRetarget(animGltf.animations[0], visual);
       pvMixer = new THREE.AnimationMixer(visual);
-      pvWalkAction = pvMixer.clipAction(pvAssets.walkClip);
-      pvIdleAction = pvMixer.clipAction(THREE.AnimationUtils.subclip(pvAssets.walkClip, 'pv_idle', 0, 1, 30));
+      pvWalkAction = pvMixer.clipAction(walkClip);
+      pvIdleAction = pvMixer.clipAction(THREE.AnimationUtils.subclip(walkClip, 'pv_idle_' + selected.model + '_' + selected.anim, 0, 1, 30));
       (pvWalking ? pvWalkAction : pvIdleAction).play();
     } catch (err) {
+      console.warn('พรีวิวโหลดไม่สำเร็จ:', err);
       container.add(buildEngineerPreview(selected.color));
+      pvMixer = null; pvWalkAction = null; pvIdleAction = null;
     }
   } else {
     container.add(buildEngineerPreview(selected.color));
+    pvMixer = null; pvWalkAction = null; pvIdleAction = null;
   }
+  if (seq !== pvBuildSeq) return;
+  if (pvAvatar) { pvScene.remove(pvAvatar); pvAvatar = null; }
   const ring = new THREE.Mesh(
     new THREE.RingGeometry(.34, .44, 32),
     new THREE.MeshBasicMaterial({ color: new THREE.Color(selected.color), transparent: true, opacity: .55, side: THREE.DoubleSide })

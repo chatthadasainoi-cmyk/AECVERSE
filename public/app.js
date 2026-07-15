@@ -330,24 +330,55 @@ const defaultCameraOffset = new THREE.Vector3(0, 2.5, 5);
 // character.glb (3MB) + walk_anim.glb (46KB, ตรึงสะโพกให้เดินอยู่กับที่แล้ว)
 // เลือกร่างได้ที่หน้า Avatar — ค่าถูกเก็บใน user_metadata ของบัญชี
 // ============================================================
-let _charAssetsPromise = null;
-function loadCharacterAssets() {
-    if (_charAssetsPromise) return _charAssetsPromise;
-    _charAssetsPromise = new Promise((resolve, reject) => {
-        const gl = new THREE.GLTFLoader();
-        gl.load('avatars/character.glb', charGltf => {
-            gl.load('avatars/walk_anim.glb', animGltf => {
-                const walkClip = animGltf.animations[0];
-                // ท่ายืน: ค้างเฟรมแรกของคลิปเดิน (ไม่มีไฟล์ idle แยก — ดีกว่าหลุดเป็น T-pose)
-                const idleClip = THREE.AnimationUtils.subclip(walkClip, 'avatar_idle', 0, 1, 30);
-                charGltf.scene.traverse(o => {
-                    if (o.isMesh || o.isSkinnedMesh) { o.castShadow = false; o.frustumCulled = false; }
-                });
-                resolve({ scene: charGltf.scene, walkClip, idleClip });
-            }, undefined, reject);
-        }, undefined, reject);
+// ทะเบียนร่าง + ท่าเดินที่มีให้เลือก (เลือกที่หน้า Avatar เก็บใน user_metadata ของบัญชี)
+const AVATAR_MODEL_FILES = {
+    character: 'avatars/character.glb',
+    ch22: 'avatars/ch22.glb',
+    ch07: 'avatars/ch07.glb',
+    remy: 'avatars/remy.glb'
+};
+const WALK_ANIM_FILES = {
+    catwalk: 'avatars/walk_anim.glb',
+    walking: 'avatars/walking_anim.glb'
+};
+
+const _glbCache = {};
+function loadGlb(url) {
+    if (!_glbCache[url]) {
+        _glbCache[url] = new Promise((resolve, reject) => {
+            new THREE.GLTFLoader().load(url, resolve, undefined, reject);
+        });
+    }
+    return _glbCache[url];
+}
+
+// จับคู่คลิปกับโครงกระดูกของโมเดล — แต่ละไฟล์จาก Mixamo ใช้ prefix กระดูกไม่เหมือนกัน
+// (mixamorig / mixamorig1 / mixamorig2 / mixamorig8 ...) จึงเทียบด้วย "ชื่อกระดูกจริง"
+// ที่ตัด prefix ออก เช่น mixamorig1Hips กับ mixamorig8Hips = กระดูก Hips เดียวกัน
+function retargetClipToModel(clip, model) {
+    const boneByCanon = {};
+    model.traverse(o => {
+        if (o.isBone) boneByCanon[o.name.replace(/^mixamorig\d*/, '')] = o.name;
     });
-    return _charAssetsPromise;
+    const tracks = [];
+    clip.tracks.forEach(t => {
+        const dot = t.name.lastIndexOf('.');
+        const nodeName = t.name.slice(0, dot), prop = t.name.slice(dot);
+        const target = boneByCanon[nodeName.replace(/^mixamorig\d*/, '')];
+        if (target) {
+            const nt = t.clone();
+            nt.name = target + prop;
+            tracks.push(nt);
+        }
+    });
+    return new THREE.AnimationClip(clip.name, clip.duration, tracks);
+}
+
+async function loadCharacterAssets(modelKey, animKey) {
+    const modelUrl = AVATAR_MODEL_FILES[modelKey] || AVATAR_MODEL_FILES.character;
+    const animUrl = WALK_ANIM_FILES[animKey] || WALK_ANIM_FILES.catwalk;
+    const [charGltf, animGltf] = await Promise.all([loadGlb(modelUrl), loadGlb(animUrl)]);
+    return { scene: charGltf.scene, rawWalkClip: animGltf.animations[0] };
 }
 
 // สร้าง/เปลี่ยน "ร่าง" ภายใน container ของผู้เล่น (ตำแหน่ง/ฟิสิกส์อยู่ที่ container เสมอ)
@@ -357,18 +388,25 @@ async function setAvatarVisual(container, config, color) {
     if (ud.ring) container.remove(ud.ring);
     ud.mixer = null; ud.walkAction = null; ud.idleAction = null; ud.currentAction = null; ud.isMovingState = false;
 
-    const model = (config && config.model) === 'character' ? 'character' : 'engineer';
+    const model = (config && AVATAR_MODEL_FILES[config.model]) ? config.model : ((config && config.model) === 'engineer' ? 'engineer' : 'character');
     let visual = null;
-    if (model === 'character' && THREE.SkeletonUtils) {
+    if (model !== 'engineer' && THREE.SkeletonUtils) {
         try {
-            const assets = await loadCharacterAssets();
+            const assets = await loadCharacterAssets(model, config && config.anim);
             visual = THREE.SkeletonUtils.clone(assets.scene);
+            visual.traverse(o => { if (o.isMesh || o.isSkinnedMesh) { o.castShadow = false; o.frustumCulled = false; } });
             visual.rotation.y = Math.PI;     // Mixamo หันหน้า +Z แต่ระบบเราใช้ -Z เป็นด้านหน้า
             visual.position.y = 0.28;        // ยกเท้าให้เท่าระดับเท้าของร่าง engineer เดิม
+            // แต่ละโมเดลสูง/หน่วยไม่เท่ากัน — ปรับให้ทุกร่างสูง ~1.75m เท่ากันหมด
+            const h = new THREE.Box3().setFromObject(visual).getSize(new THREE.Vector3()).y;
+            if (h > 0.1) visual.scale.setScalar(1.75 / h);
+            // จับคู่คลิปเดินกับกระดูกของโมเดลนี้ (ไฟล์ Mixamo แต่ละไฟล์ใช้ prefix ต่างกัน)
+            const walkClip = retargetClipToModel(assets.rawWalkClip, visual);
+            const idleClip = THREE.AnimationUtils.subclip(walkClip, 'avatar_idle_' + model, 0, 1, 30);
             const mixer = new THREE.AnimationMixer(visual);
             ud.mixer = mixer;
-            ud.walkAction = mixer.clipAction(assets.walkClip);
-            ud.idleAction = mixer.clipAction(assets.idleClip);
+            ud.walkAction = mixer.clipAction(walkClip);
+            ud.idleAction = mixer.clipAction(idleClip);
             ud.idleAction.play();
             ud.currentAction = ud.idleAction;
         } catch (err) {

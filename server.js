@@ -297,10 +297,13 @@ function colorForUserId(userId) {
 }
 
 // config ตัวละครจากหน้า Avatar (เก็บใน user_metadata ของบัญชี) — กรองค่าก่อนใช้เสมอ
+const AVATAR_MODEL_KEYS = ['engineer', 'character', 'ch22', 'ch07', 'remy'];
+const AVATAR_ANIM_KEYS = ['catwalk', 'walking'];
 function sanitizeAvatarConfig(raw) {
     if (!raw || typeof raw !== 'object') return null;
     return {
-        model: raw.model === 'character' ? 'character' : 'engineer',
+        model: AVATAR_MODEL_KEYS.includes(raw.model) ? raw.model : 'engineer',
+        anim: AVATAR_ANIM_KEYS.includes(raw.anim) ? raw.anim : 'catwalk',
         color: (typeof raw.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(raw.color)) ? raw.color : null
     };
 }
