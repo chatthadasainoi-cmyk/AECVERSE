@@ -171,6 +171,27 @@ const workflowDatabase = {
         tagText: "📏 ระยะปลอดภัย: หอเผาก๊าซต้องห่างอาคาร/ถนนอย่างน้อย 7.5 เมตร",
         colorClass: "tag-green", requiresPPE: true,
         steps: ["📏 ตัวหอเผาต้องเว้นระยะห่างอย่างปลอดภัยจากถนนและอาคารอื่นไม่ต่ำกว่า 7.5 เมตร", "🔥 ชุดหัวจุดประกายไฟต้องเชื่อมระบบอัตโนมัติกับเซนเซอร์วัดแรงดันบ่อหมัก", "🌡️ ตรวจสอบอุณหภูมิการเผาไหม้ให้สมบูรณ์ตามมาตรฐานสิ่งแวดล้อม"]
+    },
+    "water_seal": {
+        name: "ชุดดักไฟย้อน Water Seal",
+        desc: "อุปกรณ์นิรภัยแบบซีลน้ำ ป้องกันเปลวไฟย้อนกลับเข้าระบบท่อก๊าซ ติดตั้งร่วมกับ Flame Arrester ตามหลักวิศวกรรม",
+        tagText: "💧 Water Seal: รักษาระดับน้ำในซีลตามที่กำหนดเสมอ",
+        colorClass: "tag-orange", requiresPPE: false,
+        steps: ["💧 ตรวจสอบระดับน้ำในซีลให้อยู่ในเกณฑ์ที่กำหนดทุกกะการทำงาน", "❄️ เติมสารป้องกันการระเหย/แข็งตัวของน้ำตามฤดูกาล", "🔍 ตรวจการอุดตันและตะกอนในชุดซีลตามรอบบำรุงรักษา"]
+    },
+    "gas_detector": {
+        name: "เครื่องตรวจจับก๊าซแบบติดตั้งถาวร (Fixed Gas Detector)",
+        desc: "เซนเซอร์ตรวจจับก๊าซมีเทน/ไฮโดรเจนซัลไฟด์แบบติดตั้งประจำจุด เชื่อมสัญญาณเตือนเข้าห้องควบคุมอัตโนมัติ",
+        tagText: "📡 Fixed Gas Detector: จุดตรวจจับก๊าซรั่วอัตโนมัติ 24 ชม.",
+        colorClass: "tag-green", requiresPPE: false,
+        steps: ["📡 สอบเทียบ (Calibrate) เซนเซอร์ตามรอบที่ผู้ผลิตกำหนด", "🔔 ทดสอบสัญญาณเตือนเข้าห้องควบคุมเป็นประจำ", "🧯 กำหนดขั้นตอนตอบโต้ทันทีเมื่อค่าก๊าซเกินเกณฑ์เตือน"]
+    },
+    "fire_equipment": {
+        name: "อุปกรณ์ดับเพลิง (Fire Extinguisher / Hydrant)",
+        desc: "จุดติดตั้งถังดับเพลิงและอุปกรณ์ผจญเพลิงประจำพื้นที่ ตามผังมาตรฐานความปลอดภัย",
+        tagText: "🧯 อุปกรณ์ดับเพลิง: ห้ามมีสิ่งกีดขวางทางเข้าถึงเด็ดขาด",
+        colorClass: "tag-green", requiresPPE: false,
+        steps: ["🧯 ตรวจสอบแรงดันถังดับเพลิงและสภาพสายฉีดทุกเดือน", "🚧 ห้ามวางสิ่งของกีดขวางจุดติดตั้งอุปกรณ์ดับเพลิง", "🏷️ ติดป้ายบอกตำแหน่งให้มองเห็นได้จากระยะไกล"]
     }
 };
 
@@ -186,6 +207,9 @@ const TYPE_OPTIONS = [
     { key: 'esd', icon: '🟢', label: 'ปุ่มฉุกเฉิน ESD', color: 'tag-green' },
     { key: 'utilization', icon: '🟢', label: 'อาคารเครื่องยนต์ Genset', color: 'tag-green' },
     { key: 'flare', icon: '🟢', label: 'หอเผาก๊าซ Flare', color: 'tag-green' },
+    { key: 'water_seal', icon: '🟠', label: 'ชุดดักไฟย้อน Water Seal', color: 'tag-orange' },
+    { key: 'gas_detector', icon: '🟢', label: 'เครื่องตรวจจับก๊าซถาวร', color: 'tag-green' },
+    { key: 'fire_equipment', icon: '🟢', label: 'อุปกรณ์ดับเพลิง', color: 'tag-green' },
     { key: 'default', icon: '⚪', label: 'โครงสร้างทั่วไป (Default)', color: 'tag-blue' }
 ];
 function getIconForType(typeKeyOrColorClass) {
@@ -211,6 +235,9 @@ function resolveDatabaseKey(mesh, fallbackName) {
     const n = (nameKey || fallbackName || '').toLowerCase();
     if (n.includes('manhole') || n.includes('แมนโฮล')) return 'manhole';
     if (n.includes('pvrv')) return 'pvrv';
+    if (n.includes('water') && n.includes('seal') || n.includes('ซีลน้ำ')) return 'water_seal';
+    if (n.includes('detector') || n.includes('ตรวจจับ') || n.includes('sensor')) return 'gas_detector';
+    if (n.includes('extinguisher') || n.includes('ดับเพลิง') || n.includes('hydrant')) return 'fire_equipment';
     if (n.includes('flame') || n.includes('arrester') || n.includes('ดักไฟ')) return 'flame_arrester';
     if (n.includes('lightning') || n.includes('ล่อฟ้า') || n.includes('rod')) return 'lightning_rod';
     if (n.includes('loto') || n.includes('mcc') || n.includes('ควบคุมไฟฟ้า')) return 'loto';
@@ -838,6 +865,8 @@ renderer.domElement.addEventListener('pointerup', (e) => {
     pointerDownPos = null;
     if (moved > 6 || elapsed > 600) return; // ถือว่าเป็นการลากกล้อง ไม่ใช่การชี้เลือก
 
+    if (measureMode) { handleMeasureClick(e); return; } // โหมดวัดระยะ: คลิก = ปักหมุด ไม่ใช่เลือกชิ้นส่วน
+
     if (!factoryModel) return;
     const rect = renderer.domElement.getBoundingClientRect();
     pointerNDC.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
@@ -1131,6 +1160,7 @@ function buildProximityTags() {
     proximityTags.forEach(t => { scene.remove(t.sprite); t.sprite.material.map.dispose(); t.sprite.material.dispose(); });
     proximityTags.length = 0;
     if (!factoryModel) return;
+    if (!safetyLayers.tags) return; // ผู้ใช้ปิดชั้นป้ายเตือนไว้ในแท็บ "เลเยอร์"
     factoryModel.updateMatrixWorld(true);
     factoryModel.traverse(child => {
         if (!child.isMesh) return;
@@ -1166,7 +1196,9 @@ let ppeAlertActive = false;
 function buildPPEZones() {
     ppeZoneObjects.forEach(o => { scene.remove(o.ring); scene.remove(o.label); });
     ppeZoneObjects.length = 0;
+    buildExtraSafetyLayers(); // ชั้น IOC (Ex-Zone / setback / ล่อฟ้า) สร้าง-เคลียร์พร้อมกันเสมอ
     if (!factoryModel) return;
+    if (!safetyLayers.ppe) return; // ผู้ใช้ปิดชั้น PPE ไว้ในแท็บ "เลเยอร์"
 
     factoryModel.traverse(child => {
         if (!child.isMesh) return;
@@ -1212,6 +1244,174 @@ function checkPPEZones() {
         mpAppendChat({ name: '✅ ปลอดภัย', color: '#22c55e', text: 'ออกจากพื้นที่อันตรายแล้ว' });
     }
 }
+
+// ============================================================
+// 9.5 SAFETY VISUALIZATION LAYERS — ชั้นแสดงผลตามแบบประเมิน IOC
+// Ex-Zone 0/1/2 (ข้อ 4), ระยะปลอดภัย/ระยะร่น (ข้อ 1), รัศมีป้องกันฟ้าผ่า
+// แบบ Rolling Sphere (ข้อ 5) — เปิด/ปิดแยกชั้นได้จากแท็บ "เลเยอร์"
+// ============================================================
+const safetyLayers = {
+    exzone: localStorage.getItem('aec_layer_exzone') !== 'off',
+    ppe: localStorage.getItem('aec_layer_ppe') !== 'off',
+    setback: localStorage.getItem('aec_layer_setback') !== 'off',
+    lightning: localStorage.getItem('aec_layer_lightning') !== 'off',
+    tags: localStorage.getItem('aec_layer_tags') !== 'off'
+};
+window.setSafetyLayer = function (key, on) {
+    safetyLayers[key] = !!on;
+    localStorage.setItem('aec_layer_' + key, on ? 'on' : 'off');
+    if (key === 'tags') buildProximityTags();
+    else buildPPEZones(); // สร้างชั้น IOC อื่นทั้งหมดต่อท้ายในตัวเสมอ
+};
+
+// รัศมีอ้างอิงข้อกำหนด (หน่วยเมตรในโลกจำลอง)
+const EXZONE_RINGS = [
+    { r: 1.5, color: 0xef4444, opacity: 0.6 },  // Zone 0 — ภายใน/ติดอุปกรณ์
+    { r: 4.5, color: 0xf97316, opacity: 0.5 },  // Zone 1
+    { r: 9.0, color: 0xfacc15, opacity: 0.4 }   // Zone 2
+];
+const EXZONE_TYPES = ['tank', 'manhole', 'pvrv'];
+const SETBACK_RULES = {
+    flare: { r: 7.5, label: '📏 หอเผาก๊าซ: ระยะปลอดภัย ≥ 7.5 ม.' },
+    utilization: { r: 15, label: '📏 เครื่องยนต์: ห่างบ่อหมัก ≥ 15 ม.' },
+    tank: { r: 30, label: '📏 บ่อหมัก: ระยะร่นแนวเขตที่ดิน ≥ 30 ม.' }
+};
+const LIGHTNING_SPHERE_R = 20; // Rolling Sphere Class I (เข้มงวดสุด) ≈ 20 ม.
+
+const safetyOverlayObjects = [];
+function makeGroundRing(x, z, r, color, opacity) {
+    const ring = new THREE.Mesh(
+        new THREE.RingGeometry(Math.max(r - 0.14, 0.05), r + 0.14, 64),
+        new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, transparent: true, opacity: opacity || 0.5 })
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.set(x, 0.045, z);
+    return ring;
+}
+function makeTextSprite(text, bgColor, widthUnits) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 640; canvas.height = 96;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = bgColor || 'rgba(15,23,42,0.88)';
+    if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(2, 2, 636, 92, 16); ctx.fill(); } else ctx.fillRect(2, 2, 636, 92);
+    ctx.font = 'bold 32px "Segoe UI", Arial, sans-serif';
+    ctx.fillStyle = '#ffffff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(text, 320, 50);
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), depthTest: false }));
+    const w = widthUnits || 6;
+    sp.scale.set(w, w * 96 / 640, 1);
+    sp.renderOrder = 998;
+    return sp;
+}
+
+function buildExtraSafetyLayers() {
+    safetyOverlayObjects.forEach(o => scene.remove(o));
+    safetyOverlayObjects.length = 0;
+    if (!factoryModel) return;
+    factoryModel.updateMatrixWorld(true);
+    const addObj = o => { scene.add(o); safetyOverlayObjects.push(o); };
+
+    factoryModel.traverse(child => {
+        if (!child.isMesh) return;
+        const key = resolveDatabaseKey(child, child.name);
+        const pos = new THREE.Vector3(); child.getWorldPosition(pos);
+
+        // ---- IOC ข้อ 4: Ex-Zone 0/1/2 วงสีซ้อนกันรอบจุดเสี่ยงก๊าซไวไฟ ----
+        if (safetyLayers.exzone && EXZONE_TYPES.includes(key)) {
+            EXZONE_RINGS.forEach(zone => addObj(makeGroundRing(pos.x, pos.z, zone.r, zone.color, zone.opacity)));
+            const label = makeTextSprite('☣️ Ex-Zone 0 / 1 / 2 — พื้นที่ก๊าซไวไฟ ห้ามประกายไฟ', 'rgba(239,68,68,0.9)', 7);
+            label.position.set(pos.x, 0.7, pos.z + EXZONE_RINGS[2].r - 0.4);
+            addObj(label);
+        }
+
+        // ---- IOC ข้อ 1: วงระยะปลอดภัย/ระยะร่นตามมาตรฐาน ----
+        if (safetyLayers.setback && SETBACK_RULES[key]) {
+            const rule = SETBACK_RULES[key];
+            addObj(makeGroundRing(pos.x, pos.z, rule.r, 0x38bdf8, 0.45));
+            const label = makeTextSprite(rule.label, 'rgba(14,116,178,0.9)', 8);
+            label.position.set(pos.x, 1.1, pos.z + rule.r - 0.5);
+            addObj(label);
+        }
+
+        // ---- IOC ข้อ 5: โดมรัศมีป้องกันฟ้าผ่า (Rolling Sphere) ครอบพื้นที่ ----
+        if (safetyLayers.lightning && key === 'lightning_rod') {
+            const rodTop = new THREE.Box3().setFromObject(child).max.y;
+            const dome = new THREE.Mesh(
+                new THREE.SphereGeometry(LIGHTNING_SPHERE_R, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2),
+                new THREE.MeshBasicMaterial({ color: 0xa855f7, transparent: true, opacity: 0.07, side: THREE.DoubleSide, depthWrite: false })
+            );
+            dome.position.set(pos.x, 0, pos.z);
+            addObj(dome);
+            const wire = new THREE.Mesh(
+                new THREE.SphereGeometry(LIGHTNING_SPHERE_R, 24, 10, 0, Math.PI * 2, 0, Math.PI / 2),
+                new THREE.MeshBasicMaterial({ color: 0xa855f7, wireframe: true, transparent: true, opacity: 0.14 })
+            );
+            wire.position.set(pos.x, 0, pos.z);
+            addObj(wire);
+            addObj(makeGroundRing(pos.x, pos.z, LIGHTNING_SPHERE_R, 0xa855f7, 0.4));
+            const label = makeTextSprite(`⚡ รัศมีป้องกันฟ้าผ่า Rolling Sphere ≈ ${LIGHTNING_SPHERE_R} ม. (คลุมโดมก๊าซ 100%)`, 'rgba(126,58,242,0.9)', 9);
+            label.position.set(pos.x, rodTop + 1.2, pos.z);
+            addObj(label);
+        }
+    });
+}
+
+// ============================================================
+// 9.6 เครื่องมือวัดระยะ (IOC ข้อ 1) — คลิก 2 จุดบนโมเดล/พื้น ได้ระยะเป็นเมตร
+// ให้ผู้เชี่ยวชาญ/ผู้ใช้ตรวจสอบระยะห่างจริงในแบบจำลองเทียบกับมาตรฐานได้ทันที
+// ============================================================
+let measureMode = false;
+let measureStart = null;
+const measureObjects = [];
+function clearMeasurement() {
+    measureObjects.forEach(o => scene.remove(o));
+    measureObjects.length = 0;
+    measureStart = null;
+}
+window.toggleMeasureMode = function () {
+    measureMode = !measureMode;
+    if (!measureMode) clearMeasurement();
+    ['hud-measure', 'btn-measure-panel'].forEach(id => { const b = $(id); if (b) b.classList.toggle('measure-on', measureMode); });
+    mpAppendChat({
+        name: '📏 ระบบ', color: '#38bdf8',
+        text: measureMode ? 'โหมดวัดระยะ: คลิกจุดที่ 1 แล้วคลิกจุดที่ 2 บนโมเดลหรือพื้น (กดปุ่มวัดระยะซ้ำเพื่อออก)' : 'ปิดโหมดวัดระยะแล้ว'
+    });
+};
+function handleMeasureClick(e) {
+    const rect = renderer.domElement.getBoundingClientRect();
+    pointerNDC.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    pointerNDC.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(pointerNDC, camera);
+    const targets = [groundDisc];
+    if (factoryModel) targets.push(factoryModel);
+    const hits = raycaster.intersectObjects(targets, true);
+    if (!hits.length) return;
+    const pt = hits[0].point.clone();
+
+    const marker = new THREE.Mesh(new THREE.SphereGeometry(0.14, 12, 12), new THREE.MeshBasicMaterial({ color: 0x38bdf8 }));
+    marker.position.copy(pt);
+    scene.add(marker); measureObjects.push(marker);
+
+    if (!measureStart) { measureStart = pt; return; }
+    const line = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints([measureStart, pt]),
+        new THREE.LineBasicMaterial({ color: 0x38bdf8 })
+    );
+    scene.add(line); measureObjects.push(line);
+    const dist = measureStart.distanceTo(pt);
+    const mid = measureStart.clone().add(pt).multiplyScalar(0.5);
+    const label = makeTextSprite(dist.toFixed(2) + ' เมตร', 'rgba(14,116,178,0.92)', 4);
+    label.position.set(mid.x, mid.y + 0.7, mid.z);
+    scene.add(label); measureObjects.push(label);
+    mpAppendChat({ name: '📏 วัดระยะ', color: '#38bdf8', text: `ระยะที่วัดได้: ${dist.toFixed(2)} เมตร` });
+    measureStart = null; // พร้อมวัดคู่ถัดไป
+}
+
+// ตั้งค่า checkbox ในแท็บ "เลเยอร์" ให้ตรงกับสถานะที่จำไว้
+['exzone', 'ppe', 'setback', 'lightning', 'tags'].forEach(k => {
+    const cb = $('layer-' + k);
+    if (cb) cb.checked = safetyLayers[k];
+});
 
 // ============================================================
 // 10. TRANSFORM PANEL — REQ 1 & 2: scale/position/rotation + Lock
