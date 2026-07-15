@@ -188,6 +188,10 @@
   <div id="center-col">
     <div id="canvas-container">
 
+        <!-- ปุ่มเก็บ/ดึงแผงข้าง — กดซ่อนแผงซ้าย/ขวาเพื่อให้จอ 3D โล่งเต็มที่ -->
+        <button id="toggle-left-col" class="col-toggle col-toggle-left" onclick="toggleSideCol('left')" title="ซ่อน/แสดงแผงเครื่องมือซ้าย">◂</button>
+        <button id="toggle-right-col" class="col-toggle col-toggle-right" onclick="toggleSideCol('right')" title="ซ่อน/แสดงรายการชิ้นส่วน">▸</button>
+
         <!-- empty state — ซ่อนอัตโนมัติเมื่อโหลดโมเดล (สคริปต์ด้านล่างเฝ้าดู #factory-status) -->
         <div id="canvas-empty-hint">
             <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M12 2l9 5v10l-9 5-9-5V7l9-5z"/><path d="M3 7l9 5 9-5M12 12v10"/></svg>
@@ -303,6 +307,7 @@
         <div id="hud-reset-camera" class="key-btn-item" onclick="resetCameraToAvatar()"><span class="key-badge">R</span> รีเซ็ตมุมกล้อง</div>
         <div id="freelook-btn" class="key-btn-item" onclick="document.dispatchEvent(new KeyboardEvent('keydown',{key:'f'}))"><span class="key-badge">F</span> Free Look</div>
         <div id="hud-jump" class="key-btn-item" onclick="triggerAvatarJump()"><span class="key-badge">Space</span> กระโดด</div>
+        <div id="hud-fullscreen" class="key-btn-item" onclick="toggleFullscreen()" title="ขยายโลก 3D เต็มหน้าจอ"><span class="key-badge">⛶</span> เต็มจอ</div>
         <div id="hud-voice" class="key-btn-item" onclick="toggleMic()" title="เปิด/ปิดไมค์คุยกับผู้เล่นในโลก"><span class="key-badge">V</span> <span id="hud-voice-label">ไมค์</span></div>
         <div id="hud-chat" class="key-btn-item" onclick="toggleChatPanel()" title="เปิด/ปิดหน้าต่างแชท (กด / เพื่อพิมพ์)">
             <span class="key-badge">/</span> แชท

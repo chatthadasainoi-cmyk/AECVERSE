@@ -13,3 +13,53 @@ async function initUserChip(){
   if (nameEl) nameEl.textContent = email;
   if (avatarEl) avatarEl.textContent = email.slice(0, 2).toUpperCase();
 }
+
+// ============================================================
+// นาฬิกา + สภาพอากาศจริง ที่มุมล่างซ้ายของ sidebar (.sb-weather)
+// ทำงานอัตโนมัติทุกหน้าที่มี widget นี้ — เดิมเป็นค่า hardcode "20 May 2025"
+// อุณหภูมิดึงจาก Open-Meteo (ฟรี ไม่ต้องใช้ API key) พิกัดกรุงเทพฯ
+// ============================================================
+function initSidebarWeather(){
+  const box = document.querySelector('.sb-weather');
+  // นอกจาก sidebar แล้ว ยังอัปเดต element ใดๆ ที่ติด class .live-time / .live-date / .live-temp ด้วย
+  const liveTimes = document.querySelectorAll('.live-time');
+  const liveDates = document.querySelectorAll('.live-date');
+  const liveTemps = document.querySelectorAll('.live-temp');
+  if (!box && !liveTimes.length && !liveDates.length && !liveTemps.length) return;
+
+  const tempEl = box ? box.querySelector('.temp') : null;
+  const timeEl = box ? box.querySelector('.time') : null;
+  const dateEls = box ? box.querySelectorAll('.date') : [];
+
+  function tick(){
+    const now = new Date();
+    const timeTxt = now.toLocaleTimeString('en-GB', { hour12: false, timeZone: 'Asia/Bangkok' });
+    const dateTxt = now.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Bangkok' });
+    if (timeEl) timeEl.textContent = timeTxt;
+    if (dateEls[0]) dateEls[0].textContent = dateTxt;
+    liveTimes.forEach(el => { el.textContent = timeTxt; });
+    liveDates.forEach(el => { el.textContent = dateTxt; });
+  }
+  tick();
+  setInterval(tick, 1000);
+  // ไม่ขอตำแหน่งผู้ใช้ (กัน popup ขอสิทธิ์ทุกหน้า) — แสดงระดับประเทศตามที่ตกลง
+  if (dateEls[1]) dateEls[1].textContent = 'Thailand';
+  if (dateEls[2]) dateEls[2].textContent = 'Asia/Bangkok (UTC+7)';
+
+  async function fetchTemp(){
+    try {
+      const res = await fetch('https://api.open-meteo.com/v1/forecast?latitude=13.7563&longitude=100.5018&current=temperature_2m');
+      const j = await res.json();
+      const t = j && j.current ? j.current.temperature_2m : null;
+      if (typeof t === 'number') {
+        const txt = Math.round(t) + '°C';
+        if (tempEl) tempEl.textContent = txt;
+        liveTemps.forEach(el => { el.textContent = txt; });
+      }
+    } catch (err) { /* ออฟไลน์/โดนบล็อก -> คงค่าเดิมที่แสดงอยู่ */ }
+  }
+  fetchTemp();
+  setInterval(fetchTemp, 10 * 60 * 1000); // อัปเดตทุก 10 นาที
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initSidebarWeather);
+else initSidebarWeather();

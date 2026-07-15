@@ -71,11 +71,17 @@ groundDisc.position.y = -0.02;
 scene.add(groundDisc);
 scene.add(new THREE.GridHelper(60, 60, 0x2e4a75, 0x141c2a));
 
-window.addEventListener('resize', () => {
-    camera.aspect = canvasContainer.clientWidth / canvasContainer.clientHeight;
+function fitRendererToContainer() {
+    const w = canvasContainer.clientWidth, h = canvasContainer.clientHeight;
+    if (!w || !h) return; // ยัง layout ไม่เสร็จ — ResizeObserver จะเรียกซ้ำเองเมื่อได้ขนาดจริง
+    camera.aspect = w / h;
     camera.updateProjectionMatrix();
-    renderer.setSize(canvasContainer.clientWidth, canvasContainer.clientHeight);
-});
+    renderer.setSize(w, h);
+}
+window.addEventListener('resize', fitRendererToContainer);
+// เฝ้าดูขนาด container ตรงๆ — กันเคส canvas เกิดตอน container กว้าง 0
+// (เช่นอยู่ใน iframe ที่ยังจัด layout ไม่เสร็จ) แล้วค้างเป็นจอดำถาวร
+if (window.ResizeObserver) new ResizeObserver(fitRendererToContainer).observe(canvasContainer);
 
 // ============================================================
 // 2. SAFETY DATABASE — ตามคู่มือ "Interactive Biogas Safety Standard Metaverse"
@@ -1646,6 +1652,36 @@ function updateVoiceIndicator() {
 // 11.7 LIVE PLANT DATA STRIP — ตัวเลขโรงงานเรียลไทม์ใต้จอ 3D
 // ใช้ feed 'plant_update' เดียวกับหน้า Metaverse/Analytics — ทุกจอเห็นเลขเดียวกัน
 // ============================================================
+// ---------- เก็บ/ดึงแผงข้าง — เคลียร์จอ 3D ให้โล่งเมื่อไม่ต้องใช้เครื่องมือ ----------
+function toggleSideCol(side) {
+    const col = $(side === 'left' ? 'left-col' : 'right-col');
+    const btn = $(side === 'left' ? 'toggle-left-col' : 'toggle-right-col');
+    if (!col) return;
+    const wasHidden = col.style.display === 'none';
+    col.style.display = wasHidden ? '' : 'none';
+    if (btn) {
+        // ลูกศรชี้ทิศที่แผงจะ "เคลื่อนไป" เมื่อกด: ซ้ายเปิดอยู่ = ◂ (เก็บออกซ้าย)
+        btn.innerText = side === 'left' ? (wasHidden ? '◂' : '▸') : (wasHidden ? '▸' : '◂');
+    }
+    localStorage.setItem('aec_col_' + side, wasHidden ? 'show' : 'hide');
+    // คอลัมน์เปลี่ยนขนาด -> ต้องคำนวณ canvas/กล้องใหม่ (handler เดิมฟัง resize อยู่แล้ว)
+    window.dispatchEvent(new Event('resize'));
+}
+window.toggleSideCol = toggleSideCol;
+['left', 'right'].forEach(s => { if (localStorage.getItem('aec_col_' + s) === 'hide') toggleSideCol(s); });
+
+// ---------- โหมดเต็มจอ ----------
+function toggleFullscreen() {
+    if (document.fullscreenElement) {
+        document.exitFullscreen();
+    } else {
+        document.documentElement.requestFullscreen().catch(() => {
+            mpAppendChat({ name: 'ระบบ', color: '#ef4444', text: 'เบราว์เซอร์ไม่อนุญาตโหมดเต็มจอในหน้านี้' });
+        });
+    }
+}
+window.toggleFullscreen = toggleFullscreen;
+
 // ย่อ/ขยายแถบข้อมูล — จำสถานะไว้ข้ามเซสชัน (ค่าเริ่มต้น: ย่อ ไม่บังฉาก)
 function toggleDock() {
     const dock = $('plant-dock');
