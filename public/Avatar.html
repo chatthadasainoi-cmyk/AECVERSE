@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<title>AEC VERSE — Avatar</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="supabaseClient.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<style>
+/* ==================== AEC VERSE — shared design system (subset) ==================== */
+:root{
+  --bg-0:#080b11; --bg-1:#0b0f17; --panel:#0e131c; --panel-2:#111826;
+  --border:#1c2531; --border-soft:#161d29;
+  --text-0:#eef2f7; --text-1:#9aa7b8; --text-2:#657182;
+  --blue:#3b82f6; --blue-soft:rgba(59,130,246,0.14);
+  --green:#22c55e; --green-soft:rgba(34,197,94,0.14);
+  --red:#ef4444; --radius:12px; --sidebar-w:216px;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{background:var(--bg-0);color:var(--text-0);font-family:"Inter",system-ui,-apple-system,sans-serif;font-size:13px;-webkit-font-smoothing:antialiased;}
+a{color:inherit;text-decoration:none;} button{font-family:inherit;}
+.app-shell{display:flex;min-height:100vh;}
+.sidebar{width:var(--sidebar-w);flex-shrink:0;background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:18px 12px;position:sticky;top:0;height:100vh;}
+.sb-logo{display:flex;align-items:center;gap:9px;padding:4px 6px 18px 6px;}
+.sb-logo img{width:30px;height:30px;object-fit:contain;}
+.sb-logo .lg-text{line-height:1.1;}
+.sb-logo .lg-text b{display:block;font-size:14px;font-weight:800;letter-spacing:0.5px;font-family:"Sora",sans-serif;}
+.sb-logo .lg-text b .verse{color:var(--green);}
+.sb-logo .lg-text span{display:block;font-size:7.5px;letter-spacing:1px;color:var(--text-2);font-weight:700;}
+.sb-nav{display:flex;flex-direction:column;gap:2px;flex:1;overflow-y:auto;}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:var(--text-1);font-size:13px;font-weight:500;cursor:pointer;border-left:2px solid transparent;}
+.nav-item svg{flex-shrink:0;width:16px;height:16px;}
+.nav-item:hover{background:var(--panel-2);color:var(--text-0);}
+.nav-item.active{background:var(--blue-soft);color:#8fb8ff;border-left:2px solid var(--blue);}
+.sb-weather{margin-top:10px;padding:12px 10px 4px 10px;border-top:1px solid var(--border-soft);color:var(--text-2);font-size:11px;}
+.sb-weather .temp{font-size:20px;font-weight:700;color:var(--text-0);}
+.sb-weather .time{font-size:15px;font-weight:600;color:var(--text-1);margin-top:6px;}
+.sb-weather .date{margin-top:2px;}
+.topbar{height:58px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 22px;background:var(--bg-1);position:sticky;top:0;z-index:5;}
+.page-title{font-size:16px;font-weight:700;margin:0 0 3px 0;}
+.page-title .th{color:var(--text-2);font-weight:500;font-size:12.5px;}
+.topbar-right{display:flex;align-items:center;gap:14px;}
+.user-chip{display:flex;align-items:center;gap:9px;padding-left:8px;border-left:1px solid var(--border);}
+.user-chip .avatar{width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#3b82f6,#22c55e);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#04150b;}
+.user-chip .u-name{font-size:12px;font-weight:600;line-height:1.1;}
+.user-chip .u-role{font-size:10.5px;color:var(--text-2);}
+.page{flex:1;display:flex;flex-direction:column;min-width:0;}
+.page-content{padding:18px 22px 30px 22px;flex:1;}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:16px;}
+.card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+.card-head h3{margin:0;font-size:13px;font-weight:700;}
+.grid{display:grid;gap:14px;} .g12-8-4{grid-template-columns:7fr 5fr;}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:8px 14px;border-radius:8px;font-size:12.5px;font-weight:700;border:1px solid var(--border);background:var(--panel-2);color:var(--text-0);cursor:pointer;}
+.btn.primary{background:linear-gradient(90deg,#3b82f6,#22c55e);border:none;color:#03130a;}
+.btn:hover{filter:brightness(1.08);}
+.section-label{font-size:11px;color:var(--text-2);font-weight:700;letter-spacing:.6px;text-transform:uppercase;margin:0 0 10px 2px;}
+@media (max-width:1100px){ .g12-8-4{grid-template-columns:1fr;} }
+
+/* ---------- หน้า Avatar ---------- */
+#avatar-preview{width:100%;height:520px;border-radius:10px;background:var(--bg-0);border:1px solid var(--border-soft);overflow:hidden;position:relative;}
+#avatar-preview canvas{display:block;}
+.preview-hint{position:absolute;bottom:10px;left:0;right:0;text-align:center;color:var(--text-2);font-size:10.5px;pointer-events:none;}
+.model-option{display:flex;align-items:center;gap:12px;padding:12px;border:1px solid var(--border);border-radius:10px;cursor:pointer;margin-bottom:8px;transition:.15s;}
+.model-option:hover{background:var(--panel-2);}
+.model-option.selected{border-color:var(--blue);background:var(--blue-soft);}
+.model-option .mo-icon{font-size:24px;width:40px;text-align:center;flex-shrink:0;}
+.model-option .mo-name{font-weight:700;font-size:12.5px;}
+.model-option .mo-desc{color:var(--text-2);font-size:11px;margin-top:2px;line-height:1.5;}
+.color-swatches{display:flex;gap:8px;flex-wrap:wrap;}
+.swatch{width:34px;height:34px;border-radius:50%;cursor:pointer;border:2px solid transparent;transition:.15s;}
+.swatch:hover{transform:scale(1.1);}
+.swatch.selected{border-color:#fff;box-shadow:0 0 0 2px var(--blue);}
+#save-status{font-size:11.5px;min-height:16px;margin-top:10px;}
+</style>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="sb-logo">
+        <img src="Logo.png" alt="AEC VERSE">
+        <div class="lg-text"><b>AEC <span class="verse">VERS</span></b><span>SMART BIOGAS DIGITAL TWIN</span></div>
+      </div>
+      <nav class="sb-nav">
+        <div class="nav-item" onclick="location.href='Dashboard.html'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg><span>Metaverse</span></div>
+        <div class="nav-item active" onclick="location.href='Avatar.html'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></svg><span>Avatar</span></div>
+        <div class="nav-item" onclick="location.href='Digitaltwin.html'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l9 5v10l-9 5-9-5V7l9-5z"/><path d="M3 7l9 5 9-5M12 12v10"/></svg><span>Digital Twin</span></div>
+        <div class="nav-item" onclick="location.href='Analytics.html'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg><span>Analytics</span></div>
+        <div class="nav-item" onclick="location.href='WorkOrder.html'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 3v2h6V3M9 10h6M9 14h6M9 18h3"/></svg><span>Work Order</span></div>
+        <div class="nav-item" onclick="location.href='Emergency.html'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l9 16H3L12 3z"/><path d="M12 10v4M12 17h.01"/></svg><span>Emergency</span></div>
+        <div class="nav-item" onclick="location.href='Reports.html'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3H6a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V9z"/><path d="M14 3v6h6M9 13h6M9 17h6"/></svg><span>Reports</span></div>
+        <div class="nav-item" onclick="location.href='Settings.html'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.9 2.9l-.1-.1a1.7 1.7 0 00-1.9-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1-1.6 1.7 1.7 0 00-1.9.3l-.1.1a2 2 0 11-2.9-2.9l.1-.1a1.7 1.7 0 00.3-1.9 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1 1.7 1.7 0 00-.3-1.9l-.1-.1a2 2 0 112.9-2.9l.1.1a1.7 1.7 0 001.9.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.9-.3l.1-.1a2 2 0 112.9 2.9l-.1.1a1.7 1.7 0 00-.3 1.9V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg><span>Settings</span></div>
+      </nav>
+      <div class="sb-weather">
+        <div class="temp">30°C</div>
+        <div class="time">--:--:--</div>
+        <div class="date">—</div>
+        <div class="date">Thailand</div>
+        <div class="date">Asia/Bangkok (UTC+7)</div>
+      </div>
+    </aside>
+
+    <div class="page">
+      <div class="topbar">
+        <div class="page-title" style="margin:0;">Avatar <span class="th">(ปรับแต่งตัวละครของคุณ)</span></div>
+        <div class="topbar-right">
+          <div class="user-chip" style="cursor:pointer;" onclick="handleLogout()" title="บัญชีผู้ใช้ / ออกจากระบบ">
+            <div class="avatar">SY</div>
+            <div>
+              <div class="u-name">—</div>
+              <div class="u-role">Engineer</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="page-content">
+        <div class="grid g12-8-4">
+          <div class="card">
+            <div class="card-head"><h3>ตัวอย่างตัวละคร</h3><button class="btn" id="btn-toggle-walk" onclick="togglePreviewWalk()">▶ ลองเดิน</button></div>
+            <div id="avatar-preview">
+              <div class="preview-hint">ลากเมาส์เพื่อหมุนดูรอบตัว — ตัวละครนี้คือร่างที่ผู้เล่นคนอื่นจะเห็นคุณในโลก Metaverse</div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="section-label">เลือกร่างตัวละคร</div>
+            <div class="model-option" data-model="character" onclick="selectModel('character')">
+              <div class="mo-icon">🧍</div>
+              <div>
+                <div class="mo-name">Character (สมจริง)</div>
+                <div class="mo-desc">ตัวละคร 3D เต็มรูปแบบพร้อมแอนิเมชันเดินแบบสมจริง</div>
+              </div>
+            </div>
+            <div class="model-option" data-model="engineer" onclick="selectModel('engineer')">
+              <div class="mo-icon">👷</div>
+              <div>
+                <div class="mo-name">Engineer (คลาสสิก)</div>
+                <div class="mo-desc">วิศวกรชุดส้มสไตล์บล็อก — เบาและโหลดเร็วที่สุด</div>
+              </div>
+            </div>
+
+            <div class="section-label" style="margin-top:18px;">สีประจำตัว</div>
+            <div style="color:var(--text-2);font-size:11px;margin-bottom:10px;">ใช้กับป้ายชื่อ วงแหวนใต้เท้า และสีข้อความแชท — ช่วยให้เพื่อนแยกคุณออกจากคนอื่นได้ทันที</div>
+            <div class="color-swatches" id="color-swatches"></div>
+
+            <button class="btn primary" style="width:100%;margin-top:20px;" onclick="saveAvatar()">บันทึกตัวละคร</button>
+            <div id="save-status"></div>
+            <div style="color:var(--text-2);font-size:10.5px;line-height:1.6;margin-top:8px;">
+              ตัวละครผูกกับบัญชีของคุณ — บันทึกแล้วเปิดหน้า Metaverse ใหม่ (หรือรีเฟรช) เพื่อสวมร่างใหม่ ผู้เล่นทุกคนจะเห็นคุณเป็นร่างนี้
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+async function handleLogout(){
+  await supabaseClient.auth.signOut();
+  window.location.href = 'Login.html';
+}
+initUserChip();
+
+// ============================================================
+// สถานะที่ผู้ใช้เลือก (โหลดค่าเดิมจากบัญชีตอนเปิดหน้า)
+// ============================================================
+const COLORS = ['#ff6b6b', '#ffd93d', '#6bcb77', '#4d96ff', '#c77dff', '#ff9f43', '#00d2d3', '#ff6b9d'];
+let selected = { model: 'character', color: COLORS[3] };
+
+function refreshOptionUI(){
+  document.querySelectorAll('.model-option').forEach(el => el.classList.toggle('selected', el.dataset.model === selected.model));
+  document.querySelectorAll('.swatch').forEach(el => el.classList.toggle('selected', el.dataset.color === selected.color));
+}
+function selectModel(m){ selected.model = m; refreshOptionUI(); rebuildPreviewAvatar(); }
+function selectColor(c){ selected.color = c; refreshOptionUI(); rebuildPreviewAvatar(); }
+
+const swatchBox = document.getElementById('color-swatches');
+COLORS.forEach(c => {
+  const s = document.createElement('div');
+  s.className = 'swatch'; s.dataset.color = c; s.style.background = c;
+  s.onclick = () => selectColor(c);
+  swatchBox.appendChild(s);
+});
+
+async function loadSavedConfig(){
+  try {
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    const saved = session?.user?.user_metadata?.avatar;
+    if (saved) {
+      if (saved.model === 'engineer' || saved.model === 'character') selected.model = saved.model;
+      if (typeof saved.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(saved.color)) selected.color = saved.color;
+    }
+  } catch (err) { /* ใช้ค่าเริ่มต้น */ }
+  refreshOptionUI();
+  rebuildPreviewAvatar();
+}
+
+async function saveAvatar(){
+  const status = document.getElementById('save-status');
+  status.style.color = 'var(--text-2)';
+  status.textContent = 'กำลังบันทึก...';
+  try {
+    const { error } = await supabaseClient.auth.updateUser({ data: { avatar: { model: selected.model, color: selected.color } } });
+    if (error) throw error;
+    status.style.color = 'var(--green)';
+    status.textContent = '✓ บันทึกแล้ว — รีเฟรชหน้า Metaverse เพื่อสวมร่างใหม่';
+  } catch (err) {
+    status.style.color = 'var(--red)';
+    status.textContent = 'บันทึกไม่สำเร็จ: ' + (err.message || err);
+  }
+}
+
+// ============================================================
+// พรีวิว 3D — ฉากเดียวกับโลกจริง (ตัวละคร + วงแหวนสี + คลิปเดิน)
+// ============================================================
+const pvBox = document.getElementById('avatar-preview');
+const pvScene = new THREE.Scene();
+pvScene.background = new THREE.Color(0x080b11);
+const pvCam = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
+pvCam.position.set(0, 1.5, 3.2);
+const pvRenderer = new THREE.WebGLRenderer({ antialias: true });
+pvRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+pvBox.insertBefore(pvRenderer.domElement, pvBox.firstChild);
+function fitPv(){ const w = pvBox.clientWidth, h = pvBox.clientHeight; if (!w || !h) return; pvCam.aspect = w / h; pvCam.updateProjectionMatrix(); pvRenderer.setSize(w, h); }
+fitPv();
+if (window.ResizeObserver) new ResizeObserver(fitPv).observe(pvBox);
+
+const pvControls = new THREE.OrbitControls(pvCam, pvRenderer.domElement);
+pvControls.target.set(0, 0.95, 0);
+pvControls.enableDamping = true;
+pvControls.minDistance = 1.5; pvControls.maxDistance = 6;
+
+pvScene.add(new THREE.AmbientLight(0xffffff, 0.65));
+pvScene.add(new THREE.HemisphereLight(0xbcd4ff, 0x0e131c, 0.6));
+const pvDir = new THREE.DirectionalLight(0xffffff, 1.0);
+pvDir.position.set(3, 6, 4); pvScene.add(pvDir);
+pvScene.add(new THREE.GridHelper(8, 16, 0x2e4a75, 0x141c2a));
+
+// ร่าง engineer แบบย่อ (กล่อง) — เวอร์ชันเดียวกับในโลกจริง
+function buildEngineerPreview(color){
+  const g = new THREE.Group();
+  const hex = parseInt(String(color).replace('#',''), 16);
+  const suit = new THREE.MeshStandardMaterial({ color: 0xff6600, roughness: .6 });
+  const skin = new THREE.MeshStandardMaterial({ color: 0xf4c08a, roughness: .7 });
+  const helmet = new THREE.MeshStandardMaterial({ color: hex, roughness: .3, metalness: .3 });
+  const visib = new THREE.MeshStandardMaterial({ color: 0xffff00 });
+  const boot = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: .9 });
+  const add = (geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); g.add(m); return m; };
+  add(new THREE.BoxGeometry(.22,.24,.22), skin, 0, 1.62, 0);
+  add(new THREE.BoxGeometry(.26,.12,.26), helmet, 0, 1.78, 0);
+  add(new THREE.BoxGeometry(.34,.03,.3), helmet, 0, 1.72, 0);
+  add(new THREE.BoxGeometry(.38,.5,.2), suit, 0, 1.14, 0);
+  add(new THREE.BoxGeometry(.39,.05,.21), visib, 0, 1.22, 0);
+  add(new THREE.BoxGeometry(.39,.05,.21), visib, 0, 1.08, 0);
+  add(new THREE.BoxGeometry(.11,.55,.13), suit, -.265, 1.08, 0);
+  add(new THREE.BoxGeometry(.11,.55,.13), suit, .265, 1.08, 0);
+  add(new THREE.BoxGeometry(.14,.42,.15), suit, -.1, .6, 0);
+  add(new THREE.BoxGeometry(.14,.42,.15), suit, .1, .6, 0);
+  add(new THREE.BoxGeometry(.16,.1,.22), boot, -.1, .33, -.03);
+  add(new THREE.BoxGeometry(.16,.1,.22), boot, .1, .33, -.03);
+  return g;
+}
+
+let pvAvatar = null, pvMixer = null, pvWalkAction = null, pvIdleAction = null, pvWalking = false;
+let pvAssets = null, pvAssetsPromise = null;
+function loadPvAssets(){
+  if (pvAssetsPromise) return pvAssetsPromise;
+  pvAssetsPromise = new Promise((resolve, reject) => {
+    const gl = new THREE.GLTFLoader();
+    gl.load('avatars/character.glb', charGltf => {
+      gl.load('avatars/walk_anim.glb', animGltf => {
+        resolve({ scene: charGltf.scene, walkClip: animGltf.animations[0] });
+      }, undefined, reject);
+    }, undefined, reject);
+  });
+  return pvAssetsPromise;
+}
+
+async function rebuildPreviewAvatar(){
+  if (pvAvatar) { pvScene.remove(pvAvatar); pvAvatar = null; }
+  pvMixer = null; pvWalkAction = null; pvIdleAction = null;
+  const container = new THREE.Group();
+  if (selected.model === 'character') {
+    try {
+      if (!pvAssets) pvAssets = await loadPvAssets();
+      // หน้าพรีวิวมีตัวเดียว — ใช้ scene ตรงๆ ได้ ไม่ต้อง SkeletonUtils.clone
+      const visual = pvAssets.scene;
+      visual.rotation.y = 0;
+      container.add(visual);
+      pvMixer = new THREE.AnimationMixer(visual);
+      pvWalkAction = pvMixer.clipAction(pvAssets.walkClip);
+      pvIdleAction = pvMixer.clipAction(THREE.AnimationUtils.subclip(pvAssets.walkClip, 'pv_idle', 0, 1, 30));
+      (pvWalking ? pvWalkAction : pvIdleAction).play();
+    } catch (err) {
+      container.add(buildEngineerPreview(selected.color));
+    }
+  } else {
+    container.add(buildEngineerPreview(selected.color));
+  }
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(.34, .44, 32),
+    new THREE.MeshBasicMaterial({ color: new THREE.Color(selected.color), transparent: true, opacity: .55, side: THREE.DoubleSide })
+  );
+  ring.rotation.x = -Math.PI / 2; ring.position.y = .02;
+  container.add(ring);
+  pvScene.add(container);
+  pvAvatar = container;
+}
+
+function togglePreviewWalk(){
+  pvWalking = !pvWalking;
+  document.getElementById('btn-toggle-walk').textContent = pvWalking ? '⏸ หยุดเดิน' : '▶ ลองเดิน';
+  if (pvMixer && pvWalkAction && pvIdleAction) {
+    const next = pvWalking ? pvWalkAction : pvIdleAction;
+    const prev = pvWalking ? pvIdleAction : pvWalkAction;
+    next.enabled = true; next.reset().play();
+    prev.crossFadeTo(next, .2, false);
+  }
+}
+
+const pvClock = new THREE.Clock();
+(function pvLoop(){
+  requestAnimationFrame(pvLoop);
+  const dt = pvClock.getDelta();
+  if (pvMixer) pvMixer.update(dt);
+  pvControls.update();
+  pvRenderer.render(pvScene, pvCam);
+})();
+
+loadSavedConfig();
+</script>
+</body>
+</html>

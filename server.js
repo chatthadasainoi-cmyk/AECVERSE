@@ -296,6 +296,15 @@ function colorForUserId(userId) {
     return COLORS[h % COLORS.length];
 }
 
+// config ตัวละครจากหน้า Avatar (เก็บใน user_metadata ของบัญชี) — กรองค่าก่อนใช้เสมอ
+function sanitizeAvatarConfig(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    return {
+        model: raw.model === 'character' ? 'character' : 'engineer',
+        color: (typeof raw.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(raw.color)) ? raw.color : null
+    };
+}
+
 io.on('connection', socket => {
     const user = socket.data.user;
     const isPlayer = socket.data.role === 'player';
@@ -323,12 +332,15 @@ io.on('connection', socket => {
             user.user_metadata?.display_name || (user.email || '').split('@')[0] || 'User'
         ).slice(0, 20).replace(/[<>]/g, '');
         const userIsAdmin = isAdminUser(user);
+        const avatarCfg = sanitizeAvatarConfig(user.user_metadata?.avatar);
 
         const player = {
             id: socket.id,
             userId: user.id,
             name: displayName,
-            color: colorForUserId(user.id),
+            avatar: avatarCfg,
+            // สีที่เลือกเองในหน้า Avatar ชนะสีสุ่มประจำบัญชี
+            color: (avatarCfg && avatarCfg.color) || colorForUserId(user.id),
             position: { x: (Math.random() - 0.5) * 6, y: 0.9, z: 8 + (Math.random() - 0.5) * 4 },
             rotation: { y: 0 }
         };

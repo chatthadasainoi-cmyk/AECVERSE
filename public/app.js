@@ -325,11 +325,103 @@ let avatarModel = null;
 const jumpConfig = { velocity: 0, gravity: -0.012, jumpForce: 0.24, isJumping: false, groundY: 0.9 };
 const defaultCameraOffset = new THREE.Vector3(0, 2.5, 5);
 
+// ============================================================
+// 3.5 ตัวละคร FBX (Mixamo) — โหลดครั้งเดียวแล้ว clone ให้ผู้เล่นทุกคน
+// character.glb (3MB) + walk_anim.glb (46KB, ตรึงสะโพกให้เดินอยู่กับที่แล้ว)
+// เลือกร่างได้ที่หน้า Avatar — ค่าถูกเก็บใน user_metadata ของบัญชี
+// ============================================================
+let _charAssetsPromise = null;
+function loadCharacterAssets() {
+    if (_charAssetsPromise) return _charAssetsPromise;
+    _charAssetsPromise = new Promise((resolve, reject) => {
+        const gl = new THREE.GLTFLoader();
+        gl.load('avatars/character.glb', charGltf => {
+            gl.load('avatars/walk_anim.glb', animGltf => {
+                const walkClip = animGltf.animations[0];
+                // ท่ายืน: ค้างเฟรมแรกของคลิปเดิน (ไม่มีไฟล์ idle แยก — ดีกว่าหลุดเป็น T-pose)
+                const idleClip = THREE.AnimationUtils.subclip(walkClip, 'avatar_idle', 0, 1, 30);
+                charGltf.scene.traverse(o => {
+                    if (o.isMesh || o.isSkinnedMesh) { o.castShadow = false; o.frustumCulled = false; }
+                });
+                resolve({ scene: charGltf.scene, walkClip, idleClip });
+            }, undefined, reject);
+        }, undefined, reject);
+    });
+    return _charAssetsPromise;
+}
+
+// สร้าง/เปลี่ยน "ร่าง" ภายใน container ของผู้เล่น (ตำแหน่ง/ฟิสิกส์อยู่ที่ container เสมอ)
+async function setAvatarVisual(container, config, color) {
+    const ud = container.userData;
+    if (ud.visual) container.remove(ud.visual);
+    if (ud.ring) container.remove(ud.ring);
+    ud.mixer = null; ud.walkAction = null; ud.idleAction = null; ud.currentAction = null; ud.isMovingState = false;
+
+    const model = (config && config.model) === 'character' ? 'character' : 'engineer';
+    let visual = null;
+    if (model === 'character' && THREE.SkeletonUtils) {
+        try {
+            const assets = await loadCharacterAssets();
+            visual = THREE.SkeletonUtils.clone(assets.scene);
+            visual.rotation.y = Math.PI;     // Mixamo หันหน้า +Z แต่ระบบเราใช้ -Z เป็นด้านหน้า
+            visual.position.y = 0.28;        // ยกเท้าให้เท่าระดับเท้าของร่าง engineer เดิม
+            const mixer = new THREE.AnimationMixer(visual);
+            ud.mixer = mixer;
+            ud.walkAction = mixer.clipAction(assets.walkClip);
+            ud.idleAction = mixer.clipAction(assets.idleClip);
+            ud.idleAction.play();
+            ud.currentAction = ud.idleAction;
+        } catch (err) {
+            console.warn('โหลดตัวละครไม่สำเร็จ — ใช้ร่าง engineer แทน:', err);
+            visual = null;
+        }
+    }
+    if (!visual) visual = createEngineerAvatar(color);
+    ud.visual = visual;
+    container.add(visual);
+
+    // วงแหวนสีประจำตัวใต้เท้า — เห็นชัดทันทีว่าใครเป็นใคร (สีเดียวกับป้ายชื่อ/แชท)
+    const ring = new THREE.Mesh(
+        new THREE.RingGeometry(0.34, 0.44, 32),
+        new THREE.MeshBasicMaterial({ color: new THREE.Color(color || '#3b82f6'), transparent: true, opacity: 0.55, side: THREE.DoubleSide })
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.285;
+    container.add(ring);
+    ud.ring = ring;
+}
+
+// อัปเดตท่าทางต่อเฟรม: ร่าง FBX ใช้ mixer (เดิน/ยืน crossfade), ร่าง engineer ใช้แขนขาแกว่งแบบเดิม
+let frameDt = 0;
+const animClock = new THREE.Clock();
+function updateAvatarMotion(container, isMoving) {
+    const ud = container.userData;
+    if (ud.mixer) {
+        if (isMoving !== ud.isMovingState) {
+            ud.isMovingState = isMoving;
+            const next = isMoving ? ud.walkAction : ud.idleAction;
+            const prev = ud.currentAction;
+            if (next && prev !== next) {
+                next.enabled = true;
+                next.reset().play();
+                if (prev) prev.crossFadeTo(next, 0.22, false);
+                ud.currentAction = next;
+            }
+        }
+        ud.mixer.update(frameDt);
+    } else if (ud.visual) {
+        animateEngineerWalk(ud.visual, isMoving);
+    } else {
+        animateEngineerWalk(container, isMoving); // เผื่อ container เก่าที่ยังเป็นร่างตรงๆ
+    }
+}
+
 function createProceduralAvatar() {
-    const avatarGroup = createEngineerAvatar('#ff9900');
-    avatarGroup.position.set(0, jumpConfig.groundY, 8);
-    scene.add(avatarGroup);
-    avatarModel = avatarGroup;
+    const container = new THREE.Group();
+    container.position.set(0, jumpConfig.groundY, 8);
+    scene.add(container);
+    avatarModel = container;
+    setAvatarVisual(container, { model: 'engineer' }, '#ff9900'); // ร่างชั่วคราวก่อน self_init บอก config จริง
 }
 if (!VIEWER_MODE) createProceduralAvatar();
 
@@ -1176,7 +1268,7 @@ window.toggleModelLock = function () {
 const remoteAvatars = {}, remoteTargets = {}, mpPlayerNames = {}, mpPlayerColors = {};
 let mpMyId = null, mpMyColor = '#00ffff', mpSocket = null, _lastMoveEmit = 0;
 
-function buildRemoteAvatar(color) { return createEngineerAvatar(color || '#4d96ff'); }
+// ร่างของผู้เล่นคนอื่นสร้างจาก config avatar ของบัญชีเขา (ส่งมากับ player data)
 function setAvatarLabel(g, name, color) {
     if (g._label) { g.remove(g._label); g._label.material.map.dispose(); }
     const c = document.createElement('canvas'); c.width = 256; c.height = 64;
@@ -1191,10 +1283,11 @@ function setAvatarLabel(g, name, color) {
 }
 function addRemote(data) {
     if (remoteAvatars[data.id]) return;
-    const av = buildRemoteAvatar(data.color || '#4d96ff');
-    av.position.set(data.position.x, data.position.y, data.position.z);
-    scene.add(av); remoteAvatars[data.id] = av;
-    setAvatarLabel(av, data.name || data.id, data.color || '#fff');
+    const container = new THREE.Group();
+    container.position.set(data.position.x, data.position.y, data.position.z);
+    scene.add(container); remoteAvatars[data.id] = container;
+    setAvatarVisual(container, data.avatar, data.color || '#4d96ff');
+    setAvatarLabel(container, data.name || data.id, data.color || '#fff');
     mpPlayerNames[data.id] = data.name; mpPlayerColors[data.id] = data.color;
     updateMpUI();
 }
@@ -1209,7 +1302,7 @@ function updateRemoteAvatars() {
         if (!t) continue;
         av.position.lerp(t.pos, 0.18);
         av.rotation.y += (t.rotY - av.rotation.y) * 0.18;
-        animateEngineerWalk(av, t.pos.distanceTo(av.position) > 0.01);
+        updateAvatarMotion(av, t.pos.distanceTo(av.position) > 0.01);
     }
 }
 function emitOwnPosition() {
@@ -1320,6 +1413,7 @@ async function initMultiplayer() {
             if (avatarModel) {
                 avatarModel.position.set(data.self.position.x, data.self.position.y, data.self.position.z);
                 setAvatarLabel(avatarModel, data.self.name, data.self.color); // ป้ายชื่อตามบัญชีเหนือหัวตัวเอง
+                setAvatarVisual(avatarModel, data.self.avatar, data.self.color); // ร่างจริงตามที่ตั้งไว้ในหน้า Avatar
             }
             if (!VIEWER_MODE) data.others.forEach(p => addRemote(p));
             mpAppendChat({ name: 'ระบบ', color: '#22c55e', text: `เข้าสู่โลกในชื่อ "${data.self.name}" (ตามบัญชีของคุณ)` });
@@ -1959,7 +2053,7 @@ function updateAvatarPhysics() {
     moveVector.applyQuaternion(avatarModel.quaternion);
 
     const isMoving = moveVector.lengthSq() > 0;
-    animateEngineerWalk(avatarModel, isMoving);
+    updateAvatarMotion(avatarModel, isMoving);
 
     if (isMoving) {
         const nextX = avatarModel.position.x + moveVector.x;
@@ -1977,6 +2071,7 @@ function updateAvatarPhysics() {
 
 function animate() {
     requestAnimationFrame(animate);
+    frameDt = animClock.getDelta(); // เวลาต่อเฟรมสำหรับ AnimationMixer ของตัวละคร
     safeCall(updateAvatarPhysics, 'updateAvatarPhysics');
     safeCall(updateRemoteAvatars, 'updateRemoteAvatars');
     safeCall(updateProximityTags, 'updateProximityTags');
