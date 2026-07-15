@@ -308,9 +308,9 @@ tbody td.strong{color:var(--text-0);font-weight:600;}
       </nav>
       <div class="sb-weather">
         <div class="temp">30°C</div>
-        <div class="time">17:37:42</div>
-        <div class="date">20 May 2025</div>
-        <div class="date">Bangkok, Thailand</div>
+        <div class="time">--:--:--</div>
+        <div class="date">—</div>
+        <div class="date">Thailand</div>
         <div class="date">Asia/Bangkok (UTC+7)</div>
       </div>
     </aside>
@@ -350,6 +350,7 @@ tbody td.strong{color:var(--text-0);font-weight:600;}
           <select class="select"><option>Isometric</option><option>Top-down</option><option>Front</option></select>
         </div>
         <iframe src="index.html?mode=viewer" title="Digital Twin Map View" loading="lazy"
+          allow="fullscreen" allowfullscreen
           style="width:100%;height:78vh;min-height:560px;border:0;border-radius:10px;background:#080b11;display:block;"></iframe>
         <div style="color:var(--text-2);font-size:10.5px;margin-top:6px;">
           ⓘ ลากเมาส์เพื่อหมุนกล้อง เลื่อนเมาส์เพื่อซูม คลิกที่ชิ้นส่วนในโมเดลหรือในรายการทางขวาเพื่อดูข้อมูลการทำงาน — ไม่มี avatar ในมุมมองนี้
@@ -384,10 +385,10 @@ tbody td.strong{color:var(--text-0);font-weight:600;}
           </div>
         </div>
         <div class="card" style="text-align:center;">
-          <div style="color:var(--text-2);font-size:11px;">Bangkok, Thailand</div>
-          <div style="font-size:26px;font-weight:800;margin:4px 0;">30°C</div>
-          <div style="font-size:18px;font-weight:700;color:var(--text-1);">17:37:42</div>
-          <div style="color:var(--text-2);font-size:11px;">20 May 2025 · Asia/Bangkok (UTC+7)</div>
+          <div style="color:var(--text-2);font-size:11px;">Thailand</div>
+          <div class="live-temp" style="font-size:26px;font-weight:800;margin:4px 0;">—°C</div>
+          <div class="live-time" style="font-size:18px;font-weight:700;color:var(--text-1);">--:--:--</div>
+          <div style="color:var(--text-2);font-size:11px;"><span class="live-date">—</span> · Asia/Bangkok (UTC+7)</div>
         </div>
       </div>
 

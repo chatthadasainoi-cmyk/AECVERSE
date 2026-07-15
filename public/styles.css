@@ -83,6 +83,29 @@ button{font-family:inherit;}
 }
 #canvas-container canvas { display: block; }
 
+/* ---------- ปุ่มเก็บ/ดึงแผงข้าง — แถบแคบๆ แนบขอบซ้าย/ขวาของจอ 3D ---------- */
+.col-toggle {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 18px;
+    height: 64px;
+    background: rgba(14, 19, 28, 0.75);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid var(--border);
+    color: var(--text-2);
+    font-size: 12px;
+    cursor: pointer;
+    z-index: 35;
+    display: flex; align-items: center; justify-content: center;
+    padding: 0;
+    transition: .15s;
+}
+.col-toggle:hover { color: var(--text-0); background: rgba(28, 37, 49, 0.9); }
+.col-toggle-left { left: 0; border-left: none; border-radius: 0 8px 8px 0; }
+.col-toggle-right { right: 0; border-right: none; border-radius: 8px 0 0 8px; }
+
 /* ---------- empty state ตอนยังไม่มีโมเดลในฉาก ---------- */
 #canvas-empty-hint {
     position: absolute;
