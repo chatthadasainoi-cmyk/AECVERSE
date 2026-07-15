@@ -1479,11 +1479,32 @@ function applyChatVoicePrefs() {
 // หน้า Settings แก้ค่าใน localStorage -> แท็บนี้รับ event แล้วปรับตามทันที ไม่ต้องรีเฟรช
 window.addEventListener('storage', e => { if (e.key && e.key.startsWith('aec_')) applyChatVoicePrefs(); });
 
+// ---------- autoplay unlock: เบราว์เซอร์บล็อกการเล่นเสียงจนกว่าผู้ใช้จะแตะหน้าจอ ----------
+// ฝั่ง "ผู้ฟัง" ที่ยังไม่เคยคลิก/กดคีย์ในหน้านี้จะเล่นเสียงเพื่อนไม่ได้ — เก็บ audio ที่
+// ถูกบล็อกไว้ แล้วปลดล็อกทั้งหมดทันทีที่มี gesture แรก
+const blockedAudioEls = new Set();
+let audioUnlockArmed = false;
+function tryPlayRemoteAudio(el) {
+    el.play().then(() => blockedAudioEls.delete(el)).catch(() => {
+        blockedAudioEls.add(el);
+        if (!audioUnlockArmed) {
+            audioUnlockArmed = true;
+            mpAppendChat({ name: '🔊 ระบบ', color: '#f59e0b', text: 'มีเสียงพูดเข้ามา — คลิกที่หน้าจอหนึ่งครั้งเพื่อเปิดเสียง' });
+            const unlock = () => {
+                blockedAudioEls.forEach(a => a.play().catch(() => {}));
+                blockedAudioEls.clear();
+            };
+            window.addEventListener('pointerdown', unlock, { once: true });
+            window.addEventListener('keydown', unlock, { once: true });
+        }
+    });
+}
+
 function getVoicePeer(peerId) {
     if (voicePeers[peerId]) return voicePeers[peerId];
     const pc = new RTCPeerConnection(VOICE_RTC_CONFIG);
     // กติกา "perfect negotiation": ฝ่าย polite ยอมถอยเมื่อ offer ชนกันกลางอากาศ
-    const entry = { pc, polite: String(mpMyId) > String(peerId), makingOffer: false, audioEl: null };
+    const entry = { pc, polite: String(mpMyId) > String(peerId), makingOffer: false, audioEl: null, pendingCandidates: [] };
     voicePeers[peerId] = entry;
 
     pc.onnegotiationneeded = async () => {
@@ -1495,6 +1516,14 @@ function getVoicePeer(peerId) {
         finally { entry.makingOffer = false; }
     };
     pc.onicecandidate = e => { if (e.candidate) mpSocket.emit('voice_signal', { to: peerId, data: { candidate: e.candidate } }); };
+    pc.oniceconnectionstatechange = () => {
+        console.log(`[VOICE] ${peerId} ice:`, pc.iceConnectionState);
+        if (pc.iceConnectionState === 'failed') {
+            // เครือข่ายบางคู่ (NAT เข้มทั้งสองฝั่ง) ต่อ P2P ไม่ได้เพราะมีแค่ STUN — แจ้งให้รู้ตรงๆ
+            mpAppendChat({ name: '🎙️ ระบบ', color: '#ef4444', text: `เชื่อมต่อเสียงกับ ${mpPlayerNames[peerId] || 'ผู้เล่น'} ไม่สำเร็จ (เครือข่ายปิดกั้นการเชื่อมต่อตรง)` });
+            try { pc.restartIce(); } catch (err) { /* เบราว์เซอร์เก่าไม่มี restartIce */ }
+        }
+    };
     pc.ontrack = e => {
         if (!entry.audioEl) {
             entry.audioEl = document.createElement('audio');
@@ -1504,6 +1533,7 @@ function getVoicePeer(peerId) {
         }
         entry.audioEl.srcObject = e.streams[0];
         entry.audioEl.volume = voicePrefs.volume;
+        tryPlayRemoteAudio(entry.audioEl); // autoplay อาจถูกบล็อก — จัดการ unlock ให้
     };
     if (micStream) micStream.getTracks().forEach(t => pc.addTrack(t, micStream));
     return entry;
@@ -1520,7 +1550,7 @@ function closeVoicePeer(peerId) {
     const p = voicePeers[peerId];
     if (!p) return;
     try { p.pc.close(); } catch (err) { /* ปิดซ้ำได้ ไม่เป็นไร */ }
-    if (p.audioEl) p.audioEl.remove();
+    if (p.audioEl) { blockedAudioEls.delete(p.audioEl); p.audioEl.remove(); }
     delete voicePeers[peerId];
     delete remoteMicOn[peerId];
     updateVoiceIndicator();
@@ -1536,12 +1566,18 @@ async function handleVoiceSignal(payload) {
             const collision = data.description.type === 'offer' && (entry.makingOffer || pc.signalingState !== 'stable');
             if (collision && !entry.polite) return; // ฝ่ายไม่ polite ทิ้ง offer ที่ชนกัน แล้วรอรอบใหม่
             await pc.setRemoteDescription(data.description);
+            // ICE candidates ที่มาถึง "ก่อน" remote description ถูกพักไว้ — เติมเข้าตอนนี้
+            // (เดิมโยนทิ้งเงียบๆ ทำให้บางคู่เชื่อมเสียงไม่ติดเลย)
+            while (entry.pendingCandidates.length) {
+                await pc.addIceCandidate(entry.pendingCandidates.shift()).catch(() => {});
+            }
             if (data.description.type === 'offer') {
                 await pc.setLocalDescription();
                 mpSocket.emit('voice_signal', { to: payload.from, data: { description: pc.localDescription } });
             }
         } else if (data.candidate) {
-            await pc.addIceCandidate(data.candidate).catch(() => {});
+            if (pc.remoteDescription) await pc.addIceCandidate(data.candidate).catch(() => {});
+            else entry.pendingCandidates.push(data.candidate);
         }
     } catch (err) { console.error('[VOICE] signal:', err); }
 }
@@ -1622,23 +1658,54 @@ function updatePlantStrip(data) {
             prevPlantVals[prevKey] = val;
         }
     };
-    setVal('strip-ch4', data.plant.ch4Percent, '%', 'ch4');
+    setVal('strip-ch4', data.plant.ch4Percent, ' %', 'ch4');
     setVal('strip-flow', data.plant.flowRate, ' m³/h', 'flow');
-    setVal('strip-eff', data.plant.efficiency, '%', 'eff');
+    setVal('strip-eff', data.plant.efficiency, ' %', 'eff');
+
+    // Selected Equipment: TANK-01 (ค่าจริงจาก feed เดียวกับหน้า Metaverse เดิม)
+    if (data.tank1) {
+        const t = data.tank1;
+        const set = (id, txt) => { const el = $(id); if (el) el.innerText = txt; };
+        set('dock-tank-pressure', t.pressure + ' bar');
+        set('dock-tank-temp', t.temperature + ' °C');
+        set('dock-tank-ph', String(t.ph));
+        set('dock-tank-level', t.level.toLocaleString() + ' m³');
+    }
 
     if (Array.isArray(data.alerts)) {
-        const critical = data.alerts.filter(a => a.level === 'critical').length;
-        const warning = data.alerts.filter(a => a.level === 'warning').length;
+        const critical = data.alerts.some(a => a.level === 'critical');
+        const warning = data.alerts.some(a => a.level === 'warning');
         const level = critical ? 'crit' : warning ? 'warn' : 'ok';
-        const alertEl = $('strip-alert');
-        if (alertEl) {
-            alertEl.innerText = (critical + warning) > 0 ? data.alerts[0].tag : 'All Systems Normal';
-            alertEl.className = 'strip-alert-text ' + level;
+
+        // สถานะ TANK-01 (ใช้เกณฑ์เดียวกับหน้า Metaverse เดิม)
+        const tankBadge = $('dock-tank-badge');
+        if (tankBadge) {
+            tankBadge.innerText = critical ? 'Critical' : warning ? 'Warning' : 'Normal';
+            tankBadge.className = 'dock-badge ' + level;
         }
-        const cnt = $('strip-alert-count');
+
+        const activeCount = data.alerts.filter(a => a.level !== 'normal').length;
+        const cnt = $('dock-alert-count');
         if (cnt) {
-            cnt.innerText = (critical + warning) > 0 ? (critical + warning) : '✓';
-            cnt.className = 'strip-alert-badge ' + level;
+            cnt.innerText = activeCount > 0 ? activeCount : '✓';
+            cnt.className = 'dock-badge ' + level;
+        }
+        const list = $('dock-alerts-list');
+        if (list) {
+            list.innerHTML = '';
+            data.alerts.forEach(a => {
+                const cls = a.level === 'critical' ? 'crit' : a.level === 'warning' ? 'warn' : 'ok';
+                const label = a.level === 'critical' ? 'Critical' : a.level === 'warning' ? 'Warning' : 'Normal';
+                const row = document.createElement('div');
+                row.className = 'dock-alert-row ' + cls;
+                const tag = document.createElement('span');
+                tag.innerText = '⚠ ' + a.tag;
+                const lv = document.createElement('span');
+                lv.className = 'dock-badge ' + cls;
+                lv.innerText = label;
+                row.appendChild(tag); row.appendChild(lv);
+                list.appendChild(row);
+            });
         }
     }
 }
@@ -1710,7 +1777,9 @@ function applyPartMetadata(metadata) {
 }
 
 async function broadcastLoadedSceneToRoom(rawBuffer, fileName, metadata) {
-    if (!mpSocket || !mpSocket.connected || !isAdmin) return;
+    // แชร์ให้ทุกคนในห้องเสมอ (เดิมจำกัดเฉพาะ admin — ขัดกับการอัปโหลดโมเดลตรง
+    // ที่เปิดให้ทุกคนอยู่แล้ว ทำให้คนอื่นมองไม่เห็นฉากที่โหลดจากไฟล์เซฟ)
+    if (!mpSocket || !mpSocket.connected) return;
     try {
         const statusEl = $('scene-save-status');
         statusEl.innerText = '⏳ กำลังอัปโหลดโมเดลขึ้น Cloud เพื่อแชร์ให้ผู้เล่นอื่น...';

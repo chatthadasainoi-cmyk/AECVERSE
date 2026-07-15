@@ -265,26 +265,35 @@
         </div>
     </div>
 
-    <!-- แถบข้อมูลโรงงานเรียลไทม์ — feed เดียวกับหน้า Metaverse/Analytics -->
-    <div id="plant-strip">
-        <div class="strip-item">
-            <span class="strip-label">CH4</span>
-            <span id="strip-ch4" class="strip-value">— %</span>
-            <span id="strip-ch4-delta" class="strip-delta"></span>
+    <!-- LIVE DATA DOCK — ข้อมูลโรงงานเรียลไทม์ทั้งชุด (KPI + Selected Equipment + Alerts)
+         ย้ายมาจากส่วนล่างของหน้า Metaverse เดิม — feed 'plant_update' เดียวกันทุกหน้า -->
+    <div id="plant-dock">
+        <div class="dock-kpi">
+            <div class="dock-label">CH4 Production</div>
+            <div class="dock-value"><span id="strip-ch4">—</span><span id="strip-ch4-delta" class="strip-delta"></span></div>
         </div>
-        <div class="strip-item">
-            <span class="strip-label">Flow</span>
-            <span id="strip-flow" class="strip-value">— m³/h</span>
-            <span id="strip-flow-delta" class="strip-delta"></span>
+        <div class="dock-kpi">
+            <div class="dock-label">Biogas Flow Rate</div>
+            <div class="dock-value"><span id="strip-flow">—</span><span id="strip-flow-delta" class="strip-delta"></span></div>
         </div>
-        <div class="strip-item">
-            <span class="strip-label">Efficiency</span>
-            <span id="strip-eff" class="strip-value">— %</span>
-            <span id="strip-eff-delta" class="strip-delta"></span>
+        <div class="dock-kpi">
+            <div class="dock-label">Overall Efficiency</div>
+            <div class="dock-value"><span id="strip-eff">—</span><span id="strip-eff-delta" class="strip-delta"></span></div>
         </div>
-        <div class="strip-item strip-item-alert">
-            <span id="strip-alert-count" class="strip-alert-badge ok">✓</span>
-            <span id="strip-alert" class="strip-alert-text ok">กำลังเชื่อมต่อข้อมูล...</span>
+        <div class="dock-kpi dock-tank">
+            <div class="dock-label">Selected Equipment: TANK-01 (ถังหมักที่ 1) <span id="dock-tank-badge" class="dock-badge ok">Normal</span></div>
+            <div class="dock-tank-grid">
+                <div><span class="dock-mini-label">Pressure</span><span id="dock-tank-pressure" class="dock-mini-val">—</span></div>
+                <div><span class="dock-mini-label">Temp</span><span id="dock-tank-temp" class="dock-mini-val">—</span></div>
+                <div><span class="dock-mini-label">pH</span><span id="dock-tank-ph" class="dock-mini-val">—</span></div>
+                <div><span class="dock-mini-label">Level</span><span id="dock-tank-level" class="dock-mini-val">—</span></div>
+            </div>
+        </div>
+        <div class="dock-kpi dock-alerts">
+            <div class="dock-label">Active Alerts <span id="dock-alert-count" class="dock-badge ok">0</span></div>
+            <div id="dock-alerts-list" class="dock-alerts-list">
+                <div class="dock-alert-row"><span style="color:var(--text-2);">กำลังเชื่อมต่อข้อมูล...</span></div>
+            </div>
         </div>
     </div>
 

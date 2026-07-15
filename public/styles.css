@@ -141,7 +141,7 @@ h3, h4 { margin: 0 0 10px 0; font-size: 13px; font-weight: 700; color: var(--tex
 }
 .floating-safety-panel {
     position: fixed;
-    bottom: 112px; /* เว้นเหนือแถบ plant-strip + keybind-hud ด้านล่างพอดี */
+    bottom: 158px; /* เว้นเหนือแถบ plant-dock + keybind-hud ด้านล่างพอดี */
     left: 304px;  /* = side-col 288px + gutter 16px */
     right: 304px;
     width: auto;
@@ -162,41 +162,72 @@ h3, h4 { margin: 0 0 10px 0; font-size: 13px; font-weight: 700; color: var(--tex
     .floating-safety-panel { left: 16px; right: 16px; bottom: 16px; max-height: 40vh; }
 }
 
-/* ---------- LIVE PLANT DATA STRIP — ตัวเลขโรงงานเรียลไทม์ใต้จอ 3D ---------- */
-#plant-strip {
+/* ---------- LIVE DATA DOCK — ข้อมูลโรงงานเต็มชุดใต้จอ 3D ----------
+   KPI สามตัว + Selected Equipment (TANK-01) + Active Alerts
+   ย้ายมาจากส่วนล่างของหน้า Metaverse เดิม ให้อยู่ในจอเดียวกับโลก 3D */
+#plant-dock {
     flex-shrink: 0;
-    display: flex; gap: 8px; align-items: stretch;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1.7fr 1.9fr;
+    gap: 8px;
     background: var(--bg-1);
     border-top: 1px solid var(--border);
     padding: 8px 14px;
-    overflow-x: auto;
 }
-.strip-item {
-    display: flex; align-items: center; gap: 8px;
+.dock-kpi {
     background: var(--panel);
     border: 1px solid var(--border);
     border-radius: 8px;
-    padding: 6px 12px;
-    white-space: nowrap;
+    padding: 8px 12px;
+    min-width: 0;
+    display: flex; flex-direction: column; gap: 4px; justify-content: center;
 }
-.strip-label { font-size: 10px; color: var(--text-2); font-weight: 700; text-transform: uppercase; letter-spacing: .5px; }
-.strip-value { font-size: 14px; font-weight: 800; color: var(--text-0); font-family: "Sora", "Inter", sans-serif; }
-.strip-delta { font-size: 10.5px; font-weight: 700; }
+.dock-label {
+    font-size: 9.5px; color: var(--text-2); font-weight: 700;
+    text-transform: uppercase; letter-spacing: .4px;
+    display: flex; align-items: center; gap: 6px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.dock-value {
+    font-size: 17px; font-weight: 800; color: var(--text-0);
+    font-family: "Sora", "Inter", sans-serif;
+    display: flex; align-items: baseline; gap: 7px; white-space: nowrap;
+}
+.strip-delta { font-size: 10.5px; font-weight: 700; font-family: "Inter", sans-serif; }
 .strip-delta.up { color: var(--green); }
 .strip-delta.down { color: var(--red); }
-.strip-item-alert { flex: 1; min-width: 120px; justify-content: flex-start; overflow: hidden; }
-.strip-alert-badge {
-    min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 10.5px; font-weight: 800; flex-shrink: 0;
+
+.dock-tank-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.dock-tank-grid > div { display: flex; flex-direction: column; min-width: 0; }
+.dock-mini-label { font-size: 9px; color: var(--text-2); font-weight: 600; }
+.dock-mini-val { font-size: 12.5px; font-weight: 700; color: var(--text-0); white-space: nowrap; }
+
+.dock-badge {
+    font-size: 9px; font-weight: 800; padding: 1px 7px; border-radius: 9px;
+    flex-shrink: 0; letter-spacing: .3px;
 }
-.strip-alert-badge.ok { background: var(--green-soft); color: var(--green); }
-.strip-alert-badge.warn { background: var(--yellow-soft); color: var(--yellow); }
-.strip-alert-badge.crit { background: var(--red-soft); color: var(--red); }
-.strip-alert-text { font-size: 11.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
-.strip-alert-text.ok { color: var(--text-1); }
-.strip-alert-text.warn { color: var(--yellow); }
-.strip-alert-text.crit { color: var(--red); }
+.dock-badge.ok { background: var(--green-soft); color: var(--green); }
+.dock-badge.warn { background: var(--yellow-soft); color: var(--yellow); }
+.dock-badge.crit { background: var(--red-soft); color: var(--red); }
+
+.dock-alerts-list { overflow-y: auto; max-height: 44px; display: flex; flex-direction: column; gap: 3px; }
+.dock-alert-row {
+    display: flex; justify-content: space-between; align-items: center; gap: 8px;
+    font-size: 10.5px; padding: 2px 7px; border-radius: 5px;
+    white-space: nowrap; overflow: hidden;
+}
+.dock-alert-row span:first-child { overflow: hidden; text-overflow: ellipsis; color: var(--text-1); font-weight: 600; }
+.dock-alert-row.warn { background: var(--yellow-soft); }
+.dock-alert-row.warn span:first-child { color: var(--yellow); }
+.dock-alert-row.crit { background: var(--red-soft); }
+.dock-alert-row.crit span:first-child { color: var(--red); }
+.dock-alert-row.ok { background: var(--green-soft); }
+.dock-alert-row.ok span:first-child { color: var(--green); }
+
+@media (max-width: 1500px) {
+    #plant-dock { grid-template-columns: 1fr 1fr 1fr; }
+    .dock-tank { grid-column: span 2; }
+}
 
 /* ---------- CHAT OVERLAY — แชทลอยมุมซ้ายล่างของจอ 3D ---------- */
 #chat-overlay {
@@ -532,7 +563,7 @@ h3, h4 { margin: 0 0 10px 0; font-size: 13px; font-weight: 700; color: var(--tex
     #keybind-hud {
         display: none !important;
     }
-    #plant-strip {
+    #plant-dock {
         display: none !important; /* จอเล็กแนวนอน: คืนพื้นที่ให้ฉาก 3D */
     }
     #chat-overlay {

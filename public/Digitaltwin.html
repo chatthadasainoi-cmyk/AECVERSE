@@ -8,9 +8,6 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="supabaseClient.js"></script>
-<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-<script>window.RAILWAY_SERVER_URL = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
-    ? '' : "https://aecmultiplayertest-production.up.railway.app";</script>
 <style>
 /* ==================== AEC VERSE — shared design system ==================== */
 :root{
@@ -373,31 +370,7 @@ tbody td.strong{color:var(--text-0);font-weight:600;}
         </div>
       </div>
 
-      <!-- LIVE PLANT DATA — feed เดียวกับหน้า Metaverse/Analytics (plant_update) -->
-      <div class="grid g4" style="margin-bottom:14px;">
-        <div class="kpi">
-          <div class="k-label">CH4 Production</div>
-          <div class="k-value" id="kpi-ch4">— %</div>
-          <div class="k-delta" id="kpi-ch4-delta">— live</div>
-        </div>
-        <div class="kpi">
-          <div class="k-label">Biogas Flow Rate</div>
-          <div class="k-value" id="kpi-flow">— m³/h</div>
-          <div class="k-delta" id="kpi-flow-delta">— live</div>
-        </div>
-        <div class="kpi">
-          <div class="k-label">Overall Efficiency</div>
-          <div class="k-value" id="kpi-eff">— %</div>
-          <div class="k-delta" id="kpi-eff-delta">— live</div>
-        </div>
-        <div class="card">
-          <div class="card-head" style="margin-bottom:8px;"><h3 style="font-size:12px;">Active Alerts</h3></div>
-          <div id="alerts-list" style="display:flex;flex-direction:column;gap:7px;">
-            <div style="color:var(--text-2);font-size:11px;">กำลังเชื่อมต่อข้อมูล...</div>
-          </div>
-        </div>
-      </div>
-
+      <!-- ข้อมูล KPI/TANK-01/Alerts แสดงเรียลไทม์ในแถบล่างของ viewer (iframe) แล้ว -->
       <div class="grid g2">
         <div class="card">
           <div class="card-head"><h3>Legend</h3></div>
@@ -423,44 +396,6 @@ tbody td.strong{color:var(--text-0);font-weight:600;}
   </div>
 
   <script>
-  // ---------- live plant data (watcher — ไม่เป็นตัวละครในโลก 3D) ----------
-  (function(){
-    if (typeof io === 'undefined') return;
-    const SERVER = window.RAILWAY_SERVER_URL || window.location.origin;
-    const socket = io(SERVER, { transports: ['websocket', 'polling'] });
-    let prevCh4 = null, prevFlow = null, prevEff = null;
-
-    function deltaEl(el, current, prev, unit){
-      if (prev === null) { el.textContent = '— live'; el.className = 'k-delta'; return; }
-      const diff = current - prev;
-      const up = diff >= 0;
-      el.className = 'k-delta ' + (up ? 'up' : 'down');
-      el.textContent = (up ? '▲ ' : '▼ ') + Math.abs(diff).toFixed(1) + unit + ' since last update';
-    }
-
-    socket.on('plant_update', data => {
-      document.getElementById('kpi-ch4').textContent = data.plant.ch4Percent + ' %';
-      deltaEl(document.getElementById('kpi-ch4-delta'), data.plant.ch4Percent, prevCh4, '%');
-      prevCh4 = data.plant.ch4Percent;
-
-      document.getElementById('kpi-flow').textContent = data.plant.flowRate + ' m³/h';
-      deltaEl(document.getElementById('kpi-flow-delta'), data.plant.flowRate, prevFlow, ' m³/h');
-      prevFlow = data.plant.flowRate;
-
-      document.getElementById('kpi-eff').textContent = data.plant.efficiency + ' %';
-      deltaEl(document.getElementById('kpi-eff-delta'), data.plant.efficiency, prevEff, '%');
-      prevEff = data.plant.efficiency;
-
-      const list = document.getElementById('alerts-list');
-      list.innerHTML = data.alerts.map(a => {
-        const cls = a.level === 'critical' ? 'red' : a.level === 'warning' ? 'yellow' : 'green';
-        const label = a.level === 'critical' ? 'Critical' : a.level === 'warning' ? 'Warning' : 'Normal';
-        return '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;background:var(--' + cls + '-soft);border-radius:7px;">' +
-          '<span style="font-size:11px;">⚠ ' + a.tag + '</span><span class="badge b-' + cls + '">' + label + '</span></div>';
-      }).join('');
-    });
-  })();
-
   async function handleLogout(){
     await supabaseClient.auth.signOut();
     window.location.href = 'Login.html';
