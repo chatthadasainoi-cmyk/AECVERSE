@@ -99,6 +99,52 @@ let modelTransform = { posX: 0, posY: 0, posZ: 0, rotY: 0, scale: 1 };
 // เริ่มต้น "ล็อก" ไว้เสมอ กันแก้ไขพลาดตั้งแต่ผู้เล่นคนแรกเข้าห้อง — ต้องให้ admin ปลดล็อกเองเท่านั้น
 let modelLocked = true;
 
+// ============================================================
+// SCENE STATE PERSISTENCE — เก็บ state ของห้องลง Supabase Storage
+// เดิม state ทั้งหมดอยู่ใน memory -> Railway redeploy ทุกครั้ง (= ทุกการ merge PR)
+// โมเดล + ข้อมูลความปลอดภัยที่แก้ + type ที่กำหนด หายเกลี้ยง ผู้เล่นเลยเห็นไม่ตรงกัน
+// ตอนนี้: server โหลด state กลับมาตอนบูต และเซฟทุกครั้งที่มีการแก้ไข (debounce 1.5s)
+// ============================================================
+const SCENE_STATE_FILE = 'scene_state_v1.json';
+let persistTimer = null;
+
+function schedulePersistSceneState() {
+    clearTimeout(persistTimer);
+    persistTimer = setTimeout(persistSceneState, 1500); // กันยิงถี่ตอน admin ลาก slider
+}
+
+async function persistSceneState() {
+    try {
+        const body = JSON.stringify({
+            savedAt: new Date().toISOString(),
+            currentModelUrl, currentModelName,
+            workflowDb, typeAssignments, modelTransform, modelLocked
+        });
+        const res = await fetch(`${SUPABASE_URL}/storage/v1/object/models/${SCENE_STATE_FILE}`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'application/json', 'x-upsert': 'true' },
+            body
+        });
+        if (!res.ok) console.warn('[PERSIST] บันทึก state ไม่สำเร็จ:', (await res.text()).slice(0, 200));
+    } catch (err) { console.warn('[PERSIST] บันทึก state ไม่สำเร็จ:', err.message); }
+}
+
+async function loadSceneState() {
+    try {
+        const res = await fetch(`${SUPABASE_URL}/storage/v1/object/public/models/${SCENE_STATE_FILE}?t=${Date.now()}`);
+        if (!res.ok) { console.log('[PERSIST] ยังไม่มี state เก่า — เริ่มห้องว่าง'); return; }
+        const s = await res.json();
+        currentModelUrl = s.currentModelUrl || null;
+        currentModelName = s.currentModelName || null;
+        Object.assign(workflowDb, s.workflowDb || {});
+        Object.assign(typeAssignments, s.typeAssignments || {});
+        if (s.modelTransform) modelTransform = s.modelTransform;
+        modelLocked = s.modelLocked !== undefined ? !!s.modelLocked : true;
+        console.log(`[PERSIST] กู้คืน state สำเร็จ (model: ${currentModelName || '—'}, ข้อมูลชิ้นส่วน ${Object.keys(workflowDb).length} รายการ)`);
+    } catch (err) { console.warn('[PERSIST] โหลด state ไม่สำเร็จ:', err.message); }
+}
+loadSceneState();
+
 // ADMIN AUTH — ผูกกับบัญชี Supabase โดยตรง (ไม่มีรหัสผ่าน admin แยกอีกต่อไป)
 // ใครเป็น admin ดูจาก isAdminUser(): app_metadata.role === 'admin' (ตั้งผ่านหน้า
 // Settings → User Management) หรืออยู่ใน ADMIN_BOOTSTRAP_EMAILS
@@ -316,6 +362,7 @@ io.on('connection', socket => {
         modelTransform = { posX: 0, posY: 0, posZ: 0, rotY: 0, scale: 1 };
         modelLocked = true;
         io.emit('load_model', { url: data.url, fileName: data.fileName, modelTransform, modelLocked });
+        schedulePersistSceneState();
         console.log(`[MODEL] ${data.fileName}`);
     });
 
@@ -326,6 +373,7 @@ io.on('connection', socket => {
         modelTransform = { posX: 0, posY: 0, posZ: 0, rotY: 0, scale: 1 };
         modelLocked = true;
         io.emit('model_removed');
+        schedulePersistSceneState();
         console.log(`[MODEL] Removed by ${socket.id}`);
     });
 
@@ -334,6 +382,7 @@ io.on('connection', socket => {
         if (!admins.has(socket.id)) return; // เฉพาะ admin เท่านั้นที่ล็อก/ปลดล็อกได้
         modelLocked = !modelLocked;
         io.emit('lock_state', { locked: modelLocked, by: players[socket.id]?.name || 'Admin' });
+        schedulePersistSceneState();
         console.log(`[LOCK] ${modelLocked ? 'locked' : 'unlocked'} by ${socket.id}`);
     });
 
@@ -348,6 +397,7 @@ io.on('connection', socket => {
             scale: Number(data.scale) || 1
         };
         socket.broadcast.emit('model_transform_updated', modelTransform);
+        schedulePersistSceneState();
     });
 
     // ---------- workflow / safety data edit ----------
@@ -361,6 +411,7 @@ io.on('connection', socket => {
         };
         if (data.assignedTypeKey) typeAssignments[data.key] = data.assignedTypeKey;
         socket.broadcast.emit('workflow_updated', data);
+        schedulePersistSceneState();
         console.log(`[WORKFLOW] key:${data.key} name:${data.name}`);
     });
 
