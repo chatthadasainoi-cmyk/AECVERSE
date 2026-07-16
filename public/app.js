@@ -847,16 +847,6 @@ function applyHighlight(uuid) {
     });
 }
 
-// แจ้งหน้าที่ฝัง iframe นี้ไว้ (เช่น PublicVirtualTour.html) ว่าตอนนี้กำลังดูชิ้นส่วน
-// ประเภทไหนอยู่ — ให้หน้าแม่ไฮไลต์ "Area List" ของตัวเองให้ตรงกับของจริงในโลก 3D
-// ส่งเฉพาะตอนฝังใน iframe (parent !== window) และใช้ origin เดียวกันเสมอ (same-origin embed)
-function broadcastSelectionToParent(typeKey, name) {
-    if (window.parent === window) return;
-    try {
-        window.parent.postMessage({ source: 'aec-viewer', type: 'selection', typeKey: typeKey || null, name: name || null }, window.location.origin);
-    } catch (err) { /* ฝังข้าม origin (ไม่ควรเกิดในระบบนี้) — เงียบไว้ ไม่กระทบการทำงานหลัก */ }
-}
-
 function selectPart(mesh, method) {
     if (!mesh || !factoryModel) return;
     if (isEditingActive()) return; // ห้ามสลับชิ้นส่วนระหว่างแก้ไขข้อมูลค้างอยู่
@@ -873,7 +863,6 @@ function selectPart(mesh, method) {
     renderWorkflowUI(data.name || mesh.name, data.desc, data.steps, method, data.colorClass || 'tag-blue');
     cancelLiveEdit();
     $('process-panel').style.display = 'block';
-    broadcastSelectionToParent(resolveTypeKey(mesh, mesh.name), data.name || mesh.name);
 }
 
 function deselectPart() {
@@ -885,7 +874,6 @@ function deselectPart() {
             if (child.isMesh && originalMaterials.has(child.uuid)) child.material = originalMaterials.get(child.uuid).clone();
         });
     }
-    broadcastSelectionToParent(null, null);
 }
 
 // ชี้ (คลิกเมาส์ / แตะจอ) — แยกจาก drag กล้อง โดยเช็คระยะขยับของ pointer
