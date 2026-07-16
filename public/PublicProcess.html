@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<title>AEC VERSE — Process</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="public-portal.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="supabaseClient.js"></script>
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<script src="public-portal.js"></script>
+<style>
+.proc-card{display:flex;gap:14px;padding:16px 0;border-bottom:1px solid var(--border-soft);}
+.proc-card:last-child{border-bottom:none;}
+.proc-ic{width:44px;height:44px;border-radius:11px;background:var(--panel-2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;}
+.proc-title{font-weight:800;font-size:13px;margin-bottom:4px;}
+.proc-desc{color:var(--text-1);font-size:12px;line-height:1.65;}
+.proc-tag{display:inline-block;margin-top:6px;font-size:10px;font-weight:700;color:var(--text-2);background:var(--panel-2);padding:2px 8px;border-radius:20px;}
+</style>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="portal-sidebar"></aside>
+
+    <div class="page">
+    <div class="topbar" id="portal-topbar"></div>
+
+      <div class="page-content">
+
+      <div class="sec">
+        <div class="sec-head"><span class="sec-num">04</span><span class="sec-tag">PROCESS</span></div>
+        <div class="sec-title">Production Process</div>
+        <div class="sec-sub" style="margin-bottom:16px;">กระบวนการผลิตก๊าซชีวภาพจากของเสียสู่พลังงานสะอาด พร้อมมาตรฐานความปลอดภัยของแต่ละขั้นตอน</div>
+
+        <div class="card">
+          <div class="step-flow" style="margin-bottom:6px;">
+            <div class="step"><div class="ic">♻️</div><div class="t">Waste Receiving</div></div><div class="arrow">→</div>
+            <div class="step"><div class="ic">🧫</div><div class="t">Anaerobic Digestion</div></div><div class="arrow">→</div>
+            <div class="step"><div class="ic">💨</div><div class="t">Gas Cleaning</div></div><div class="arrow">→</div>
+            <div class="step"><div class="ic">⚡</div><div class="t">Power Generation</div></div><div class="arrow">→</div>
+            <div class="step"><div class="ic">🔌</div><div class="t">Electricity</div></div><div class="arrow">→</div>
+            <div class="step"><div class="ic">🌱</div><div class="t">By-Product</div></div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:16px;">
+          <div class="proc-card">
+            <div class="proc-ic">🟤</div>
+            <div>
+              <div class="proc-title">1. บ่อหมัก (Digester Tank / CSTR)</div>
+              <div class="proc-desc">ระบบถังหมักแบบ CSTR ปิดคลุมด้วยผ้าใบแรงดันสูง (HDPE Layer) ภายในเป็นพื้นที่ Ex-Zone 0 ที่มีก๊าซไวไฟสะสมตลอดเวลา ห้ามเกิดประกายไฟเด็ดขาด ต้องเว้นระยะร่นจากแนวเขตที่ดินไม่น้อยกว่า 30 เมตร</div>
+              <span class="proc-tag">Ex-Zone 0 · ระยะร่น ≥30 ม.</span>
+            </div>
+          </div>
+          <div class="proc-card">
+            <div class="proc-ic">🟠</div>
+            <div>
+              <div class="proc-title">2. ระบบท่อและ Flame Arrester</div>
+              <div class="proc-desc">แนวท่อส่งก๊าซมีเทนดิบต้องลาดเอียงไม่น้อยกว่า 2% เพื่อดักน้ำควบแน่น ก่อนเข้าหอเผาก๊าซต้องผ่าน Flame Arrester เพื่อป้องกันเปลวไฟย้อนกลับเข้าระบบ ร่วมกับชุดดักไฟย้อน Water Seal</div>
+              <span class="proc-tag">ถอดล้างไส้กรองทุก 3 เดือน</span>
+            </div>
+          </div>
+          <div class="proc-card">
+            <div class="proc-ic">🔴</div>
+            <div>
+              <div class="proc-title">3. อุปกรณ์นิรภัย (PVRV & Safety Fitments)</div>
+              <div class="proc-desc">วาล์วระบายแรงดัน/สุญญากาศ (PVRV) ห้ามมีวาล์วปิดกั้นคั่นระหว่างบ่อหมักกับอุปกรณ์นี้โดยเด็ดขาด เพื่อไม่ให้เกิดแรงดันสะสมเกินขีดจำกัดของโครงสร้างถัง</div>
+              <span class="proc-tag">ตรวจสอบตามรอบบำรุงรักษา</span>
+            </div>
+          </div>
+          <div class="proc-card">
+            <div class="proc-ic">🟢</div>
+            <div>
+              <div class="proc-title">4. หอเผาก๊าซทิ้งฉุกเฉิน (Enclosed Flare)</div>
+              <div class="proc-desc">ระบบเผาทำลายก๊าซส่วนเกินอัตโนมัติเพื่อป้องกันแรงดันสะสม ต้องเว้นระยะห่างจากถนน/อาคารอื่นไม่ต่ำกว่า 7.5 เมตร หัวจุดประกายไฟเชื่อมกับเซนเซอร์วัดแรงดันบ่อหมักโดยอัตโนมัติ</div>
+              <span class="proc-tag">ระยะปลอดภัย ≥7.5 ม.</span>
+            </div>
+          </div>
+          <div class="proc-card">
+            <div class="proc-ic">⚡</div>
+            <div>
+              <div class="proc-title">5. ระบบใช้ประโยชน์ก๊าซ & เครื่องยนต์ (Genset)</div>
+              <div class="proc-desc">อาคารเครื่องยนต์ผลิตกระแสไฟฟ้าจากก๊าซชีวภาพต้องอยู่ห่างจากบ่อหมักอย่างน้อย 15 เมตร ต้องตัดสับคัตเอาต์พร้อมระบบ Lockout/Tagout (LOTO) ก่อนซ่อมบำรุงทุกครั้ง</div>
+              <span class="proc-tag">ระยะห่าง ≥15 ม. · LOTO ก่อนซ่อม</span>
+            </div>
+          </div>
+          <div class="proc-card">
+            <div class="proc-ic">🛡️</div>
+            <div>
+              <div class="proc-title">6. ระบบเฝ้าระวังและตอบโต้ฉุกเฉิน</div>
+              <div class="proc-desc">เครื่องตรวจจับก๊าซแบบติดตั้งถาวรเชื่อมสัญญาณเตือนเข้าห้องควบคุม 24 ชม. ร่วมกับปุ่มหยุดฉุกเฉิน (ESD) และอุปกรณ์ดับเพลิงประจำจุด พร้อมเสาล่อฟ้าที่ครอบคลุมรัศมี Rolling Sphere ราว 20 เมตรทั่วโดมเก็บก๊าซ</div>
+              <span class="proc-tag">Rolling Sphere ≈20 ม. · ESD</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:16px;">
+          <div style="font-weight:800;font-size:13px;margin-bottom:8px;">อยากเห็นของจริง?</div>
+          <div style="color:var(--text-2);font-size:12px;margin-bottom:12px;">ทุกจุดข้างต้นถูกจำลองไว้ในแบบจำลอง 3D จริง พร้อมเลเยอร์แสดงผล Ex-Zone / ระยะร่น / รัศมีฟ้าผ่า ที่เปิด-ปิดได้ในโลก 3D</div>
+          <div style="display:flex;gap:10px;">
+            <button class="btn primary btn-sm" onclick="location.href='PublicVirtualTour.html'">Start Virtual Tour →</button>
+            <button class="btn outline btn-sm" onclick="location.href='PublicDigitalTwin.html'">Digital Twin</button>
+          </div>
+        </div>
+      </div>
+
+      </div>
+    </div>
+  </div>
+
+<script>
+renderPortalSidebar('PublicProcess.html');
+renderPortalTopbar('Process', '(กระบวนการผลิต)');
+initUserChip();
+initPortalLiveFeed();
+</script>
+</body>
+</html>

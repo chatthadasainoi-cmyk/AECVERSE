@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<title>AEC VERSE — Avatar</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="public-portal.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="supabaseClient.js"></script>
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<script src="public-portal.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<style>
+#avatar-preview{width:100%;height:520px;border-radius:10px;background:var(--bg-0);border:1px solid var(--border-soft);overflow:hidden;position:relative;}
+#avatar-preview canvas{display:block;}
+.preview-hint{position:absolute;bottom:10px;left:0;right:0;text-align:center;color:var(--text-2);font-size:10.5px;pointer-events:none;}
+.model-option{display:flex;align-items:center;gap:12px;padding:12px;border:1px solid var(--border);border-radius:10px;cursor:pointer;margin-bottom:8px;transition:.15s;}
+.model-option:hover{background:var(--panel-2);}
+.model-option.selected{border-color:var(--blue);background:var(--blue-soft);}
+.model-option .mo-icon{font-size:24px;width:40px;text-align:center;flex-shrink:0;}
+.model-option .mo-name{font-weight:700;font-size:12.5px;}
+.model-option .mo-desc{color:var(--text-2);font-size:11px;margin-top:2px;line-height:1.5;}
+.color-swatches{display:flex;gap:8px;flex-wrap:wrap;}
+.swatch{width:34px;height:34px;border-radius:50%;cursor:pointer;border:2px solid transparent;transition:.15s;}
+.swatch:hover{transform:scale(1.1);}
+.swatch.selected{border-color:#fff;box-shadow:0 0 0 2px var(--blue);}
+#save-status{font-size:11.5px;min-height:16px;margin-top:10px;}
+.card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+.card-head h3{margin:0;font-size:13px;font-weight:700;}
+.g12-8-4{grid-template-columns:7fr 5fr;}
+@media (max-width:1100px){ .g12-8-4{grid-template-columns:1fr;} }
+</style>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="portal-sidebar"></aside>
+
+    <div class="page">
+    <div class="topbar" id="portal-topbar"></div>
+
+      <div class="page-content">
+        <div class="grid g12-8-4">
+          <div class="card">
+            <div class="card-head"><h3>ตัวอย่างตัวละคร</h3><button class="btn" id="btn-toggle-walk" onclick="togglePreviewWalk()">▶ ลองเดิน</button></div>
+            <div id="avatar-preview">
+              <div class="preview-hint">ลากเมาส์เพื่อหมุนดูรอบตัว — ตัวละครนี้คือร่างที่ผู้เล่นคนอื่นจะเห็นคุณในโลก Virtual Tour</div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="section-label">เลือกร่างตัวละคร</div>
+            <div class="model-option" data-model="character" onclick="selectModel('character')">
+              <div class="mo-icon">🧍</div>
+              <div><div class="mo-name">Character 1</div><div class="mo-desc">ตัวละคร 3D สมจริงพร้อมแอนิเมชันเดิน</div></div>
+            </div>
+            <div class="model-option" data-model="ch22" onclick="selectModel('ch22')">
+              <div class="mo-icon">🧑</div>
+              <div><div class="mo-name">Character 2</div><div class="mo-desc">ตัวละครสมจริงแบบที่สอง</div></div>
+            </div>
+            <div class="model-option" data-model="ch07" onclick="selectModel('ch07')">
+              <div class="mo-icon">🧑‍🔧</div>
+              <div><div class="mo-name">Character 3</div><div class="mo-desc">ตัวละครสมจริงแบบที่สาม</div></div>
+            </div>
+            <div class="model-option" data-model="remy" onclick="selectModel('remy')">
+              <div class="mo-icon">🧒</div>
+              <div><div class="mo-name">Remy</div><div class="mo-desc">ตัวละครสไตล์การ์ตูน</div></div>
+            </div>
+            <div class="model-option" data-model="engineer" onclick="selectModel('engineer')">
+              <div class="mo-icon">👷</div>
+              <div><div class="mo-name">Engineer (คลาสสิก)</div><div class="mo-desc">วิศวกรชุดส้มสไตล์บล็อก — เบาและโหลดเร็วที่สุด</div></div>
+            </div>
+
+            <div class="section-label" style="margin-top:18px;">ท่าเดิน</div>
+            <div class="model-option" data-anim="walking" onclick="selectAnim('walking')">
+              <div class="mo-icon">🚶</div>
+              <div><div class="mo-name">Walking</div><div class="mo-desc">ท่าเดินปกติ เป็นธรรมชาติ</div></div>
+            </div>
+            <div class="model-option" data-anim="catwalk" onclick="selectAnim('catwalk')">
+              <div class="mo-icon">💃</div>
+              <div><div class="mo-name">Catwalk High Knees</div><div class="mo-desc">ท่าเดินยกเข่าสูงสไตล์แคทวอล์ก</div></div>
+            </div>
+
+            <div class="section-label" style="margin-top:18px;">สีประจำตัว</div>
+            <div style="color:var(--text-2);font-size:11px;margin-bottom:10px;">ใช้กับป้ายชื่อ วงแหวนใต้เท้า และสีข้อความแชท — ช่วยให้เพื่อนแยกคุณออกจากคนอื่นได้ทันที</div>
+            <div class="color-swatches" id="color-swatches"></div>
+
+            <button class="btn primary" style="width:100%;margin-top:20px;" onclick="saveAvatar()">บันทึกตัวละคร</button>
+            <div id="save-status"></div>
+            <div style="color:var(--text-2);font-size:10.5px;line-height:1.6;margin-top:8px;">
+              ตัวละครผูกกับบัญชีของคุณ — บันทึกแล้วเปิดหน้า Virtual Tour ใหม่ (หรือรีเฟรช) เพื่อสวมร่างใหม่ ผู้ใช้คนอื่นจะเห็นคุณเป็นร่างนี้
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+renderPortalSidebar('PublicAvatar.html');
+renderPortalTopbar('Avatar', '(ปรับแต่งตัวละครของคุณ)');
+initUserChip();
+initPortalLiveFeed();
+
+// ============================================================
+// สถานะที่ผู้ใช้เลือก (โหลดค่าเดิมจากบัญชีตอนเปิดหน้า)
+// ============================================================
+const COLORS = ['#ff6b6b', '#ffd93d', '#6bcb77', '#4d96ff', '#c77dff', '#ff9f43', '#00d2d3', '#ff6b9d'];
+let selected = { model: 'character', anim: 'walking', color: COLORS[3] };
+
+function refreshOptionUI(){
+  document.querySelectorAll('.model-option[data-model]').forEach(el => el.classList.toggle('selected', el.dataset.model === selected.model));
+  document.querySelectorAll('.model-option[data-anim]').forEach(el => el.classList.toggle('selected', el.dataset.anim === selected.anim));
+  document.querySelectorAll('.swatch').forEach(el => el.classList.toggle('selected', el.dataset.color === selected.color));
+}
+function selectModel(m){ selected.model = m; refreshOptionUI(); rebuildPreviewAvatar(); }
+function selectAnim(a){ selected.anim = a; refreshOptionUI(); rebuildPreviewAvatar(); }
+function selectColor(c){ selected.color = c; refreshOptionUI(); rebuildPreviewAvatar(); }
+
+const swatchBox = document.getElementById('color-swatches');
+COLORS.forEach(c => {
+  const s = document.createElement('div');
+  s.className = 'swatch'; s.dataset.color = c; s.style.background = c;
+  s.onclick = () => selectColor(c);
+  swatchBox.appendChild(s);
+});
+
+async function loadSavedConfig(){
+  try {
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    const saved = session?.user?.user_metadata?.avatar;
+    if (saved) {
+      if (['engineer', 'character', 'ch22', 'ch07', 'remy'].includes(saved.model)) selected.model = saved.model;
+      if (['catwalk', 'walking'].includes(saved.anim)) selected.anim = saved.anim;
+      if (typeof saved.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(saved.color)) selected.color = saved.color;
+    }
+  } catch (err) { /* ใช้ค่าเริ่มต้น */ }
+  refreshOptionUI();
+  rebuildPreviewAvatar();
+}
+
+async function saveAvatar(){
+  const status = document.getElementById('save-status');
+  status.style.color = 'var(--text-2)';
+  status.textContent = 'กำลังบันทึก...';
+  try {
+    const { error } = await supabaseClient.auth.updateUser({ data: { avatar: { model: selected.model, anim: selected.anim, color: selected.color } } });
+    if (error) throw error;
+    status.style.color = 'var(--green)';
+    status.textContent = '✓ บันทึกแล้ว — รีเฟรชหน้า Virtual Tour เพื่อสวมร่างใหม่';
+  } catch (err) {
+    status.style.color = 'var(--red)';
+    status.textContent = 'บันทึกไม่สำเร็จ: ' + (err.message || err);
+  }
+}
+
+// ============================================================
+// พรีวิว 3D — ฉากเดียวกับโลกจริง (ตัวละคร + วงแหวนสี + คลิปเดิน)
+// ============================================================
+const pvBox = document.getElementById('avatar-preview');
+const pvScene = new THREE.Scene();
+pvScene.background = new THREE.Color(0x080b11);
+const pvCam = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
+pvCam.position.set(0, 1.5, 3.2);
+const pvRenderer = new THREE.WebGLRenderer({ antialias: true });
+pvRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+pvBox.insertBefore(pvRenderer.domElement, pvBox.firstChild);
+function fitPv(){ const w = pvBox.clientWidth, h = pvBox.clientHeight; if (!w || !h) return; pvCam.aspect = w / h; pvCam.updateProjectionMatrix(); pvRenderer.setSize(w, h); }
+fitPv();
+if (window.ResizeObserver) new ResizeObserver(fitPv).observe(pvBox);
+
+const pvControls = new THREE.OrbitControls(pvCam, pvRenderer.domElement);
+pvControls.target.set(0, 0.95, 0);
+pvControls.enableDamping = true;
+pvControls.minDistance = 1.5; pvControls.maxDistance = 6;
+
+pvScene.add(new THREE.AmbientLight(0xffffff, 0.65));
+pvScene.add(new THREE.HemisphereLight(0xbcd4ff, 0x0e131c, 0.6));
+const pvDir = new THREE.DirectionalLight(0xffffff, 1.0);
+pvDir.position.set(3, 6, 4); pvScene.add(pvDir);
+pvScene.add(new THREE.GridHelper(8, 16, 0x2e4a75, 0x141c2a));
+
+// ร่าง engineer แบบย่อ (กล่อง) — เวอร์ชันเดียวกับในโลกจริง
+function buildEngineerPreview(color){
+  const g = new THREE.Group();
+  const hex = parseInt(String(color).replace('#',''), 16);
+  const suit = new THREE.MeshStandardMaterial({ color: 0xff6600, roughness: .6 });
+  const skin = new THREE.MeshStandardMaterial({ color: 0xf4c08a, roughness: .7 });
+  const helmet = new THREE.MeshStandardMaterial({ color: hex, roughness: .3, metalness: .3 });
+  const visib = new THREE.MeshStandardMaterial({ color: 0xffff00 });
+  const boot = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: .9 });
+  const add = (geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); g.add(m); return m; };
+  add(new THREE.BoxGeometry(.22,.24,.22), skin, 0, 1.62, 0);
+  add(new THREE.BoxGeometry(.26,.12,.26), helmet, 0, 1.78, 0);
+  add(new THREE.BoxGeometry(.34,.03,.3), helmet, 0, 1.72, 0);
+  add(new THREE.BoxGeometry(.38,.5,.2), suit, 0, 1.14, 0);
+  add(new THREE.BoxGeometry(.39,.05,.21), visib, 0, 1.22, 0);
+  add(new THREE.BoxGeometry(.39,.05,.21), visib, 0, 1.08, 0);
+  add(new THREE.BoxGeometry(.11,.55,.13), suit, -.265, 1.08, 0);
+  add(new THREE.BoxGeometry(.11,.55,.13), suit, .265, 1.08, 0);
+  add(new THREE.BoxGeometry(.14,.42,.15), suit, -.1, .6, 0);
+  add(new THREE.BoxGeometry(.14,.42,.15), suit, .1, .6, 0);
+  add(new THREE.BoxGeometry(.16,.1,.22), boot, -.1, .33, -.03);
+  add(new THREE.BoxGeometry(.16,.1,.22), boot, .1, .33, -.03);
+  return g;
+}
+
+let pvAvatar = null, pvMixer = null, pvWalkAction = null, pvIdleAction = null, pvWalking = false;
+const PV_MODEL_FILES = { character: 'avatars/character.glb', ch22: 'avatars/ch22.glb', ch07: 'avatars/ch07.glb', remy: 'avatars/remy.glb' };
+const PV_ANIM_FILES = { catwalk: 'avatars/walk_anim.glb', walking: 'avatars/walking_anim.glb' };
+const pvCache = {};
+function pvLoad(url){
+  if (!pvCache[url]) pvCache[url] = new Promise((res, rej) => new THREE.GLTFLoader().load(url, res, undefined, rej));
+  return pvCache[url];
+}
+// ไฟล์ Mixamo แต่ละไฟล์ใช้ prefix กระดูกต่างกัน (mixamorig / mixamorig1 / ...) — จับคู่ด้วยชื่อจริงหลังตัด prefix
+function pvRetarget(clip, model){
+  const bones = {};
+  model.traverse(o => { if (o.isBone) bones[o.name.replace(/^mixamorig\d*/, '')] = o.name; });
+  const tracks = [];
+  clip.tracks.forEach(t => {
+    const dot = t.name.lastIndexOf('.');
+    const target = bones[t.name.slice(0, dot).replace(/^mixamorig\d*/, '')];
+    if (target) { const nt = t.clone(); nt.name = target + t.name.slice(dot); tracks.push(nt); }
+  });
+  return new THREE.AnimationClip(clip.name, clip.duration, tracks);
+}
+
+let pvBuildSeq = 0; // กันการกดสลับเร็วๆ แล้วผลโหลดช้ามาทับตัวเลือกล่าสุด
+async function rebuildPreviewAvatar(){
+  const seq = ++pvBuildSeq;
+  const container = new THREE.Group();
+  if (PV_MODEL_FILES[selected.model]) {
+    try {
+      const [charGltf, animGltf] = await Promise.all([pvLoad(PV_MODEL_FILES[selected.model]), pvLoad(PV_ANIM_FILES[selected.anim] || PV_ANIM_FILES.catwalk)]);
+      if (seq !== pvBuildSeq) return; // มีการเลือกใหม่ระหว่างโหลด — ทิ้งผลนี้
+      const visual = charGltf.scene;
+      visual.rotation.y = 0;
+      visual.scale.setScalar(1);
+      visual.updateMatrixWorld(true);
+      const h = new THREE.Box3().setFromObject(visual).getSize(new THREE.Vector3()).y;
+      if (h > 0.1) visual.scale.setScalar(1.75 / h);
+      container.add(visual);
+      const walkClip = pvRetarget(animGltf.animations[0], visual);
+      pvMixer = new THREE.AnimationMixer(visual);
+      pvWalkAction = pvMixer.clipAction(walkClip);
+      pvIdleAction = pvMixer.clipAction(THREE.AnimationUtils.subclip(walkClip, 'pv_idle_' + selected.model + '_' + selected.anim, 0, 1, 30));
+      (pvWalking ? pvWalkAction : pvIdleAction).play();
+    } catch (err) {
+      console.warn('พรีวิวโหลดไม่สำเร็จ:', err);
+      container.add(buildEngineerPreview(selected.color));
+      pvMixer = null; pvWalkAction = null; pvIdleAction = null;
+    }
+  } else {
+    container.add(buildEngineerPreview(selected.color));
+    pvMixer = null; pvWalkAction = null; pvIdleAction = null;
+  }
+  if (seq !== pvBuildSeq) return;
+  if (pvAvatar) { pvScene.remove(pvAvatar); pvAvatar = null; }
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(.34, .44, 32),
+    new THREE.MeshBasicMaterial({ color: new THREE.Color(selected.color), transparent: true, opacity: .55, side: THREE.DoubleSide })
+  );
+  ring.rotation.x = -Math.PI / 2; ring.position.y = .02;
+  container.add(ring);
+  pvScene.add(container);
+  pvAvatar = container;
+}
+
+function togglePreviewWalk(){
+  pvWalking = !pvWalking;
+  document.getElementById('btn-toggle-walk').textContent = pvWalking ? '⏸ หยุดเดิน' : '▶ ลองเดิน';
+  if (pvMixer && pvWalkAction && pvIdleAction) {
+    const next = pvWalking ? pvWalkAction : pvIdleAction;
+    const prev = pvWalking ? pvIdleAction : pvWalkAction;
+    next.enabled = true; next.reset().play();
+    prev.crossFadeTo(next, .2, false);
+  }
+}
+
+const pvClock = new THREE.Clock();
+(function pvLoop(){
+  requestAnimationFrame(pvLoop);
+  const dt = pvClock.getDelta();
+  if (pvMixer) pvMixer.update(dt);
+  pvControls.update();
+  pvRenderer.render(pvScene, pvCam);
+})();
+
+loadSavedConfig();
+</script>
+</body>
+</html>

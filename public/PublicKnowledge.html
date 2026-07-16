@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<title>AEC VERSE — Knowledge Check</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="public-portal.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="supabaseClient.js"></script>
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<script src="public-portal.js"></script>
+<style>
+.field-label{display:block;font-size:11.5px;color:var(--text-1);font-weight:600;margin-bottom:6px;}
+input[type="text"]{width:100%;background:var(--panel-2);border:1px solid var(--border);border-radius:8px;padding:11px 13px;color:var(--text-0);font-size:13px;outline:none;font-family:inherit;}
+input[type="text"]:focus{border-color:var(--blue);}
+input::placeholder{color:var(--text-2);}
+
+.quiz-progress-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+.quiz-progress-row .qp-label{font-size:11.5px;color:var(--text-2);font-weight:600;}
+.quiz-q{font-size:15.5px;font-weight:700;margin:16px 0 16px 0;line-height:1.5;}
+.quiz-options{display:flex;flex-direction:column;gap:8px;}
+.quiz-opt{display:flex;align-items:center;gap:11px;padding:12px 14px;border-radius:9px;border:1px solid var(--border);background:var(--panel-2);cursor:pointer;font-size:13px;color:var(--text-1);}
+.quiz-opt:hover{border-color:#33475e;color:var(--text-0);}
+.quiz-opt.selected{border-color:var(--blue);background:var(--blue-soft);color:var(--text-0);}
+.quiz-opt .radio{width:16px;height:16px;border-radius:50%;border:1.5px solid var(--text-2);flex-shrink:0;position:relative;}
+.quiz-opt.selected .radio{border-color:var(--blue);}
+.quiz-opt.selected .radio::after{content:'';position:absolute;inset:3px;border-radius:50%;background:var(--blue);}
+.quiz-nav-row{display:flex;justify-content:space-between;align-items:center;margin-top:22px;}
+
+.result-score{display:flex;align-items:center;gap:18px;padding:8px 0 4px 0;}
+.result-score .circle{width:84px;height:84px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;flex-direction:column;border:4px solid var(--green);background:var(--green-soft);}
+.result-score .circle.warn{border-color:var(--yellow);background:var(--yellow-soft);}
+.result-score .circle b{font-size:20px;font-weight:800;font-family:"Sora",sans-serif;}
+.result-score .circle span{font-size:9px;color:var(--text-2);}
+.result-list{margin-top:18px;display:flex;flex-direction:column;gap:8px;}
+.result-item{display:flex;align-items:flex-start;gap:9px;font-size:12px;color:var(--text-1);padding:9px 12px;border-radius:8px;background:var(--panel-2);border:1px solid var(--border);}
+.result-item .r-ic{width:18px;height:18px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;margin-top:1px;}
+.result-item.correct .r-ic{background:var(--green-soft);color:var(--green);}
+.result-item.wrong .r-ic{background:var(--red-soft);color:var(--red);}
+
+.topic-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px;}
+.topic-tag{font-size:10.5px;font-weight:700;padding:4px 10px;border-radius:20px;background:var(--teal-soft);color:var(--teal);border:1px solid rgba(34,211,238,0.25);}
+
+.history-row{display:grid;grid-template-columns:120px 1fr 90px 100px;gap:12px;align-items:center;padding:12px 4px;border-bottom:1px solid var(--border-soft);}
+.history-row:last-child{border-bottom:none;}
+.history-row .h-date{font-size:11px;color:var(--text-2);}
+.history-row .h-name{font-size:12.5px;font-weight:700;}
+.history-row .h-topics{display:flex;flex-wrap:wrap;gap:5px;margin-top:5px;}
+.history-row .h-score{font-size:12.5px;font-weight:700;text-align:right;font-family:"Sora",sans-serif;}
+.history-empty{color:var(--text-2);font-size:12px;text-align:center;padding:24px 0;}
+
+.topic-banner{display:flex;align-items:center;gap:10px;background:var(--blue-soft);border:1px solid rgba(59,130,246,0.3);border-radius:9px;padding:10px 14px;margin-bottom:16px;}
+.topic-banner .tb-label{font-size:10px;color:var(--text-2);font-weight:700;text-transform:uppercase;letter-spacing:.4px;}
+.topic-banner .tb-title{font-size:13px;font-weight:800;color:#8fb8ff;}
+
+.admin-panel{border:1px dashed rgba(245,158,11,0.4);background:var(--yellow-soft);border-radius:10px;padding:14px;margin-bottom:16px;}
+.admin-panel .ap-title{font-size:11.5px;font-weight:800;color:var(--yellow);display:flex;align-items:center;gap:6px;margin-bottom:10px;}
+.switch-row{display:flex;align-items:center;justify-content:space-between;padding:8px 0;}
+.switch-row .sw-label{font-size:12.5px;font-weight:600;}
+.switch-row .sw-sub{font-size:10.5px;color:var(--text-2);}
+.switch{position:relative;width:42px;height:24px;border-radius:14px;background:var(--panel-2);border:1px solid var(--border);cursor:pointer;flex-shrink:0;}
+.switch.on{background:var(--green);border-color:var(--green);}
+.switch .knob{position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;transition:left .15s;}
+.switch.on .knob{left:20px;}
+
+.locked-box{text-align:center;padding:40px 20px;}
+.locked-box .lk-ic{font-size:34px;margin-bottom:12px;}
+.locked-box .lk-t{font-size:14px;font-weight:800;margin-bottom:6px;}
+.locked-box .lk-s{font-size:12px;color:var(--text-2);line-height:1.6;}
+.hide{display:none !important;}
+@media (max-width:760px){ .history-row{grid-template-columns:1fr;text-align:left;} .history-row .h-score{text-align:left;} }
+@media (max-width:900px){ .g2, .g8-4{grid-template-columns:1fr;} }
+</style>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="portal-sidebar"></aside>
+
+    <div class="page">
+    <div class="topbar" id="portal-topbar"></div>
+
+      <div class="page-content">
+        <div class="sec">
+          <div class="sec-head"><span class="sec-num">•</span><span class="sec-tag">KNOWLEDGE CHECK</span></div>
+          <div class="sec-title">แบบทดสอบความรู้ก่อนเข้าเยี่ยมชม / อบรม</div>
+          <div class="sec-sub" style="margin-bottom:16px;">ตอบคำถามสั้นๆ 5 ข้อ ใช้เวลาไม่ถึง 2 นาที เพื่อประเมินความพร้อมด้านความปลอดภัยก่อนเข้าพื้นที่โรงงาน</div>
+
+          <div class="grid g8-4">
+            <div class="card">
+
+              <!-- แผงควบคุมแอดมิน: โชว์เฉพาะบัญชีที่เป็น admin จริง (เช็คผ่าน /api/me/role) -->
+              <div id="adminPanel" class="admin-panel hide">
+                <div class="ap-title">🔧 แผงควบคุมแอดมิน (ผู้เยี่ยมชมทั่วไปไม่เห็นส่วนนี้)</div>
+                <div class="switch-row">
+                  <div>
+                    <div class="sw-label">เปิดให้ผู้เยี่ยมชมทำแบบทดสอบ</div>
+                    <div class="sw-sub">ปิดไว้ = ผู้เยี่ยมชมจะเห็นข้อความ "ยังไม่เปิดให้ทำ" — ใช้ได้กับทุกคนทันที (ไม่ใช่แค่เครื่องนี้)</div>
+                  </div>
+                  <div class="switch" id="quizToggleSwitch" onclick="toggleQuizEnabled()"><div class="knob"></div></div>
+                </div>
+                <div class="hr" style="margin:10px 0;"></div>
+                <label class="field-label">หัวข้อการอบรม (แสดงให้ผู้เยี่ยมชมเห็น)</label>
+                <div style="display:flex;gap:8px;">
+                  <input type="text" id="topicInput" style="flex:1;">
+                  <button class="btn primary btn-sm" onclick="saveTopic()">บันทึก</button>
+                </div>
+                <div id="adminSaveStatus" style="font-size:11px;color:var(--green);margin-top:8px;min-height:14px;"></div>
+              </div>
+
+              <div class="topic-banner">
+                <span style="font-size:16px;">📘</span>
+                <div>
+                  <div class="tb-label">หัวข้อการอบรม</div>
+                  <div class="tb-title" id="topicBanner">—</div>
+                </div>
+              </div>
+
+              <div id="stepLocked" class="hide">
+                <div class="locked-box">
+                  <div class="lk-ic">🔒</div>
+                  <div class="lk-t">แบบทดสอบยังไม่เปิดให้ทำในขณะนี้</div>
+                  <div class="lk-s">กรุณาสอบถามเจ้าหน้าที่หน้างาน หรือรอให้แอดมินเปิดใช้งานแบบทดสอบ</div>
+                </div>
+              </div>
+
+              <div id="stepIntro" class="hide">
+                <label class="field-label">ชื่อ-นามสกุล</label>
+                <input type="text" id="quizName" placeholder="กรอกชื่อของคุณ">
+                <div class="hr"></div>
+                <button class="btn primary" style="width:100%;" onclick="startQuiz()">เริ่มทำแบบทดสอบ</button>
+              </div>
+
+              <div id="stepQuiz" class="hide">
+                <div class="quiz-progress-row">
+                  <span class="qp-label" id="qpLabel">คำถามที่ 1 จาก 5</span>
+                  <span class="qp-label" id="qpPercent">20%</span>
+                </div>
+                <div class="progress"><span id="qpBar" style="width:20%;"></span></div>
+                <div class="quiz-q" id="quizQText">—</div>
+                <div class="quiz-options" id="quizOptions"></div>
+                <div class="quiz-nav-row">
+                  <button class="btn outline btn-sm" id="btnPrev" onclick="prevQuestion()">← ก่อนหน้า</button>
+                  <button class="btn primary" id="btnNext" onclick="nextQuestion()" disabled>ถัดไป →</button>
+                </div>
+              </div>
+
+              <div id="stepResult" class="hide">
+                <div style="font-size:15px;font-weight:800;margin-bottom:14px;">ผลการทดสอบของคุณ</div>
+                <div class="result-score">
+                  <div class="circle" id="resultCircle"><b id="resultScoreText">0/5</b><span>คะแนน</span></div>
+                  <div>
+                    <span class="badge green" id="resultBadge">ผ่านเกณฑ์</span>
+                    <div style="font-size:12px;color:var(--text-1);margin-top:8px;" id="resultMsg">คุณมีความรู้พื้นฐานด้านความปลอดภัยเพียงพอสำหรับการเข้าเยี่ยมชมโรงงาน</div>
+                  </div>
+                </div>
+                <div class="result-list" id="resultList"></div>
+                <div style="font-size:11.5px;color:var(--text-2);font-weight:700;margin-top:16px;">หัวข้อที่ครอบคลุมในการทดสอบนี้</div>
+                <div class="topic-tags" id="resultTopics"></div>
+                <div class="hr"></div>
+                <div style="display:flex;gap:10px;">
+                  <button class="btn outline" style="flex:1;" onclick="restartQuiz()">ทำแบบทดสอบอีกครั้ง</button>
+                  <button class="btn primary" style="flex:1;" onclick="location.href='PublicVirtualTour.html'">ไปยังหน้า Virtual Tour</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div style="font-weight:800;font-size:13px;margin-bottom:12px;">Plant Address</div>
+              <div style="font-size:12.5px;color:var(--text-1);line-height:1.6;">AEC VERSE Biogas Plant<br>Nakhon Ratchasima, Thailand</div>
+              <div class="hr"></div>
+              <div style="display:flex;justify-content:space-between;font-size:11px;padding:5px 0;color:var(--text-1);"><span>Phone</span><b style="color:var(--text-0);">+66 44 000 000</b></div>
+              <div style="display:flex;justify-content:space-between;font-size:11px;padding:5px 0;color:var(--text-1);"><span>Email</span><b style="color:var(--text-0);">info@aecverse.com</b></div>
+              <div style="display:flex;justify-content:space-between;font-size:11px;padding:5px 0;color:var(--text-1);"><span>Hours</span><b style="color:var(--text-0);">Mon–Fri 08:00–17:00</b></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="sec">
+          <div class="sec-head"><span class="sec-num">•</span><span class="sec-tag">TRAINING HISTORY</span></div>
+          <div class="sec-title" style="font-size:15px;">ประวัติการอบรมของคุณ</div>
+          <div class="sec-sub" style="margin-bottom:16px;">ผูกกับบัญชีของคุณ — เข้าจากอุปกรณ์ไหนก็เห็นประวัติเดิม (เก็บ 10 ครั้งล่าสุด)</div>
+          <div class="card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+              <span style="font-size:11.5px;color:var(--text-2);font-weight:700;">ทั้งหมด <span id="historyCount">0</span> ครั้ง</span>
+              <button class="btn outline btn-sm" onclick="clearHistory()">ล้างประวัติ</button>
+            </div>
+            <div id="historyList"><div class="history-empty">ยังไม่มีประวัติการทำแบบทดสอบ</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+renderPortalSidebar('PublicKnowledge.html');
+renderPortalTopbar('Knowledge Check', '(แบบทดสอบก่อนเยี่ยมชม)');
+initUserChip();
+initPortalLiveFeed();
+
+(async function(){
+  const QUESTIONS = [
+    { q: "ก๊าซชีวภาพ (Biogas) ที่ผลิตได้จากบ่อหมัก ส่วนใหญ่ประกอบด้วยก๊าซชนิดใด?", options: ["ก๊าซมีเทน (CH4)", "ก๊าซออกซิเจน (O2)", "ก๊าซไฮโดรเจน (H2)", "ไอน้ำ"], correct: 0, topic: "ความรู้พื้นฐานก๊าซชีวภาพ" },
+    { q: "ก่อนเข้าใกล้บริเวณที่มีความเสี่ยงก๊าซรั่ว ควรสวมใส่อุปกรณ์ใดเป็นอันดับแรก?", options: ["แว่นกันแดด", "เครื่องตรวจวัดก๊าซชนิดพกพา (4-Gas Detector)", "หมวกไหมพรม", "ไม่ต้องสวมใส่อะไร"], correct: 1, topic: "อุปกรณ์ป้องกันส่วนบุคคล (PPE)" },
+    { q: "หากพบว่าความดันในถังหมักก๊าซสูงเกินขีดจำกัดที่กำหนด ควรทำอย่างไรเป็นลำดับแรก?", options: ["เปิดฝาถังเองเพื่อระบายแรงดัน", "เพิกเฉยเพราะไม่ใช่หน้าที่ของตน", "แจ้งเจ้าหน้าที่ทันทีและปฏิบัติตามขั้นตอนฉุกเฉิน", "ถ่ายรูปโพสต์ลงโซเชียลมีเดีย"], correct: 2, topic: "ขั้นตอนฉุกเฉิน (Emergency Response)" },
+    { q: "ระบบ LOTO ที่ใช้ก่อนซ่อมบำรุงเครื่องจักร มีไว้เพื่อจุดประสงค์ใด?", options: ["ล็อกประตูอาคารสำนักงาน", "ป้องกันเครื่องจักรทำงานโดยไม่ตั้งใจขณะซ่อมบำรุง", "ชื่อโปรแกรมบันทึกข้อมูลการผลิต", "ชื่อทีมงานฝ่ายรักษาความปลอดภัย"], correct: 1, topic: "ความปลอดภัยงานบำรุงรักษา (LOTO)" },
+    { q: "ข้อใดคือพฤติกรรมที่ปลอดภัยที่สุดขณะเข้าเยี่ยมชมพื้นที่โรงงานจริง?", options: ["แยกออกจากกลุ่มเพื่อถ่ายรูปมุมสวย", "สัมผัสอุปกรณ์ทุกชิ้นที่พบเจอ", "เดินตามเส้นทางที่กำหนดและฟังคำแนะนำของเจ้าหน้าที่ตลอดเวลา", "สูบบุหรี่ในจุดที่ไม่มีป้ายห้ามชัดเจน"], correct: 2, topic: "พฤติกรรมความปลอดภัยทั่วไป" }
+  ];
+  const DEFAULT_TOPIC = 'ความปลอดภัยเบื้องต้นในโรงงานก๊าซชีวภาพ (Biogas Plant Basic Safety)';
+  let current = 0;
+  let answers = new Array(QUESTIONS.length).fill(null);
+  let session = null, isAdmin = false;
+  let settings = { enabled: false, topic: DEFAULT_TOPIC };
+
+  try { const r = await supabaseClient.auth.getSession(); session = r.data.session; } catch (err) {}
+
+  // ---- เช็คสิทธิ์แอดมินจริง (แทน ?admin=1 เดิมที่ใครก็ปลอมได้) ----
+  if (session) {
+    try {
+      const res = await fetch('/api/me/role', { headers: { Authorization: 'Bearer ' + session.access_token } });
+      const body = await res.json().catch(() => ({}));
+      isAdmin = !!(res.ok && body.isAdmin);
+    } catch (err) { /* เช็คไม่ได้ -> ถือว่าไม่ใช่แอดมิน */ }
+  }
+
+  // ---- โหลดการตั้งค่าจริงจาก server (เปิด/ปิดแบบทดสอบ + หัวข้อ) ----
+  async function loadSettings() {
+    try {
+      const res = await fetch('/api/knowledge-settings');
+      settings = await res.json();
+    } catch (err) { /* ใช้ค่า default ไปก่อน */ }
+  }
+  await loadSettings();
+  applyGateState();
+
+  function applyGateState() {
+    document.getElementById('topicBanner').textContent = settings.topic || DEFAULT_TOPIC;
+    if (isAdmin) {
+      document.getElementById('adminPanel').classList.remove('hide');
+      document.getElementById('topicInput').value = settings.topic || DEFAULT_TOPIC;
+      document.getElementById('quizToggleSwitch').classList.toggle('on', settings.enabled);
+    }
+    const canTakeQuiz = isAdmin || settings.enabled;
+    document.getElementById('stepLocked').classList.toggle('hide', canTakeQuiz);
+    document.getElementById('stepIntro').classList.toggle('hide', !canTakeQuiz);
+  }
+
+  async function saveSettingsToServer(next) {
+    if (!session) return;
+    const status = document.getElementById('adminSaveStatus');
+    status.textContent = 'กำลังบันทึก...'; status.style.color = 'var(--text-2)';
+    try {
+      const res = await fetch('/api/knowledge-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + session.access_token },
+        body: JSON.stringify(next)
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || 'บันทึกไม่สำเร็จ');
+      settings = body.settings;
+      status.textContent = '✓ บันทึกแล้ว — มีผลกับผู้เยี่ยมชมทุกคนทันที';
+      status.style.color = 'var(--green)';
+      applyGateState();
+    } catch (err) {
+      status.textContent = 'บันทึกไม่สำเร็จ: ' + err.message;
+      status.style.color = 'var(--red)';
+    }
+  }
+
+  window.toggleQuizEnabled = function () { saveSettingsToServer({ enabled: !settings.enabled, topic: settings.topic }); };
+  window.saveTopic = function () { saveSettingsToServer({ enabled: settings.enabled, topic: document.getElementById('topicInput').value.trim() || DEFAULT_TOPIC }); };
+
+  // ---- ประวัติการทำแบบทดสอบ — ผูกกับบัญชี (Supabase user_metadata แทน localStorage) ----
+  function getHistory() { return (session && session.user.user_metadata && session.user.user_metadata.quizHistory) || []; }
+  async function saveHistory(record) {
+    if (!session) return; // ยังไม่ล็อกอิน (ไม่ควรเกิดขึ้นจริงเพราะหน้านี้ guard ไว้แล้ว) — ข้ามการบันทึกประวัติ
+    const history = [record, ...getHistory()].slice(0, 10); // เก็บ 10 ครั้งล่าสุด กัน metadata บวม
+    const { data, error } = await supabaseClient.auth.updateUser({ data: { quizHistory: history } });
+    if (!error && data && data.user) session.user = data.user;
+    renderHistory();
+  }
+  window.clearHistory = async function () {
+    if (!confirm('ต้องการล้างประวัติการอบรมทั้งหมดของบัญชีนี้ใช่หรือไม่?')) return;
+    const { data, error } = await supabaseClient.auth.updateUser({ data: { quizHistory: [] } });
+    if (!error && data && data.user) session.user = data.user;
+    renderHistory();
+  };
+  function formatDate(iso) {
+    const d = new Date(iso);
+    return d.toLocaleDateString('th-TH', { day: '2-digit', month: 'short', year: '2-digit' }) + ' ' + d.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+  }
+  function renderHistory() {
+    const history = getHistory();
+    document.getElementById('historyCount').textContent = history.length;
+    const wrap = document.getElementById('historyList');
+    if (!history.length) { wrap.innerHTML = '<div class="history-empty">ยังไม่มีประวัติการทำแบบทดสอบ</div>'; return; }
+    wrap.innerHTML = '';
+    history.forEach(rec => {
+      const topicTags = (rec.topics || []).map(t => `<span class="topic-tag">${t}</span>`).join('');
+      const row = document.createElement('div');
+      row.className = 'history-row';
+      row.innerHTML = `
+        <div class="h-date">${formatDate(rec.date)}</div>
+        <div>
+          <div class="h-name">${rec.name}</div>
+          <div style="font-size:11px;color:var(--text-2);margin-top:2px;">📘 ${rec.mainTopic || DEFAULT_TOPIC}</div>
+          <div class="h-topics">${topicTags}</div>
+        </div>
+        <div class="h-score">${rec.score}/${rec.total}</div>
+        <div><span class="badge ${rec.passed ? 'green' : 'yellow'}">${rec.passed ? 'ผ่านเกณฑ์' : 'ควรทบทวน'}</span></div>`;
+      wrap.appendChild(row);
+    });
+  }
+  renderHistory();
+
+  window.startQuiz = function () {
+    document.getElementById('stepIntro').classList.add('hide');
+    document.getElementById('stepQuiz').classList.remove('hide');
+    current = 0; renderQuestion();
+  };
+  function renderQuestion() {
+    const item = QUESTIONS[current];
+    document.getElementById('qpLabel').textContent = `คำถามที่ ${current + 1} จาก ${QUESTIONS.length}`;
+    const pct = Math.round(((current + 1) / QUESTIONS.length) * 100);
+    document.getElementById('qpPercent').textContent = pct + '%';
+    document.getElementById('qpBar').style.width = pct + '%';
+    document.getElementById('quizQText').textContent = item.q;
+    const optWrap = document.getElementById('quizOptions');
+    optWrap.innerHTML = '';
+    item.options.forEach((opt, i) => {
+      const div = document.createElement('div');
+      div.className = 'quiz-opt' + (answers[current] === i ? ' selected' : '');
+      div.innerHTML = `<span class="radio"></span><span>${opt}</span>`;
+      div.addEventListener('click', () => { answers[current] = i; renderQuestion(); });
+      optWrap.appendChild(div);
+    });
+    document.getElementById('btnPrev').style.visibility = current === 0 ? 'hidden' : 'visible';
+    document.getElementById('btnNext').disabled = answers[current] === null;
+    document.getElementById('btnNext').textContent = current === QUESTIONS.length - 1 ? 'ดูผลคะแนน' : 'ถัดไป →';
+  }
+  window.nextQuestion = function () {
+    if (answers[current] === null) return;
+    if (current < QUESTIONS.length - 1) { current++; renderQuestion(); } else { showResult(); }
+  };
+  window.prevQuestion = function () { if (current > 0) { current--; renderQuestion(); } };
+
+  function showResult() {
+    let score = 0;
+    QUESTIONS.forEach((item, i) => { if (answers[i] === item.correct) score++; });
+    document.getElementById('stepQuiz').classList.add('hide');
+    document.getElementById('stepResult').classList.remove('hide');
+    document.getElementById('resultScoreText').textContent = `${score}/${QUESTIONS.length}`;
+    const passed = score >= 3;
+    const circle = document.getElementById('resultCircle');
+    const badge = document.getElementById('resultBadge');
+    const msg = document.getElementById('resultMsg');
+    if (passed) {
+      circle.classList.remove('warn'); badge.className = 'badge green'; badge.textContent = 'ผ่านเกณฑ์';
+      msg.textContent = 'คุณมีความรู้พื้นฐานด้านความปลอดภัยเพียงพอสำหรับการเข้าเยี่ยมชมโรงงาน';
+    } else {
+      circle.classList.add('warn'); badge.className = 'badge yellow'; badge.textContent = 'ควรทบทวนอีกครั้ง';
+      msg.textContent = 'แนะนำให้ทบทวนข้อมูลความปลอดภัยเพิ่มเติมก่อนเข้าพื้นที่จริง หรือสอบถามเจ้าหน้าที่หน้างาน';
+    }
+    const list = document.getElementById('resultList');
+    list.innerHTML = '';
+    QUESTIONS.forEach((item, i) => {
+      const isCorrect = answers[i] === item.correct;
+      const row = document.createElement('div');
+      row.className = 'result-item ' + (isCorrect ? 'correct' : 'wrong');
+      row.innerHTML = `<span class="r-ic">${isCorrect ? '✓' : '✕'}</span><span>${item.q}</span>`;
+      list.appendChild(row);
+    });
+    const topics = [...new Set(QUESTIONS.map(q => q.topic))];
+    const topicsWrap = document.getElementById('resultTopics');
+    topicsWrap.innerHTML = '';
+    topics.forEach(t => { const span = document.createElement('span'); span.className = 'topic-tag'; span.textContent = t; topicsWrap.appendChild(span); });
+
+    saveHistory({
+      name: (document.getElementById('quizName').value || session.user.email || 'ไม่ระบุชื่อ').trim(),
+      date: new Date().toISOString(), score, total: QUESTIONS.length, passed,
+      mainTopic: settings.topic || DEFAULT_TOPIC, topics
+    });
+  }
+  window.restartQuiz = function () {
+    answers = new Array(QUESTIONS.length).fill(null); current = 0;
+    document.getElementById('stepResult').classList.add('hide');
+    document.getElementById('stepIntro').classList.remove('hide');
+  };
+})();
+</script>
+</body>
+</html>

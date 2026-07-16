@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<title>AEC VERSE — Digital Twin</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="public-portal.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="supabaseClient.js"></script>
+<script src="public-portal.js"></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="portal-sidebar"></aside>
+
+    <div class="page">
+    <div class="topbar" id="portal-topbar"></div>
+
+      <div class="page-content">
+
+      <div class="card" style="margin-bottom:14px;padding:0;">
+        <!-- ?mode=viewer = ไม่มี avatar/ตัวละคร เหมาะกับการดูข้อมูลอย่างเดียว -->
+        <iframe src="index.html?mode=viewer" title="Digital Twin Map View" loading="lazy"
+          allow="fullscreen" allowfullscreen
+          style="width:100%;height:84vh;min-height:600px;border:0;border-radius:12px;background:#080b11;display:block;"></iframe>
+      </div>
+      <div style="color:var(--text-2);font-size:10.5px;margin:-4px 0 14px 4px;">
+        ⓘ ลากเมาส์เพื่อหมุนกล้อง เลื่อนเมาส์เพื่อซูม คลิกที่ชิ้นส่วนในโมเดลเพื่อดูข้อมูลความปลอดภัย — ไม่มี avatar ในมุมมองนี้ ข้อมูล KPI/Alerts แสดงเรียลไทม์ในแถบล่างของฉาก
+      </div>
+
+      <div class="grid g2">
+        <div class="card">
+          <div class="card-head"><h3 style="font-size:13px;font-weight:700;">Legend</h3></div>
+          <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--text-1);">
+            <div style="display:flex;align-items:center;gap:8px;"><span class="dot" style="background:#ef4444;"></span> Ex-Zone 0/1/2</div>
+            <div style="display:flex;align-items:center;gap:8px;"><span class="dot" style="background:#38bdf8;"></span> ระยะปลอดภัย</div>
+            <div style="display:flex;align-items:center;gap:8px;"><span class="dot" style="background:#a855f7;"></span> รัศมีฟ้าผ่า</div>
+            <div style="display:flex;align-items:center;gap:8px;"><span class="dot" style="background:#f59e0b;"></span> วง PPE</div>
+          </div>
+        </div>
+        <div class="card" style="text-align:center;">
+          <div style="color:var(--text-2);font-size:11px;">Thailand</div>
+          <div class="live-temp" style="font-size:26px;font-weight:800;margin:4px 0;">—°C</div>
+          <div class="live-time" style="font-size:18px;font-weight:700;color:var(--text-1);">--:--:--</div>
+          <div style="color:var(--text-2);font-size:11px;"><span class="live-date">—</span> · Asia/Bangkok (UTC+7)</div>
+        </div>
+      </div>
+
+      </div>
+    </div>
+  </div>
+
+<script>
+renderPortalSidebar('PublicDigitalTwin.html');
+renderPortalTopbar('Digital Twin', '(แผนที่โรงงาน)');
+initUserChip();
+initPortalLiveFeed();
+</script>
+</body>
+</html>

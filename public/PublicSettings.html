@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<title>AEC VERSE — Settings</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="public-portal.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="supabaseClient.js"></script>
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<script src="public-portal.js"></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="portal-sidebar"></aside>
+
+    <div class="page">
+    <div class="topbar" id="portal-topbar"></div>
+
+      <div class="page-content">
+        <div class="sec">
+          <div class="sec-head"><span class="sec-num">•</span><span class="sec-tag">SETTINGS</span></div>
+          <div class="sec-title">Chat &amp; Voice ในโลก Virtual Tour</div>
+          <div class="sec-sub" style="margin-bottom:16px;">ตั้งค่าแชทและวอยซ์แชทที่ใช้ในหน้า Virtual Tour — มีผลทันทีกับแท็บที่เปิดอยู่</div>
+
+          <div class="grid g2">
+            <div class="card">
+              <div class="card-head"><h3 style="font-size:13px;font-weight:700;">Chat & Voice</h3></div>
+              <div style="display:flex;flex-direction:column;gap:16px;">
+                <label style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;">
+                  <div>
+                    <div style="font-weight:600;font-size:12.5px;">แชทข้อความ</div>
+                    <div style="color:var(--text-2);font-size:11px;margin-top:2px;">หน้าต่างแชทในโลก 3D (กด / เพื่อพิมพ์)</div>
+                  </div>
+                  <input type="checkbox" id="cv-chat-enabled" style="width:16px;height:16px;accent-color:var(--blue);">
+                </label>
+                <label style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;">
+                  <div>
+                    <div style="font-weight:600;font-size:12.5px;">เสียงพูดคุย (Voice Chat)</div>
+                    <div style="color:var(--text-2);font-size:11px;margin-top:2px;">คุยเสียงกับผู้ใช้อื่นแบบ P2P (กด V เพื่อเปิด/ปิดไมค์)</div>
+                  </div>
+                  <input type="checkbox" id="cv-voice-enabled" style="width:16px;height:16px;accent-color:var(--blue);">
+                </label>
+                <div>
+                  <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+                    <span style="font-weight:600;font-size:12.5px;">ระดับเสียงเพื่อนร่วมโลก</span>
+                    <span id="cv-volume-val" style="color:var(--text-2);font-size:11.5px;">80%</span>
+                  </div>
+                  <input type="range" id="cv-voice-volume" min="0" max="100" step="5" style="width:100%;accent-color:var(--blue);">
+                </div>
+                <div id="cv-save-status" style="color:var(--green);font-size:11px;min-height:14px;"></div>
+              </div>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:14px;">
+              <div class="card">
+                <div class="card-head"><h3 style="font-size:13px;font-weight:700;">คีย์ลัดใน Virtual Tour</h3></div>
+                <div style="display:flex;flex-direction:column;gap:10px;font-size:12px;">
+                  <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-2);">เปิด/ปิดไมค์</span><b style="font-family:monospace;">V</b></div>
+                  <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-2);">พิมพ์แชท</span><b style="font-family:monospace;">/</b></div>
+                  <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-2);">เดิน</span><b style="font-family:monospace;">W A S D / ลูกศร</b></div>
+                  <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-2);">กระโดด</span><b style="font-family:monospace;">Space</b></div>
+                  <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-2);">Free Look</span><b style="font-family:monospace;">F</b></div>
+                  <div class="hr" style="margin:4px 0;"></div>
+                  <div style="color:var(--text-2);font-size:11px;line-height:1.6;">เสียงพูดวิ่งตรงระหว่างผู้ใช้ (P2P) ไม่ผ่านเซิร์ฟเวอร์ และเปิดไมค์ได้เฉพาะตอนที่คุณกด V เท่านั้น</div>
+                </div>
+              </div>
+              <div class="card">
+                <div class="card-head"><h3 style="font-size:13px;font-weight:700;">บัญชีของฉัน</h3></div>
+                <div style="display:flex;flex-direction:column;gap:8px;font-size:12px;">
+                  <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-2);">อีเมล</span><b id="acctEmail">—</b></div>
+                  <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-2);">เข้าสู่ระบบล่าสุด</span><b id="acctLastLogin">—</b></div>
+                </div>
+                <button class="btn outline btn-sm" style="width:100%;margin-top:12px;" onclick="handlePortalLogout()">ออกจากระบบ</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+renderPortalSidebar('PublicSettings.html');
+renderPortalTopbar('Settings', '(ตั้งค่า)');
+initUserChip();
+initPortalLiveFeed();
+
+supabaseClient.auth.getSession().then(({ data: { session } }) => {
+  if (!session) return;
+  document.getElementById('acctEmail').textContent = session.user.email || '—';
+  document.getElementById('acctLastLogin').textContent = session.user.last_sign_in_at
+    ? new Date(session.user.last_sign_in_at).toLocaleString('th-TH')
+    : '—';
+});
+
+// ---------- Chat & Voice settings (localStorage — หน้า Virtual Tour อ่านค่าพวกนี้) ----------
+(function () {
+    const chatCb = document.getElementById('cv-chat-enabled');
+    const voiceCb = document.getElementById('cv-voice-enabled');
+    const volRange = document.getElementById('cv-voice-volume');
+    const volVal = document.getElementById('cv-volume-val');
+    const status = document.getElementById('cv-save-status');
+
+    chatCb.checked = localStorage.getItem('aec_chat_enabled') !== 'off';
+    voiceCb.checked = localStorage.getItem('aec_voice_enabled') !== 'off';
+    const savedVol = parseInt(localStorage.getItem('aec_voice_volume') ?? '80', 10);
+    volRange.value = isNaN(savedVol) ? 80 : savedVol;
+    volVal.textContent = volRange.value + '%';
+
+    let statusTimer = null;
+    function saved() {
+        status.textContent = '✓ บันทึกแล้ว — มีผลกับแท็บ Virtual Tour ที่เปิดอยู่ทันที';
+        clearTimeout(statusTimer);
+        statusTimer = setTimeout(() => { status.textContent = ''; }, 2500);
+    }
+    chatCb.addEventListener('change', () => { localStorage.setItem('aec_chat_enabled', chatCb.checked ? 'on' : 'off'); saved(); });
+    voiceCb.addEventListener('change', () => { localStorage.setItem('aec_voice_enabled', voiceCb.checked ? 'on' : 'off'); saved(); });
+    volRange.addEventListener('input', () => { volVal.textContent = volRange.value + '%'; });
+    volRange.addEventListener('change', () => { localStorage.setItem('aec_voice_volume', volRange.value); saved(); });
+})();
+</script>
+</body>
+</html>

@@ -14,6 +14,21 @@ async function initUserChip(){
   if (avatarEl) avatarEl.textContent = email.slice(0, 2).toUpperCase();
 }
 
+// เรียกจากหน้าฝั่งแอดมินเท่านั้น (Dashboard/Analytics/WorkOrder/Emergency/Reports/
+// Settings/Digitaltwin/Avatar เวอร์ชันแอดมิน) — user ทั่วไปที่หลุดเข้ามาทาง URL ตรงๆ
+// (ไม่ได้ผ่าน RoleRedirect ตอน login) จะถูกเด้งกลับไปพอร์ทัลของตัวเองแทน
+async function guardAdminOnly(){
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  if (!session) { window.location.href = 'Login.html'; return; }
+  try {
+    const res = await fetch('/api/me/role', { headers: { Authorization: 'Bearer ' + session.access_token } });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok || !body.isAdmin) window.location.href = 'PublicHome.html';
+  } catch (err) {
+    // เช็คสิทธิ์ไม่ได้ (เช่น server สะดุดชั่วคราว) — ปล่อยผ่านไปก่อน ดีกว่าเด้ง admin จริงออกจากหน้าตัวเอง
+  }
+}
+
 // ============================================================
 // นาฬิกา + สภาพอากาศจริง ที่มุมล่างซ้ายของ sidebar (.sb-weather)
 // ทำงานอัตโนมัติทุกหน้าที่มี widget นี้ — เดิมเป็นค่า hardcode "20 May 2025"

@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<title>AEC VERSE — About Us</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="public-portal.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="supabaseClient.js"></script>
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<script src="public-portal.js"></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="portal-sidebar"></aside>
+
+    <div class="page">
+    <div class="topbar" id="portal-topbar"></div>
+
+      <div class="page-content">
+
+      <div class="sec">
+        <div class="sec-head"><span class="sec-num">05</span><span class="sec-tag">ABOUT US</span></div>
+        <div class="sec-title">เกี่ยวกับ AEC VERSE</div>
+        <div class="sec-sub" style="margin-bottom:16px;">Smart Biogas Digital Twin — เครื่องมือแสดงภาพมาตรฐานความปลอดภัยโรงไฟฟ้าก๊าซชีวภาพ</div>
+
+        <div class="grid g8-4">
+          <div class="card">
+            <div style="font-weight:800;font-size:14px;margin-bottom:10px;">วัตถุประสงค์ของโครงการ</div>
+            <p style="color:var(--text-1);font-size:12.5px;line-height:1.75;margin-bottom:14px;">
+              AEC VERSE พัฒนาขึ้นเพื่อใช้เป็นเครื่องมือแสดงภาพ (Visualized Standard) ของข้อกำหนดในมาตรฐานความปลอดภัยโรงไฟฟ้าก๊าซชีวภาพ
+              ให้ผู้ปฏิบัติงานและผู้เยี่ยมชมสามารถมองเห็นและเข้าใจกฎระเบียบเชิงพื้นที่ ระยะห่างปลอดภัย และตำแหน่งการติดตั้งอุปกรณ์ความปลอดภัยได้ทันที
+              โดยไม่ต้องตีความจากเอกสารข้อความล้วน
+            </p>
+            <p style="color:var(--text-1);font-size:12.5px;line-height:1.75;margin-bottom:14px;">
+              ระบบจำลองสภาพแวดล้อมเสมือนจริง (Metaverse) นี้ประกอบด้วยแบบจำลอง 3 มิติของโรงงาน ระบบผู้เล่นหลายคนแบบเรียลไทม์
+              และข้อมูลเซนเซอร์จำลอง (IoT Telemetry) เพื่อให้ประสบการณ์ใกล้เคียงกับการเดินสำรวจโรงงานจริงมากที่สุด
+            </p>
+            <div class="hr"></div>
+            <div style="font-weight:800;font-size:13px;margin-bottom:10px;">ฟีเจอร์หลัก</div>
+            <div class="grid g2">
+              <div style="display:flex;gap:10px;align-items:flex-start;"><span style="font-size:18px;">🧭</span><div><b style="font-size:12px;">Virtual Tour</b><div style="color:var(--text-2);font-size:11px;">เดินสำรวจด้วย avatar พร้อมแชท/วอยซ์แชท</div></div></div>
+              <div style="display:flex;gap:10px;align-items:flex-start;"><span style="font-size:18px;">🗺️</span><div><b style="font-size:12px;">Digital Twin</b><div style="color:var(--text-2);font-size:11px;">มุมมองข้อมูลเรียลไทม์แบบ read-only</div></div></div>
+              <div style="display:flex;gap:10px;align-items:flex-start;"><span style="font-size:18px;">🛡️</span><div><b style="font-size:12px;">Safety Layers</b><div style="color:var(--text-2);font-size:11px;">Ex-Zone / ระยะร่น / รัศมีฟ้าผ่า</div></div></div>
+              <div style="display:flex;gap:10px;align-items:flex-start;"><span style="font-size:18px;">📘</span><div><b style="font-size:12px;">Knowledge Check</b><div style="color:var(--text-2);font-size:11px;">แบบทดสอบความพร้อมก่อนเข้าพื้นที่</div></div></div>
+            </div>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:14px;">
+            <div class="card">
+              <div style="font-weight:800;font-size:13px;margin-bottom:12px;">Plant Address</div>
+              <div style="font-size:12.5px;color:var(--text-1);line-height:1.6;">
+                AEC VERSE Biogas Plant<br>Nakhon Ratchasima, Thailand
+              </div>
+              <div class="hr"></div>
+              <div class="row" style="display:flex;justify-content:space-between;font-size:11px;padding:5px 0;color:var(--text-1);"><span>Phone</span><b style="color:var(--text-0);">+66 44 000 000</b></div>
+              <div class="row" style="display:flex;justify-content:space-between;font-size:11px;padding:5px 0;color:var(--text-1);"><span>Email</span><b style="color:var(--text-0);">info@aecverse.com</b></div>
+              <div class="row" style="display:flex;justify-content:space-between;font-size:11px;padding:5px 0;color:var(--text-1);"><span>Hours</span><b style="color:var(--text-0);">Mon–Fri 08:00–17:00</b></div>
+            </div>
+            <div class="card">
+              <div style="font-weight:800;font-size:13px;margin-bottom:10px;">อ้างอิงมาตรฐาน</div>
+              <div style="color:var(--text-2);font-size:11.5px;line-height:1.7;">
+                เนื้อหาความปลอดภัยในระบบอ้างอิงตาม (ร่าง) มาตรฐานความปลอดภัยโรงไฟฟ้าก๊าซชีวภาพ — ผ่านการประเมินความเที่ยงตรงเชิงเนื้อหา (IOC) โดยผู้เชี่ยวชาญ เพื่อยืนยันว่าแบบจำลองสื่อความหมายตรงตามข้อกำหนดจริง
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      </div>
+    </div>
+  </div>
+
+<script>
+renderPortalSidebar('PublicAboutUs.html');
+renderPortalTopbar('About Us', '(เกี่ยวกับเรา)');
+initUserChip();
+initPortalLiveFeed();
+</script>
+</body>
+</html>
