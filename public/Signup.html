@@ -619,7 +619,7 @@
           return;
         }
 
-        window.location.href = 'Dashboard.html';
+        window.location.href = 'RoleRedirect.html';
       } catch (err) {
         showError(err && err.message);
       } finally {
@@ -632,7 +632,7 @@
       try {
         const { error } = await supabaseClient.auth.signInWithOAuth({
           provider,
-          options: { redirectTo: window.location.origin + '/Dashboard.html' }
+          options: { redirectTo: window.location.origin + '/RoleRedirect.html' }
         });
         if (error) showError(error.message);
       } catch (err) {

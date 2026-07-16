@@ -8,6 +8,7 @@
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
         <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
         <script src="supabaseClient.js"></script>
+        <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
         <style>
         /* ==================== AEC VERSE — shared design system ==================== */
         :root{
@@ -243,6 +244,37 @@
         .badge.b-blue{background:var(--blue-soft);color:var(--blue);}
         .badge.b-purple{background:var(--purple-soft);color:var(--purple);}
         .badge.b-gray{background:#1c2531;color:var(--text-1);}
+
+        /* ---------- User Management (Usermanagement.html design) ---------- */
+        .filter-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:2px;padding:0 0 14px 0;}
+        .filter-row .search-box{width:240px;}
+        .filter-select{background:var(--panel-2);border:1px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text-1);font-size:12.5px;display:flex;align-items:center;gap:8px;cursor:pointer;}
+        .filter-select-wrap{position:relative;}
+        .filter-dropdown{position:absolute;top:calc(100% + 6px);left:0;z-index:20;min-width:150px;background:var(--panel-2);border:1px solid var(--border);border-radius:9px;padding:5px;box-shadow:0 10px 24px rgba(0,0,0,0.4);display:none;}
+        .filter-dropdown.open{display:block;}
+        .filter-option{padding:9px 10px;border-radius:6px;font-size:12.5px;color:var(--text-1);cursor:pointer;display:flex;align-items:center;gap:8px;}
+        .filter-option:hover{background:var(--panel-3, var(--panel-2));color:var(--text-0);}
+        .filter-option.selected{color:var(--text-0);font-weight:700;background:var(--blue-soft);}
+        .presence{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;}
+        .presence .p-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;}
+        .presence.online{color:var(--green);}
+        .presence.online .p-dot{background:var(--green);box-shadow:0 0 6px var(--green);}
+        .presence.offline{color:var(--text-2);}
+        .presence.offline .p-dot{background:var(--text-2);}
+        .presence-sub{font-size:10px;color:var(--text-2);margin-top:1px;}
+        .user-cell{display:flex;align-items:center;gap:10px;cursor:pointer;}
+        .user-cell .u-ic{width:34px;height:34px;border-radius:50%;background:var(--panel-2);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--text-1);flex-shrink:0;}
+        .user-cell .u-name{font-weight:700;font-size:12.5px;}
+        .user-cell .u-sub{font-size:10.5px;color:var(--text-2);}
+        .ud-avatar{width:56px;height:56px;border-radius:50%;background:var(--panel-2);margin-bottom:10px;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800;color:var(--text-1);}
+        .ud-row{display:flex;justify-content:space-between;font-size:12px;padding:9px 0;border-bottom:1px solid var(--border-soft);}
+        .ud-row .ud-k{color:var(--text-2);}
+        .ud-row .ud-v{color:var(--text-0);font-weight:600;text-align:right;}
+        .ud-btn{width:100%;display:flex;align-items:center;justify-content:center;gap:8px;padding:11px;border-radius:9px;font-size:12.5px;font-weight:700;cursor:pointer;margin-top:10px;border:1px solid var(--border);background:var(--panel-2);color:var(--text-0);}
+        .ud-btn.promote{color:var(--blue);border-color:rgba(59,130,246,.3);background:rgba(59,130,246,.08);}
+        .ud-btn.demote{color:var(--red);border-color:rgba(239,68,68,.35);background:rgba(239,68,68,.12);}
+        .g8-4{grid-template-columns:8fr 4fr;}
+        @media (max-width:1100px){ .g8-4{grid-template-columns:1fr;} }
         .dot-sm{width:6px;height:6px;border-radius:50%;background:currentColor;}
 
         /* ---------- buttons ---------- */
@@ -433,9 +465,55 @@
             </div>
 
             <div id="settings-panel-usermgmt" class="settings-panel" style="display:none;">
-                <div class="card">
-                    <div class="card-head"><h3>User Management</h3><span class="muted" id="usermgmt-status" style="color:var(--text-2);font-size:11.5px;">กำลังโหลด...</span></div>
-                    <div id="usermgmt-body"></div>
+                <div class="grid g8-4">
+                    <div class="card" style="padding:0;">
+                        <div style="padding:16px 16px 0 16px;display:flex;justify-content:space-between;align-items:center;">
+                            <h3 style="margin:0;font-size:13px;font-weight:700;">User Management</h3>
+                            <span style="color:var(--text-2);font-size:11.5px;" id="usermgmt-status">กำลังโหลด...</span>
+                        </div>
+                        <div class="filter-row" style="padding:12px 16px 0 16px;">
+                            <div class="search-box"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg><input id="umSearch" placeholder="Search users..." oninput="filterUmTable()"></div>
+                            <div class="filter-select-wrap">
+                                <div class="filter-select" id="umStatusFilter" onclick="toggleUmDropdown()">
+                                    <span id="umStatusFilterLabel">All Status</span>
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+                                </div>
+                                <div class="filter-dropdown" id="umStatusDropdown">
+                                    <div class="filter-option selected" onclick="setUmStatusFilter('all', this)">🔘 All Status</div>
+                                    <div class="filter-option" onclick="setUmStatusFilter('online', this)">🟢 Online now</div>
+                                    <div class="filter-option" onclick="setUmStatusFilter('offline', this)">⚪ Offline</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div style="overflow-x:auto;padding:12px 4px 8px;">
+                            <table id="umTable">
+                                <thead><tr><th>User</th><th>Email</th><th>Status</th><th>Last Sign In</th><th style="text-align:right;">Actions</th></tr></thead>
+                                <tbody id="umTableBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div style="font-size:11.5px;color:var(--text-2);font-weight:700;margin-bottom:14px;">User Detail</div>
+                        <div id="umDetailEmpty" style="color:var(--text-2);font-size:12px;text-align:center;padding:30px 0;">คลิกผู้ใช้ในตารางเพื่อดูรายละเอียด</div>
+                        <div id="umDetailBody" style="display:none;">
+                            <div style="display:flex;align-items:center;gap:14px;">
+                                <div class="ud-avatar" id="udAvatar" style="margin-bottom:0;flex-shrink:0;">?</div>
+                                <div>
+                                    <div style="font-size:15px;font-weight:800;word-break:break-all;" id="udName">—</div>
+                                    <span class="badge b-gray" id="udRoleBadge" style="margin-top:6px;">User</span>
+                                </div>
+                            </div>
+                            <div class="hr"></div>
+                            <div class="ud-row"><span class="ud-k">Email</span><span class="ud-v" id="udEmail">—</span></div>
+                            <div class="ud-row"><span class="ud-k">สถานะ</span><span class="ud-v" id="udStatus">—</span></div>
+                            <div class="ud-row"><span class="ud-k">เข้าสู่ระบบล่าสุด</span><span class="ud-v" id="udLastSignIn">—</span></div>
+                            <div class="ud-row"><span class="ud-k">สมัครสมาชิกเมื่อ</span><span class="ud-v" id="udCreated">—</span></div>
+                            <button class="ud-btn promote" id="udPromoteBtn" style="display:none;" onclick="setRole(currentDetailUserId, 'admin')">⬆️ ตั้งเป็น Admin</button>
+                            <button class="ud-btn demote" id="udDemoteBtn" style="display:none;" onclick="setRole(currentDetailUserId, 'user')">⬇️ ถอด Admin</button>
+                            <div id="udBootstrapNote" style="display:none;color:var(--text-2);font-size:11px;margin-top:10px;text-align:center;">Admin ตั้งต้นจาก environment variable — แก้ผ่านหน้านี้ไม่ได้</div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -504,6 +582,7 @@
             window.location.href = 'Login.html';
         }
         initUserChip();
+  guardAdminOnly();
 
         document.getElementById('settings-tabs').addEventListener('click', e => {
             const tabEl = e.target.closest('.tab');
@@ -546,11 +625,99 @@
             ? '<span class="badge b-purple">Admin</span>'
             : '<span class="badge b-gray">User</span>';
 
+        // ============================================================
+        // USER MANAGEMENT — รายชื่อผู้ใช้ทั้งหมด (Supabase Admin API) +
+        // สถานะออนไลน์จริง (นับจาก socket ที่ต่ออยู่ตอนนี้ — ดู server.js
+        // presence Map) อัปเดตสดผ่าน socket 'presence_snapshot' โดยไม่ต้อง
+        // กดรีเฟรชเอง
+        // ============================================================
+        let umUsers = [];
+        let umMeId = null;
+        let umStatusFilter = 'all';
+        let currentDetailUserId = null;
+
+        function toggleUmDropdown() {
+            document.getElementById('umStatusFilter').classList.toggle('open');
+            document.getElementById('umStatusDropdown').classList.toggle('open');
+        }
+        function setUmStatusFilter(value, el) {
+            umStatusFilter = value;
+            document.getElementById('umStatusFilterLabel').textContent = value === 'all' ? 'All Status' : (value === 'online' ? 'Online now' : 'Offline');
+            document.querySelectorAll('#umStatusDropdown .filter-option').forEach(o => o.classList.remove('selected'));
+            el.classList.add('selected');
+            document.getElementById('umStatusFilter').classList.remove('open');
+            document.getElementById('umStatusDropdown').classList.remove('open');
+            renderUmTable();
+        }
+        document.addEventListener('click', e => {
+            const wrap = document.querySelector('#settings-panel-usermgmt .filter-select-wrap');
+            if (wrap && !wrap.contains(e.target)) {
+                document.getElementById('umStatusFilter')?.classList.remove('open');
+                document.getElementById('umStatusDropdown')?.classList.remove('open');
+            }
+        });
+        function filterUmTable() { renderUmTable(); }
+
+        function relativeLastSeen(ts) {
+            if (!ts) return '—';
+            const diffMin = Math.round((Date.now() - ts) / 60000);
+            if (diffMin < 1) return 'เมื่อสักครู่';
+            if (diffMin < 60) return diffMin + ' นาทีที่แล้ว';
+            const diffHr = Math.round(diffMin / 60);
+            if (diffHr < 24) return diffHr + ' ชม.ที่แล้ว';
+            return Math.round(diffHr / 24) + ' วันที่แล้ว';
+        }
+
+        function renderUmTable() {
+            const q = (document.getElementById('umSearch')?.value || '').toLowerCase();
+            const tbody = document.getElementById('umTableBody');
+            const rows = umUsers.filter(u => {
+                const matchesSearch = !q || u.email.toLowerCase().includes(q);
+                const matchesStatus = umStatusFilter === 'all' || (umStatusFilter === 'online' ? u.online : !u.online);
+                return matchesSearch && matchesStatus;
+            });
+            tbody.innerHTML = rows.map(u => {
+                const isMe = u.id === umMeId;
+                const lastSignIn = u.lastSignInAt ? new Date(u.lastSignInAt).toLocaleDateString('th-TH') : '—';
+                const presenceHtml = u.online
+                    ? '<span class="presence online"><span class="p-dot"></span>Online now</span>'
+                    : '<span class="presence offline"><span class="p-dot"></span>Offline</span>' + (u.lastSeenAt ? '<div class="presence-sub">last seen ' + relativeLastSeen(u.lastSeenAt) + '</div>' : '');
+                return '<tr onclick="showUserDetail(\'' + u.id + '\')" style="cursor:pointer;">' +
+                    '<td><div class="user-cell"><div class="u-ic">' + (u.email || '?').slice(0, 2).toUpperCase() + '</div><div><div class="u-name">' + u.email + (isMe ? ' <span style="color:var(--text-2);font-weight:400;">(คุณ)</span>' : '') + '</div><div class="u-sub">' + roleBadge(u.role) + '</div></div></div></td>' +
+                    '<td>' + u.email + '</td>' +
+                    '<td>' + presenceHtml + '</td>' +
+                    '<td>' + lastSignIn + '</td>' +
+                    '<td style="text-align:right;color:var(--text-2);">→</td></tr>';
+            }).join('');
+            document.getElementById('usermgmt-status').textContent = rows.length + ' / ' + umUsers.length + ' บัญชี';
+        }
+
+        window.showUserDetail = function (userId) {
+            const u = umUsers.find(x => x.id === userId);
+            if (!u) return;
+            currentDetailUserId = userId;
+            document.getElementById('umDetailEmpty').style.display = 'none';
+            document.getElementById('umDetailBody').style.display = 'block';
+            document.getElementById('udAvatar').textContent = (u.email || '?').slice(0, 2).toUpperCase();
+            document.getElementById('udName').textContent = u.email;
+            const roleBadgeEl = document.getElementById('udRoleBadge');
+            roleBadgeEl.className = 'badge ' + (u.role === 'admin' ? 'b-purple' : 'b-gray');
+            roleBadgeEl.textContent = u.role === 'admin' ? 'Admin' : 'User';
+            document.getElementById('udEmail').textContent = u.email;
+            document.getElementById('udStatus').innerHTML = u.online ? '<span class="presence online"><span class="p-dot"></span>Online now</span>' : '<span class="presence offline"><span class="p-dot"></span>Offline' + (u.lastSeenAt ? ' · ' + relativeLastSeen(u.lastSeenAt) : '') + '</span>';
+            document.getElementById('udLastSignIn').textContent = u.lastSignInAt ? new Date(u.lastSignInAt).toLocaleString('th-TH') : '—';
+            document.getElementById('udCreated').textContent = u.createdAt ? new Date(u.createdAt).toLocaleString('th-TH') : '—';
+
+            const promoteBtn = document.getElementById('udPromoteBtn'), demoteBtn = document.getElementById('udDemoteBtn'), bootstrapNote = document.getElementById('udBootstrapNote');
+            promoteBtn.style.display = demoteBtn.style.display = bootstrapNote.style.display = 'none';
+            if (u.isBootstrapAdmin) bootstrapNote.style.display = 'block';
+            else if (u.role === 'admin') demoteBtn.style.display = 'flex';
+            else promoteBtn.style.display = 'flex';
+        };
+
         async function loadUserManagement(){
             const statusEl = document.getElementById('usermgmt-status');
-            const bodyEl = document.getElementById('usermgmt-body');
             statusEl.textContent = 'กำลังโหลด...';
-            bodyEl.innerHTML = '';
 
             const { data: { session } } = await supabaseClient.auth.getSession();
             if (!session) { statusEl.textContent = 'ไม่พบ session'; return; }
@@ -560,34 +727,16 @@
                     headers: { Authorization: 'Bearer ' + session.access_token }
                 });
                 const data = await res.json();
+                if (!res.ok) { statusEl.textContent = ''; document.getElementById('umTableBody').innerHTML = '<tr><td colspan="5" style="color:var(--red);">' + (data.error || 'เกิดข้อผิดพลาด') + '</td></tr>'; return; }
 
-                if (!res.ok) {
-                    statusEl.textContent = '';
-                    bodyEl.innerHTML = '<p style="color:var(--red);">' + (data.error || 'เกิดข้อผิดพลาด') + '</p>';
-                    return;
-                }
-
-                statusEl.textContent = data.users.length + ' บัญชี';
-                bodyEl.innerHTML = '<table><thead><tr><th>Email</th><th>Role</th><th>Last Sign In</th><th></th></tr></thead><tbody>' +
-                    data.users.map(u => {
-                        const isMe = u.id === data.me;
-                        const lastSignIn = u.lastSignInAt ? new Date(u.lastSignInAt).toLocaleString('th-TH') : '—';
-                        let actionCell;
-                        if (u.isBootstrapAdmin) {
-                            actionCell = '<span style="color:var(--text-2);font-size:11px;">Admin ตั้งต้น (env var)</span>';
-                        } else if (u.role === 'admin') {
-                            actionCell = '<button class="btn btn-sm" onclick="setRole(\'' + u.id + '\',\'user\')">ถอด Admin</button>';
-                        } else {
-                            actionCell = '<button class="btn btn-sm primary" onclick="setRole(\'' + u.id + '\',\'admin\')">ตั้งเป็น Admin</button>';
-                        }
-                        return '<tr><td class="strong">' + u.email + (isMe ? ' <span style="color:var(--text-2);">(คุณ)</span>' : '') + '</td>' +
-                            '<td>' + roleBadge(u.role) + '</td>' +
-                            '<td>' + lastSignIn + '</td>' +
-                            '<td style="text-align:right;">' + actionCell + '</td></tr>';
-                    }).join('') + '</tbody></table>';
+                umUsers = data.users;
+                umMeId = data.me;
+                renderUmTable();
+                if (currentDetailUserId) showUserDetail(currentDetailUserId);
+                subscribeAdminPresence(session.access_token);
             } catch (err) {
                 statusEl.textContent = '';
-                bodyEl.innerHTML = '<p style="color:var(--red);">เชื่อมต่อเซิร์ฟเวอร์ไม่ได้</p>';
+                document.getElementById('umTableBody').innerHTML = '<tr><td colspan="5" style="color:var(--red);">เชื่อมต่อเซิร์ฟเวอร์ไม่ได้</td></tr>';
             }
         }
 
@@ -602,6 +751,28 @@
             const data = await res.json();
             if (!res.ok) { alert(data.error || 'เกิดข้อผิดพลาด'); return; }
             loadUserManagement();
+        }
+
+        // ---------- real-time presence: subscribe once, merge updates into the table ----------
+        let umPresenceSocket = null;
+        function subscribeAdminPresence(token) {
+            if (umPresenceSocket) return; // subscribe ครั้งเดียวพอ ต่อเนื่องไปตลอดอายุหน้า
+            const SERVER = (location.hostname === 'localhost' || location.hostname === '127.0.0.1') ? location.origin : 'https://aecmultiplayertest-production.up.railway.app';
+            umPresenceSocket = io(SERVER, { transports: ['websocket', 'polling'], auth: { token, role: 'watcher' } });
+            umPresenceSocket.on('connect', () => umPresenceSocket.emit('subscribe_admin_presence'));
+            umPresenceSocket.on('presence_snapshot', snap => {
+                let changed = false;
+                umUsers.forEach(u => {
+                    const p = snap[u.id];
+                    const online = !!(p && p.online);
+                    const lastSeenAt = p ? p.lastSeenAt : u.lastSeenAt;
+                    if (u.online !== online || u.lastSeenAt !== lastSeenAt) { u.online = online; u.lastSeenAt = lastSeenAt; changed = true; }
+                });
+                if (changed) {
+                    renderUmTable();
+                    if (currentDetailUserId) showUserDetail(currentDetailUserId);
+                }
+            });
         }
         </script>
         </body>

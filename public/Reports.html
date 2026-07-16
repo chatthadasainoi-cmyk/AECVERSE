@@ -459,10 +459,13 @@
         window.location.href = 'Login.html';
     }
     initUserChip();
+  guardAdminOnly();
 
-    (function(){
+    (async function(){
         const SERVER = window.RAILWAY_SERVER_URL || window.location.origin;
-        const socket = io(SERVER, { transports: ['websocket', 'polling'] });
+        let token = null;
+        try { const { data: { session } } = await supabaseClient.auth.getSession(); token = session?.access_token || null; } catch (err) {}
+        const socket = io(SERVER, { transports: ['websocket', 'polling'], auth: { token, role: 'watcher' } });
 
         let latestPlantData = null;
         let latestWorkflowDb = {};

@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<title>AEC VERSE — กำลังเข้าสู่ระบบ...</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="supabaseClient.js"></script>
+<style>
+  html,body{margin:0;padding:0;height:100%;background:#080b11;color:#9aa7b8;
+    font-family:"Inter",system-ui,-apple-system,sans-serif;
+    display:flex;align-items:center;justify-content:center;font-size:13px;}
+  .spinner{width:28px;height:28px;border-radius:50%;border:3px solid #1c2531;border-top-color:#3b82f6;
+    animation:spin .8s linear infinite;margin:0 auto 14px auto;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .box{text-align:center;}
+</style>
+</head>
+<body>
+  <div class="box">
+    <div class="spinner"></div>
+    <div>กำลังพาคุณไปยังหน้าที่เหมาะสม...</div>
+  </div>
+<script>
+// จุดตัดสินใจเดียวสำหรับทุก flow การล็อกอิน (email/password, OAuth, สมัครสมาชิก, รีเซ็ตรหัสผ่าน)
+// เพื่อไม่ให้ logic เช็ค role ซ้ำกันหลายที่ — เช็คสิทธิ์แล้วพา:
+//   admin        -> Dashboard.html (แอปแอดมินเดิม)
+//   user ทั่วไป  -> PublicHome.html (พอร์ทัลผู้ใช้ใหม่)
+(async function () {
+  try {
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    if (!session) { window.location.href = 'Login.html'; return; }
+
+    const res = await fetch('/api/me/role', { headers: { Authorization: 'Bearer ' + session.access_token } });
+    const body = await res.json().catch(() => ({}));
+    window.location.href = (res.ok && body.isAdmin) ? 'Dashboard.html' : 'PublicHome.html';
+  } catch (err) {
+    // เช็ค role ไม่สำเร็จ (เช่น server ยังไม่พร้อม) -> ให้เข้าพอร์ทัลผู้ใช้ทั่วไปไว้ก่อน ปลอดภัยกว่าเดาเป็น admin
+    window.location.href = 'PublicHome.html';
+  }
+})();
+</script>
+</body>
+</html>

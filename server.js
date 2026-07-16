@@ -54,15 +54,31 @@ async function requireAdmin(req, res, next) {
 app.get('/api/admin/users', requireAdmin, async (req, res) => {
     const { data, error } = await supabaseAdmin.auth.admin.listUsers();
     if (error) return res.status(500).json({ error: error.message });
-    const users = data.users.map(u => ({
-        id: u.id,
-        email: u.email,
-        role: isAdminUser(u) ? 'admin' : 'user',
-        isBootstrapAdmin: ADMIN_BOOTSTRAP_EMAILS.includes((u.email || '').toLowerCase()),
-        createdAt: u.created_at,
-        lastSignInAt: u.last_sign_in_at
-    }));
+    const users = data.users.map(u => {
+        const p = presence.get(u.id);
+        return {
+            id: u.id,
+            email: u.email,
+            role: isAdminUser(u) ? 'admin' : 'user',
+            isBootstrapAdmin: ADMIN_BOOTSTRAP_EMAILS.includes((u.email || '').toLowerCase()),
+            createdAt: u.created_at,
+            lastSignInAt: u.last_sign_in_at,
+            // สถานะออนไลน์จริง — มาจาก socket ที่ต่ออยู่ตอนนี้ (ดูหมายเหตุที่ presence Map ด้านล่าง)
+            online: !!(p && p.socketCount > 0),
+            lastSeenAt: p ? p.lastSeenAt : null
+        };
+    });
     res.json({ users, me: req.adminUser.id });
+});
+
+// เช็คสิทธิ์ของ "ตัวเอง" เท่านั้น (ไม่ต้องมี service role key) — ใช้ตอน login
+// เพื่อตัดสินใจว่าจะพาไปหน้า Dashboard (admin) หรือ PublicHome (user ทั่วไป)
+app.get('/api/me/role', async (req, res) => {
+    const token = (req.headers.authorization || '').replace(/^Bearer /, '');
+    if (!token) return res.status(401).json({ error: 'ไม่พบ token การเข้าสู่ระบบ' });
+    const { data, error } = await supabaseVerify.auth.getUser(token);
+    if (error || !data.user) return res.status(401).json({ error: 'Token ไม่ถูกต้องหรือหมดอายุ' });
+    res.json({ isAdmin: isAdminUser(data.user) });
 });
 
 app.post('/api/admin/users/:id/role', requireAdmin, async (req, res) => {
@@ -88,6 +104,36 @@ app.post('/api/admin/users/:id/role', requireAdmin, async (req, res) => {
 // ============================================================
 const players = {};
 const COLORS = ['#ff6b6b', '#ffd93d', '#6bcb77', '#4d96ff', '#c77dff', '#ff9f43', '#00d2d3', '#ff6b9d'];
+
+// ============================================================
+// PRESENCE — "ออนไลน์ตอนนี้" ของบัญชีทั้งระบบ (กว้างกว่าผู้เล่นในโลก 3D)
+// นับทุก socket ที่ยืนยันตัวตนได้ (role player เสมอมี token, role watcher
+// นับด้วยถ้าหน้านั้นส่ง token มา เช่น Analytics/Reports/Emergency/Public*)
+// เก็บแค่ใน memory — รีสตาร์ท server แล้วค่อยนับใหม่ ไม่ต้อง persist
+// ============================================================
+const presence = new Map(); // userId -> { socketCount, lastSeenAt }
+const adminPresenceSockets = new Set(); // socket ของแอดมินที่เปิดหน้า Settings ไว้ (รับอัปเดตสด)
+
+function presenceSnapshot() {
+    const out = {};
+    presence.forEach((p, uid) => { out[uid] = { online: p.socketCount > 0, lastSeenAt: p.lastSeenAt }; });
+    return out;
+}
+function broadcastPresence() {
+    const snap = presenceSnapshot();
+    adminPresenceSockets.forEach(id => {
+        const s = io.sockets.sockets.get(id);
+        if (s) s.emit('presence_snapshot', snap); else adminPresenceSockets.delete(id);
+    });
+}
+function touchPresence(userId, delta) {
+    if (!userId) return;
+    const p = presence.get(userId) || { socketCount: 0, lastSeenAt: Date.now() };
+    p.socketCount = Math.max(0, p.socketCount + delta);
+    p.lastSeenAt = Date.now();
+    presence.set(userId, p);
+    broadcastPresence();
+}
 
 let currentModelUrl = null;
 let currentModelName = null;
@@ -131,6 +177,44 @@ async function persistSceneState() {
         if (!res.ok) console.warn('[PERSIST] บันทึก state ไม่สำเร็จ:', (await res.text()).slice(0, 200));
     } catch (err) { console.warn('[PERSIST] บันทึก state ไม่สำเร็จ:', err.message); }
 }
+
+// ============================================================
+// KNOWLEDGE CHECK SETTINGS — เปิด/ปิดแบบทดสอบ + หัวข้อการอบรม (ตั้งค่าโดยแอดมิน)
+// เดิมเก็บใน localStorage ของเบราว์เซอร์ผู้เยี่ยมชมแต่ละคน ทำให้แอดมินเปิดสวิตช์
+// ในเครื่องตัวเองแล้วผู้ใช้คนอื่นไม่เห็นการเปลี่ยนแปลง — ย้ายมาเก็บฝั่ง server จริง
+// ============================================================
+const KNOWLEDGE_SETTINGS_FILE = IS_PRODUCTION ? 'knowledge_settings_v1.json' : 'knowledge_settings_dev.json';
+let knowledgeSettings = { enabled: false, topic: 'ความปลอดภัยเบื้องต้นในโรงงานก๊าซชีวภาพ (Biogas Plant Basic Safety)' };
+
+async function loadKnowledgeSettings() {
+    try {
+        const res = await fetch(`${SUPABASE_URL}/storage/v1/object/public/models/${KNOWLEDGE_SETTINGS_FILE}?t=${Date.now()}`);
+        if (!res.ok) return;
+        const s = await res.json();
+        if (s && typeof s === 'object') knowledgeSettings = { enabled: !!s.enabled, topic: s.topic || knowledgeSettings.topic };
+    } catch (err) { console.warn('[KNOWLEDGE] โหลดการตั้งค่าไม่สำเร็จ:', err.message); }
+}
+async function persistKnowledgeSettings() {
+    try {
+        await fetch(`${SUPABASE_URL}/storage/v1/object/models/${KNOWLEDGE_SETTINGS_FILE}`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'application/json', 'x-upsert': 'true' },
+            body: JSON.stringify(knowledgeSettings)
+        });
+    } catch (err) { console.warn('[KNOWLEDGE] บันทึกการตั้งค่าไม่สำเร็จ:', err.message); }
+}
+loadKnowledgeSettings();
+
+app.get('/api/knowledge-settings', (req, res) => res.json(knowledgeSettings));
+app.post('/api/knowledge-settings', requireAdmin, async (req, res) => {
+    const { enabled, topic } = req.body || {};
+    knowledgeSettings = {
+        enabled: !!enabled,
+        topic: (typeof topic === 'string' && topic.trim()) ? topic.trim().slice(0, 200) : knowledgeSettings.topic
+    };
+    await persistKnowledgeSettings();
+    res.json({ success: true, settings: knowledgeSettings });
+});
 
 async function loadSceneState() {
     try {
@@ -315,6 +399,16 @@ io.on('connection', socket => {
     const user = socket.data.user;
     const isPlayer = socket.data.role === 'player';
 
+    // ทุก socket ที่ยืนยันตัวตนได้นับเป็น "ออนไลน์" ไม่ว่าจะเป็น player หรือ watcher
+    if (user) touchPresence(user.id, +1);
+
+    // แอดมินที่เปิดหน้า Settings ไว้ ขอรับอัปเดตสถานะออนไลน์แบบ real-time
+    socket.on('subscribe_admin_presence', () => {
+        if (!user || !isAdminUser(user)) return;
+        adminPresenceSockets.add(socket.id);
+        socket.emit('presence_snapshot', presenceSnapshot());
+    });
+
     // ---------- WATCHER: รับ state อย่างเดียว ไม่มีตัวละคร ----------
     if (!isPlayer) {
         console.log(`[+watcher] ${socket.id}`);
@@ -490,6 +584,8 @@ io.on('connection', socket => {
         const wasAdmin = admins.has(socket.id);
         delete players[socket.id];
         admins.delete(socket.id);
+        adminPresenceSockets.delete(socket.id);
+        if (user) touchPresence(user.id, -1);
         if (wasPlayer) io.emit('player_left', { id: socket.id });
         if (wasAdmin) io.emit('admin_presence', { adminCount: admins.size });
         io.emit('measure_cleared', { id: socket.id }); // เก็บกวาดเส้นวัดของคนที่ออกไป

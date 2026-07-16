@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<title>AEC VERSE — Home</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="public-portal.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="supabaseClient.js"></script>
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<script src="public-portal.js"></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="portal-sidebar"></aside>
+
+    <div class="page">
+    <div class="topbar" id="portal-topbar"></div>
+
+      <div class="page-content">
+
+      <div class="sec">
+        <div class="sec-head"><span class="sec-num">01</span><span class="sec-tag">HOME</span></div>
+        <div class="grid g8-4">
+          <div class="scene-box" style="padding:26px;">
+            <svg viewBox="0 0 900 230" width="100%" height="230" preserveAspectRatio="xMidYMax slice">
+              <defs>
+                <linearGradient id="skyg" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#0a1420"/><stop offset="100%" stop-color="#050a11"/>
+                </linearGradient>
+                <pattern id="pgrid" width="30" height="30" patternUnits="userSpaceOnUse">
+                  <path d="M30 0H0V30" fill="none" stroke="#0d1522" stroke-width="1"/>
+                </pattern>
+              </defs>
+              <rect width="900" height="230" fill="url(#skyg)"/>
+              <rect width="900" height="230" fill="url(#pgrid)"/>
+              <g fill="#1c2a3a">
+                <rect x="130" y="40" width="80" height="180" rx="8"/>
+                <ellipse cx="170" cy="40" rx="40" ry="14"/>
+                <path d="M300 230 L300 0 a115 115 0 0 1 230 0 L530 230 Z"/>
+                <ellipse cx="415" cy="0" rx="115" ry="28"/>
+                <path d="M500 230 L500 60 a85 85 0 0 1 170 0 L670 230 Z" opacity="0.85"/>
+                <rect x="710" y="80" width="90" height="150" rx="8"/>
+                <ellipse cx="755" cy="80" rx="45" ry="14"/>
+              </g>
+              <g stroke="#26384c" stroke-width="3" fill="none" opacity="0.7"><path d="M170 190 H755"/></g>
+              <circle cx="415" cy="-20" r="6" fill="#4ade80" opacity="0.7"/>
+            </svg>
+            <div style="position:absolute;top:26px;left:26px;max-width:420px;">
+              <div style="font-size:24px;font-weight:800;font-family:'Sora',sans-serif;">Welcome to<br><span style="color:var(--green);">AEC VERSE</span></div>
+              <div style="color:var(--green);font-weight:700;font-size:13px;margin:8px 0 6px 0;">Virtual Factory Experience</div>
+              <p style="color:var(--text-1);font-size:12px;line-height:1.6;margin:0 0 16px 0;">สำรวจโรงงานผลิตก๊าซชีวภาพของเราผ่านทัวร์เสมือนจริง 3 มิติและเทคโนโลยี Digital Twin</p>
+              <div style="display:flex;gap:10px;">
+                <button class="btn primary btn-sm" onclick="location.href='PublicVirtualTour.html'">Start Virtual Tour →</button>
+                <button class="btn outline btn-sm" onclick="location.href='PublicDigitalTwin.html'">🗺️ Digital Twin</button>
+              </div>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            <div class="card" style="display:flex;gap:10px;align-items:center;padding:12px;cursor:pointer;" onclick="location.href='PublicVirtualTour.html'"><span style="font-size:18px;">🏭</span><div><div style="font-weight:700;font-size:12px;">3D Factory</div><div style="color:var(--text-2);font-size:10.5px;">Explore</div></div></div>
+            <div class="card" style="display:flex;gap:10px;align-items:center;padding:12px;cursor:pointer;" onclick="location.href='PublicVirtualTour.html'"><span style="font-size:18px;">🧭</span><div><div style="font-weight:700;font-size:12px;">Walk-through</div><div style="color:var(--text-2);font-size:10.5px;">With avatar</div></div></div>
+            <div class="card" style="display:flex;gap:10px;align-items:center;padding:12px;cursor:pointer;" onclick="location.href='PublicDigitalTwin.html'"><span style="font-size:18px;">🗺️</span><div><div style="font-weight:700;font-size:12px;">Factory Map</div><div style="color:var(--text-2);font-size:10.5px;">Navigate</div></div></div>
+            <div class="card" style="display:flex;gap:10px;align-items:center;padding:12px;cursor:pointer;" onclick="location.href='PublicKnowledge.html'"><span style="font-size:18px;">📘</span><div><div style="font-weight:700;font-size:12px;">Knowledge Check</div><div style="color:var(--text-2);font-size:10.5px;">Before you visit</div></div></div>
+          </div>
+        </div>
+        <div style="margin-top:16px;">
+          <div class="grid g4">
+            <div class="stat">
+              <div class="ic" style="background:var(--green-soft);">🧪</div>
+              <div><div class="lbl">CH4 Production</div><div class="val" id="homeCh4">— %</div><div class="delta" id="homeCh4Delta">live</div></div>
+            </div>
+            <div class="stat">
+              <div class="ic" style="background:var(--blue-soft);">💨</div>
+              <div><div class="lbl">Biogas Flow Rate</div><div class="val" id="homeFlow">— m³/h</div><div class="delta" id="homeFlowDelta">live</div></div>
+            </div>
+            <div class="stat">
+              <div class="ic" style="background:var(--yellow-soft);">⚙</div>
+              <div><div class="lbl">Plant Efficiency</div><div class="val" id="homeEff">— %</div><div class="delta" id="homeEffDelta">live</div></div>
+            </div>
+            <div class="stat">
+              <div class="ic" style="background:var(--teal-soft);">🔔</div>
+              <div><div class="lbl">Active Alerts</div><div class="val" id="homeAlerts">—</div><div class="delta" id="homeAlertsSub">live</div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid g2" style="margin-top:16px;">
+          <div class="card">
+            <div style="font-weight:800;font-size:13.5px;margin-bottom:2px;">Explore Our Plant</div>
+            <div style="color:var(--text-2);font-size:11px;margin-bottom:12px;">อุปกรณ์และพื้นที่จริงในแบบจำลอง 3D — จำแนกตามมาตรฐานความปลอดภัยโรงไฟฟ้าก๊าซชีวภาพ</div>
+            <div style="display:flex;flex-wrap:wrap;gap:7px;">
+              <span class="badge blue">🟤 Digester Tank</span>
+              <span class="badge blue">🔴 Manhole / PVRV</span>
+              <span class="badge blue">🟠 Flame Arrester</span>
+              <span class="badge blue">🟠 Piping</span>
+              <span class="badge blue">🔵 LOTO Points</span>
+              <span class="badge blue">🟢 ESD / Fire Equipment</span>
+              <span class="badge blue">🟢 Genset / Flare</span>
+            </div>
+            <a href="PublicDigitalTwin.html" style="display:inline-block;margin-top:14px;color:var(--green);font-size:11.5px;font-weight:700;">View All Areas →</a>
+          </div>
+          <div class="card">
+            <div style="font-weight:800;font-size:13.5px;margin-bottom:2px;">Production Process</div>
+            <div style="color:var(--text-2);font-size:11px;margin-bottom:12px;">From waste to clean energy</div>
+            <div class="step-flow">
+              <div class="step"><div class="ic">♻️</div><div class="t">Waste</div></div><div class="arrow">→</div>
+              <div class="step"><div class="ic">🧫</div><div class="t">Digestion</div></div><div class="arrow">→</div>
+              <div class="step"><div class="ic">💨</div><div class="t">Gas Cleaning</div></div><div class="arrow">→</div>
+              <div class="step"><div class="ic">⚡</div><div class="t">Power Generation</div></div><div class="arrow">→</div>
+              <div class="step"><div class="ic">🔌</div><div class="t">Electricity</div></div><div class="arrow">→</div>
+              <div class="step"><div class="ic">🌱</div><div class="t">By-Product</div></div>
+            </div>
+            <a href="PublicProcess.html" class="btn primary btn-sm" style="margin-top:14px;">Learn More Process</a>
+          </div>
+        </div>
+      </div>
+
+      <div class="sec">
+        <div class="sec-head"><span class="sec-num">02</span><span class="sec-tag">VIRTUAL TOUR</span></div>
+        <div class="sec-title" style="font-size:15px;">Virtual Tour</div>
+        <div class="sec-sub" style="margin-bottom:14px;">เดินสำรวจโรงงานด้วยตัวละครของคุณเองแบบเรียลไทม์ ร่วมกับผู้ใช้คนอื่นในโลกเดียวกัน</div>
+        <div class="grid g8-4">
+          <div class="scene-box" style="height:220px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;cursor:pointer;" onclick="location.href='PublicVirtualTour.html'">
+            <span style="font-size:40px;">🧭</span>
+            <span style="color:var(--text-1);font-size:12.5px;font-weight:700;">คลิกเพื่อเริ่ม Virtual Tour</span>
+          </div>
+          <div class="card">
+            <div style="font-weight:800;font-size:12.5px;margin-bottom:10px;">Highlights</div>
+            <div style="display:flex;flex-direction:column;gap:2px;font-size:11.5px;">
+              <div style="padding:7px 8px;background:var(--green-soft);border-radius:7px;color:var(--green);font-weight:700;">Avatar ปรับแต่งได้ (หน้า Avatar)</div>
+              <div style="padding:7px 8px;color:var(--text-1);">แชทและวอยซ์แชทกับผู้ใช้อื่น</div>
+              <div style="padding:7px 8px;color:var(--text-1);">ป้ายเตือนความปลอดภัยแบบ real-time</div>
+              <div style="padding:7px 8px;color:var(--text-1);">Ex-Zone / ระยะร่น / รัศมีฟ้าผ่า</div>
+            </div>
+            <button class="btn btn-sm" style="width:100%;margin-top:10px;" onclick="location.href='PublicVirtualTour.html'">Start Tour →</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="sec">
+        <div class="sec-head"><span class="sec-num">03</span><span class="sec-tag">DIGITAL TWIN</span></div>
+        <div class="sec-title" style="font-size:15px;">DIGITAL TWIN</div>
+        <div class="sec-sub" style="margin-bottom:14px;">ดูข้อมูลโรงงานแบบ read-only เรียลไทม์ ไม่มีตัวละคร เหมาะสำหรับติดตามสถานะ</div>
+        <div class="grid g8-4">
+          <div class="scene-box" style="height:180px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;cursor:pointer;" onclick="location.href='PublicDigitalTwin.html'">
+            <span style="font-size:36px;">🗺️</span>
+            <span style="color:var(--text-1);font-size:12.5px;font-weight:700;">เปิด Digital Twin</span>
+          </div>
+          <div class="card">
+            <div style="font-weight:800;font-size:12.5px;">TANK-01 ตอนนี้</div>
+            <div style="display:flex;flex-direction:column;gap:6px;font-size:11px;margin-top:10px;">
+              <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-2);">Pressure</span><span id="homeTankPressure">—</span></div>
+              <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-2);">Temperature</span><span id="homeTankTemp">—</span></div>
+              <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-2);">Status</span><span class="badge green" id="homeTankBadge">Normal</span></div>
+            </div>
+            <button class="btn primary btn-sm" style="width:100%;margin-top:12px;" onclick="location.href='PublicDigitalTwin.html'">View Details</button>
+          </div>
+        </div>
+      </div>
+
+      </div>
+    </div>
+  </div>
+
+<script>
+renderPortalSidebar('PublicHome.html');
+renderPortalTopbar('Home', '(หน้าหลัก)');
+initUserChip();
+initPortalLiveFeed();
+
+let prevCh4 = null, prevFlow = null, prevEff = null;
+function deltaTxt(el, current, prev, unit) {
+    if (prev === null) { el.textContent = 'live'; el.className = 'delta'; return; }
+    const diff = current - prev, up = diff >= 0;
+    el.className = 'delta' + (up ? '' : ' down');
+    el.textContent = (up ? '▲ ' : '▼ ') + Math.abs(diff).toFixed(1) + unit;
+}
+window.addEventListener('portal:plant_update', e => {
+    const data = e.detail;
+    if (!data || !data.plant) return;
+    document.getElementById('homeCh4').textContent = data.plant.ch4Percent + ' %';
+    deltaTxt(document.getElementById('homeCh4Delta'), data.plant.ch4Percent, prevCh4, '%'); prevCh4 = data.plant.ch4Percent;
+    document.getElementById('homeFlow').textContent = data.plant.flowRate + ' m³/h';
+    deltaTxt(document.getElementById('homeFlowDelta'), data.plant.flowRate, prevFlow, ' m³/h'); prevFlow = data.plant.flowRate;
+    document.getElementById('homeEff').textContent = data.plant.efficiency + ' %';
+    deltaTxt(document.getElementById('homeEffDelta'), data.plant.efficiency, prevEff, '%'); prevEff = data.plant.efficiency;
+
+    if (data.tank1) {
+        document.getElementById('homeTankPressure').textContent = data.tank1.pressure + ' bar';
+        document.getElementById('homeTankTemp').textContent = data.tank1.temperature + ' °C';
+    }
+    if (Array.isArray(data.alerts)) {
+        const active = data.alerts.filter(a => a.level !== 'normal');
+        const critical = active.some(a => a.level === 'critical');
+        document.getElementById('homeAlerts').textContent = active.length || '0';
+        document.getElementById('homeAlertsSub').textContent = active.length ? (critical ? 'ต้องตรวจสอบด่วน' : 'มีคำเตือน') : 'ทุกระบบปกติ';
+        const badge = document.getElementById('homeTankBadge');
+        badge.textContent = critical ? 'Critical' : active.length ? 'Warning' : 'Normal';
+        badge.className = 'badge ' + (critical ? 'red' : active.length ? 'yellow' : 'green');
+    }
+});
+</script>
+</body>
+</html>
