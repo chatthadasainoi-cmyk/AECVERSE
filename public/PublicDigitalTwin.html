@@ -22,7 +22,7 @@
 
       <div class="card" style="margin-bottom:14px;padding:0;">
         <!-- ?mode=viewer = ไม่มี avatar/ตัวละคร เหมาะกับการดูข้อมูลอย่างเดียว -->
-        <iframe src="index.html?mode=viewer" title="Digital Twin Map View" loading="lazy"
+        <iframe id="twinFrame" title="Digital Twin Map View" loading="lazy"
           allow="fullscreen" allowfullscreen
           style="width:100%;height:84vh;min-height:600px;border:0;border-radius:12px;background:#080b11;display:block;"></iframe>
       </div>
@@ -58,6 +58,14 @@ renderPortalTopbar('Digital Twin', '(แผนที่โรงงาน)');
 initUserChip();
 initPortalLiveFeed();
 markTaskDone('digitalTwinVisited');
+
+// ส่งต่อ ?focus=<typeKey> จาก URL ของหน้านี้ (เช่น สแกน QR code) เข้าไปให้ index.html
+// ในเฟรม เพื่อให้กล้องโฟกัสไปที่อุปกรณ์นั้นอัตโนมัติ
+(function () {
+  const focus = new URLSearchParams(location.search).get('focus');
+  const frame = document.getElementById('twinFrame');
+  frame.src = 'index.html?mode=viewer' + (focus ? ('&focus=' + encodeURIComponent(focus)) : '');
+})();
 </script>
 </body>
 </html>

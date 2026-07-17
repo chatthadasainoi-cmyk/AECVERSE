@@ -27,7 +27,7 @@
         <div class="card" style="padding:0;">
           <!-- allow="microphone; autoplay; fullscreen" จำเป็น: ไม่มีแล้วเบราว์เซอร์จะบล็อกทั้ง
                การเปิดไมค์และการเล่นเสียงเพื่อนภายใน iframe (voice chat จะเงียบสนิท) -->
-          <iframe src="index.html" title="Virtual Tour" loading="lazy"
+          <iframe id="tourFrame" title="Virtual Tour" loading="lazy"
             allow="microphone; autoplay; fullscreen" allowfullscreen
             style="width:100%;height:84vh;min-height:620px;border:0;border-radius:12px;background:#080b11;display:block;"></iframe>
         </div>
@@ -43,6 +43,14 @@ renderPortalTopbar('Virtual Tour', '(ทัวร์เสมือนจริ�
 initUserChip();
 initPortalLiveFeed();
 markTaskDone('virtualTourVisited');
+
+// ส่งต่อ ?focus=<typeKey> จาก URL ของหน้านี้ (เช่น สแกน QR code) เข้าไปให้ index.html
+// ในเฟรม เพื่อให้กล้อง/ตัวละครโฟกัสไปที่อุปกรณ์นั้นอัตโนมัติ
+(function () {
+  const focus = new URLSearchParams(location.search).get('focus');
+  const frame = document.getElementById('tourFrame');
+  frame.src = 'index.html' + (focus ? ('?focus=' + encodeURIComponent(focus)) : '');
+})();
 </script>
 </body>
 </html>
