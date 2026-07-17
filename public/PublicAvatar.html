@@ -149,6 +149,7 @@ async function saveAvatar(){
   try {
     const { error } = await supabaseClient.auth.updateUser({ data: { avatar: { model: selected.model, anim: selected.anim, color: selected.color } } });
     if (error) throw error;
+    await markTaskDone('avatarSaved');
     status.style.color = 'var(--green)';
     status.textContent = '✓ บันทึกแล้ว — รีเฟรชหน้า Virtual Tour เพื่อสวมร่างใหม่';
   } catch (err) {
