@@ -424,6 +424,17 @@
             </div>
         </div>
 
+        <div class="card" style="margin-top:14px;">
+            <div class="card-head">
+                <h3>🤖 AI Predictive Maintenance</h3>
+                <span class="muted">ทำนายวันที่เหลือก่อนถึงจุดวิกฤต จากแนวโน้มค่าสึกหรอจริง (Linear Regression)</span>
+            </div>
+            <table>
+                <thead><tr><th>Equipment</th><th>Wear</th><th>Risk</th><th>Predicted Rate</th><th>Days to Maintenance</th><th>Source</th></tr></thead>
+                <tbody id="ai-maintenance-body"><tr><td colspan="6" style="text-align:center;color:var(--text-2);">กำลังรอข้อมูล...</td></tr></tbody>
+            </table>
+        </div>
+
         </div>
         </div>
     </div>
@@ -462,7 +473,34 @@
             </svg>`;
         }
 
+        function riskBadge(risk){
+            const map = { critical: 'b-red', high: 'b-red', medium: 'b-yellow', low: 'b-blue' };
+            const label = { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low' };
+            return '<span class="badge ' + (map[risk] || 'b-gray') + '">' + (label[risk] || risk) + '</span>';
+        }
+
+        function renderAiMaintenance(equipmentList){
+            const body = document.getElementById('ai-maintenance-body');
+            if (!Array.isArray(equipmentList) || !equipmentList.length) return;
+            const sorted = equipmentList.slice().sort((a, b) => a.daysToMaintenance - b.daysToMaintenance);
+            body.innerHTML = sorted.map(e => {
+                const ai = e.aiPrediction || {};
+                const sourceBadge = ai.predicted
+                    ? '<span class="badge b-purple">🤖 AI Prediction</span>'
+                    : '<span class="badge b-gray">Baseline (' + (ai.samples || 0) + '/5 samples)</span>';
+                return '<tr>' +
+                    '<td class="strong">' + e.id + ' (' + e.name + ')</td>' +
+                    '<td>' + e.wear.toFixed(1) + '%</td>' +
+                    '<td>' + riskBadge(e.risk) + '</td>' +
+                    '<td>' + (ai.dailyRate !== undefined ? ai.dailyRate.toFixed(3) : '—') + ' %/วัน</td>' +
+                    '<td>' + e.daysToMaintenance + ' วัน</td>' +
+                    '<td>' + sourceBadge + '</td>' +
+                '</tr>';
+            }).join('');
+        }
+
         socket.on('plant_update', data => {
+            renderAiMaintenance(data.equipment);
             const hist = data.history;
             const pressures = hist.map(h => h.pressure).filter(v => v !== undefined);
             const ch4s = hist.map(h => h.ch4Percent).filter(v => v !== undefined);

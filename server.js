@@ -282,16 +282,52 @@ function riskLevel(wear) {
     return 'low';
 }
 
+const TICK_INTERVAL_MS = 4000;
+const TICKS_PER_DAY = 86400000 / TICK_INTERVAL_MS;
+const MIN_TREND_SAMPLES = 10; // ต้องมีข้อมูลอย่างน้อยเท่านี้ก่อนไว้ใจ regression แทนค่าตั้งต้น (น้อยกว่านี้ noise ของ simulation ยังกลบสัญญาณจริง)
+
+// หา slope ของ wear ต่อ tick ด้วย least-squares แล้วแปลงเป็น "ต่อวัน"
+// เพื่อทำนายวันที่เหลือก่อนถึงจุดวิกฤต จากแนวโน้มข้อมูลจริงแทนตัวเลข dailyRate ที่ตั้งไว้ตายตัว
+function predictWearTrend(wearHistory, fallbackDailyRate) {
+    const n = wearHistory.length;
+    if (n < MIN_TREND_SAMPLES) {
+        return { dailyRate: fallbackDailyRate, predicted: false, samples: n };
+    }
+    const xMean = (n - 1) / 2;
+    const yMean = wearHistory.reduce((a, b) => a + b, 0) / n;
+    let num = 0, den = 0;
+    for (let i = 0; i < n; i++) {
+        const dx = i - xMean;
+        num += dx * (wearHistory[i] - yMean);
+        den += dx * dx;
+    }
+    const slopePerTick = den === 0 ? 0 : num / den;
+    const rawDailyRate = slopePerTick * TICKS_PER_DAY;
+    // การจำลอง sensor มี noise แบบสุ่มปนอยู่ในทุก tick ซึ่งบางครั้งมีขนาดใกล้เคียงหรือมากกว่าสัญญาณจริง
+    // (เช่น TANK-01 สึกหรอ 0.01/tick แต่ noise ผันได้ถึง ±0.03/tick) ทำให้ slope ที่ประเมินได้เพี้ยนสุดขั้วได้
+    // จำกัดค่าที่ทำนายได้ไว้ในช่วง 0.2x–5x ของค่าฐาน กันไม่ให้ตัวเลขที่โชว์ผู้ใช้ดูไร้เหตุผล (เช่น 1 วันทั้งที่สึกหรอแค่ 20%)
+    const dailyRate = clamp(rawDailyRate, fallbackDailyRate * 0.2, fallbackDailyRate * 5);
+    return { dailyRate, predicted: true, samples: n };
+}
+
 function computePlantSnapshot() {
-    const equipmentList = Object.entries(equipment).map(([id, e]) => ({
-        id,
-        name: e.name,
-        wear: Math.round(e.wear * 10) / 10,
-        risk: riskLevel(e.wear),
-        failureProb: Math.round(e.wear),
-        daysToMaintenance: Math.max(1, Math.round((100 - e.wear) / e.dailyRate)),
-        wearHistory: e.wearHistory
-    })).sort((a, b) => b.wear - a.wear);
+    const equipmentList = Object.entries(equipment).map(([id, e]) => {
+        const trend = predictWearTrend(e.wearHistory, e.dailyRate);
+        return {
+            id,
+            name: e.name,
+            wear: Math.round(e.wear * 10) / 10,
+            risk: riskLevel(e.wear),
+            failureProb: Math.round(e.wear),
+            daysToMaintenance: Math.max(1, Math.round((100 - e.wear) / trend.dailyRate)),
+            aiPrediction: {
+                predicted: trend.predicted,
+                dailyRate: Math.round(trend.dailyRate * 1000) / 1000,
+                samples: trend.samples
+            },
+            wearHistory: e.wearHistory
+        };
+    }).sort((a, b) => b.wear - a.wear);
 
     const t1 = equipment['TANK-01'];
     const alerts = [];
