@@ -9,6 +9,7 @@
         <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
         <script src="supabaseClient.js"></script>
         <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
         <style>
         /* ==================== AEC VERSE — shared design system ==================== */
         :root{
@@ -274,6 +275,15 @@
         .ud-btn.promote{color:var(--blue);border-color:rgba(59,130,246,.3);background:rgba(59,130,246,.08);}
         .ud-btn.demote{color:var(--red);border-color:rgba(239,68,68,.35);background:rgba(239,68,68,.12);}
         .g8-4{grid-template-columns:8fr 4fr;}
+
+        /* ---------- QR Code generator (System Configuration tab) ---------- */
+        .qr-field-label{display:block;font-size:11.5px;color:var(--text-1);font-weight:600;margin-bottom:6px;}
+        .qr-select{width:100%;background:var(--panel-2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--text-0);font-size:12.5px;font-family:inherit;outline:none;}
+        .qr-select:focus{border-color:var(--blue);}
+        .qr-preview-box{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:20px;background:var(--panel-2);border:1px dashed var(--border);border-radius:10px;min-height:260px;}
+        .qr-preview-box canvas, .qr-preview-box img{border-radius:8px;background:#fff;padding:8px;}
+        .qr-url-box{font-family:monospace;font-size:11px;color:var(--text-2);word-break:break-all;text-align:center;background:var(--panel-2);padding:8px 10px;border-radius:6px;max-width:100%;}
+        .qr-empty-hint{color:var(--text-2);font-size:11.5px;text-align:center;}
         @media (max-width:1100px){ .g8-4{grid-template-columns:1fr;} }
         .dot-sm{width:6px;height:6px;border-radius:50%;background:currentColor;}
 
@@ -567,7 +577,45 @@
                 </div>
             </div>
 
-            <div id="settings-panel-sysconfig" class="settings-panel" style="display:none;"><div class="card"><p style="color:var(--text-2);">ฟีเจอร์นี้ยังไม่พร้อมใช้งาน</p></div></div>
+            <div id="settings-panel-sysconfig" class="settings-panel" style="display:none;">
+                <div class="grid g8-4">
+                    <div class="card">
+                        <div class="card-head"><h3>QR Code สำหรับติดหน้าอุปกรณ์จริง</h3></div>
+                        <p style="color:var(--text-2);font-size:12px;line-height:1.7;margin:0 0 16px 0;">
+                            เลือกประเภทอุปกรณ์และหน้าที่ต้องการ แล้วพิมพ์ QR Code ไปติดที่จุดนั้นในโรงงานจริง —
+                            ผู้เยี่ยมชมสแกนแล้วแอปจะพาเข้าไปยังจุดนั้นในแบบจำลอง 3D ให้อัตโนมัติ (ถ้ายังไม่ได้ล็อกอิน จะพาไป login ก่อนแล้วกลับมาที่จุดเดิมให้เอง)
+                        </p>
+                        <label class="qr-field-label">ประเภทอุปกรณ์</label>
+                        <select id="qrTypeSelect" class="qr-select" style="margin-bottom:14px;" onchange="renderQrPreview()"></select>
+
+                        <label class="qr-field-label">เปิดในหน้า</label>
+                        <select id="qrPageSelect" class="qr-select" style="margin-bottom:18px;" onchange="renderQrPreview()">
+                            <option value="PublicVirtualTour.html">Virtual Tour (มี Avatar เดินสำรวจได้)</option>
+                            <option value="PublicDigitalTwin.html">Digital Twin (ดูข้อมูลอย่างเดียว ไม่มี Avatar)</option>
+                        </select>
+
+                        <div class="qr-preview-box" id="qrPreviewBox">
+                            <div class="qr-empty-hint">เลือกประเภทอุปกรณ์ด้านบนเพื่อสร้าง QR Code</div>
+                        </div>
+
+                        <div style="display:flex;gap:10px;margin-top:14px;">
+                            <button class="btn btn-sm" style="flex:1;" onclick="downloadQrPng()">⬇️ ดาวน์โหลด PNG</button>
+                            <button class="btn btn-sm primary" style="flex:1;" onclick="printQr()">🖨️ พิมพ์</button>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-head"><h3>วิธีใช้งาน</h3></div>
+                        <div style="display:flex;flex-direction:column;gap:12px;font-size:12px;color:var(--text-1);line-height:1.7;">
+                            <div>1. เลือกประเภทอุปกรณ์ที่ต้องการติด QR ให้ตรงกับจุดจริงในโรงงาน</div>
+                            <div>2. เลือกว่าจะให้เปิดหน้า Virtual Tour หรือ Digital Twin</div>
+                            <div>3. ดาวน์โหลด/พิมพ์ QR แล้วนำไปติดที่จุดนั้นจริง</div>
+                            <div>4. ผู้เยี่ยมชมสแกนด้วยกล้องมือถือ ระบบจะล็อกอิน (ถ้ายังไม่ได้ล็อกอิน) แล้วพากล้อง/ตัวละครไปโฟกัสที่ชิ้นส่วนประเภทนั้นให้อัตโนมัติ</div>
+                            <div class="hr" style="margin:4px 0;"></div>
+                            <div style="color:var(--text-2);font-size:11px;">หมายเหตุ: ถ้าโมเดลที่โหลดอยู่ตอนนั้นไม่มีชิ้นส่วนประเภทที่ระบุ ระบบจะเข้าหน้าปกติเฉยๆ โดยไม่ error</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
             <div id="settings-panel-psm" class="settings-panel" style="display:none;"><div class="card"><p style="color:var(--text-2);">ฟีเจอร์นี้ยังไม่พร้อมใช้งาน</p></div></div>
             <div id="settings-panel-notifications" class="settings-panel" style="display:none;"><div class="card"><p style="color:var(--text-2);">ฟีเจอร์นี้ยังไม่พร้อมใช้งาน</p></div></div>
             <div id="settings-panel-backup" class="settings-panel" style="display:none;"><div class="card"><p style="color:var(--text-2);">ฟีเจอร์นี้ยังไม่พร้อมใช้งาน</p></div></div>
@@ -774,6 +822,76 @@
                 }
             });
         }
+
+        // ============================================================
+        // QR CODE GENERATOR — พิมพ์ QR ติดหน้าอุปกรณ์จริง สแกนแล้วพาเข้า Virtual
+        // Tour/Digital Twin โฟกัสตรงจุด (อ่าน ?focus=<typeKey> ใน index.html)
+        // รายการประเภทอุปกรณ์คัดลอกมาจาก TYPE_OPTIONS ใน app.js — ถ้าเพิ่ม type
+        // ใหม่ในนั้น ต้องมาเพิ่มที่นี่ด้วยเพื่อให้เลือกสร้าง QR ได้ครบ
+        // ============================================================
+        const QR_TYPE_OPTIONS = [
+            { key: 'tank', icon: '🟤', label: 'บ่อหมัก / Digester Tank' },
+            { key: 'manhole', icon: '🔴', label: 'ปากบ่อ Manhole' },
+            { key: 'pvrv', icon: '🔴', label: 'วาล์วนิรภัย PVRV' },
+            { key: 'flame_arrester', icon: '🟠', label: 'Flame Arrester' },
+            { key: 'pipe', icon: '🟠', label: 'ท่อก๊าซชีวภาพ' },
+            { key: 'lightning_rod', icon: '🟠', label: 'เสาล่อฟ้า' },
+            { key: 'loto', icon: '🔵', label: 'จุด LOTO / MCC' },
+            { key: 'ppe_checkpoint', icon: '🔵', label: 'จุดตรวจ PPE' },
+            { key: 'esd', icon: '🟢', label: 'ปุ่มฉุกเฉิน ESD' },
+            { key: 'utilization', icon: '🟢', label: 'อาคารเครื่องยนต์ Genset' },
+            { key: 'flare', icon: '🟢', label: 'หอเผาก๊าซ Flare' },
+            { key: 'water_seal', icon: '🟠', label: 'ชุดดักไฟย้อน Water Seal' },
+            { key: 'gas_detector', icon: '🟢', label: 'เครื่องตรวจจับก๊าซถาวร' },
+            { key: 'fire_equipment', icon: '🟢', label: 'อุปกรณ์ดับเพลิง' }
+        ];
+        (function initQrTypeSelect() {
+            const sel = document.getElementById('qrTypeSelect');
+            if (!sel) return;
+            sel.innerHTML = '<option value="">— เลือกประเภทอุปกรณ์ —</option>' +
+                QR_TYPE_OPTIONS.map(o => `<option value="${o.key}">${o.icon} ${o.label}</option>`).join('');
+        })();
+
+        let qrInstance = null;
+        window.renderQrPreview = function () {
+            const box = document.getElementById('qrPreviewBox');
+            const typeKey = document.getElementById('qrTypeSelect').value;
+            const page = document.getElementById('qrPageSelect').value;
+            if (!typeKey) {
+                box.innerHTML = '<div class="qr-empty-hint">เลือกประเภทอุปกรณ์ด้านบนเพื่อสร้าง QR Code</div>';
+                qrInstance = null;
+                return;
+            }
+            const url = window.location.origin + '/' + page + '?focus=' + encodeURIComponent(typeKey);
+            box.innerHTML = '<div id="qrCanvasWrap"></div><div class="qr-url-box">' + url + '</div>';
+            qrInstance = new QRCode(document.getElementById('qrCanvasWrap'), {
+                text: url, width: 200, height: 200,
+                colorDark: '#000000', colorLight: '#ffffff'
+            });
+        };
+
+        window.downloadQrPng = function () {
+            const img = document.querySelector('#qrCanvasWrap img');
+            const canvas = document.querySelector('#qrCanvasWrap canvas');
+            const src = img ? img.src : (canvas ? canvas.toDataURL('image/png') : null);
+            if (!src) { alert('กรุณาเลือกประเภทอุปกรณ์ก่อนดาวน์โหลด'); return; }
+            const typeKey = document.getElementById('qrTypeSelect').value;
+            const a = document.createElement('a');
+            a.href = src;
+            a.download = 'qr-' + typeKey + '.png';
+            document.body.appendChild(a); a.click(); a.remove();
+        };
+
+        window.printQr = function () {
+            if (!qrInstance) { alert('กรุณาเลือกประเภทอุปกรณ์ก่อนพิมพ์'); return; }
+            const img = document.querySelector('#qrCanvasWrap img');
+            const canvas = document.querySelector('#qrCanvasWrap canvas');
+            const src = img ? img.src : (canvas ? canvas.toDataURL('image/png') : null);
+            const label = document.getElementById('qrTypeSelect').selectedOptions[0].textContent;
+            const w = window.open('', '_blank', 'width=420,height=520');
+            w.document.write('<html><head><title>Print QR — ' + label + '</title></head><body style="text-align:center;font-family:sans-serif;padding:24px;"><h3>' + label + '</h3><img src="' + src + '" style="width:280px;height:280px;"><script>window.onload=()=>{window.print();}<\/script></body></html>');
+            w.document.close();
+        };
         </script>
         </body>
         </html>

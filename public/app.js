@@ -700,6 +700,37 @@ function finalizeModelLoad(obj, opts) {
     buildPPEZones();
     syncSlidersWithModel();
     refreshTransformUiPermissions();
+    applyFocusFromUrl();
+}
+
+// ============================================================
+// 6.5 DEEP-LINK FOCUS — เปิดหน้าด้วย ?focus=<typeKey> (เช่น สแกน QR code ที่ติด
+// หน้าอุปกรณ์จริงในโรงงาน) ให้ระบบเลือก/โฟกัสกล้องไปที่ชิ้นส่วนประเภทนั้นอัตโนมัติ
+// ทันทีที่โมเดลโหลดเสร็จ — ทำครั้งเดียวต่อการเปิดหน้า (กันโฟกัสซ้ำตอนโมเดลรีโหลด)
+// ============================================================
+const FOCUS_TYPE_KEY = new URLSearchParams(window.location.search).get('focus');
+let focusApplied = false;
+function applyFocusFromUrl() {
+    if (focusApplied || !FOCUS_TYPE_KEY || !factoryModel) return;
+    let target = null;
+    factoryModel.traverse(child => {
+        if (target || !child.isMesh) return;
+        if (resolveTypeKey(child, child.name) === FOCUS_TYPE_KEY) target = child;
+    });
+    if (!target) return; // โมเดลนี้ไม่มีชิ้นส่วนประเภทที่ขอ — เงียบไว้ ไม่ error
+    focusApplied = true;
+    selectPart(target, '🔗 เปิดจากลิงก์ / QR Code');
+    const pos = new THREE.Vector3(); target.getWorldPosition(pos);
+    if (avatarModel) {
+        // โหมดมี avatar: พาตัวละครไปยืนใกล้ๆ จุดนั้น แทนการ teleport กล้องเฉยๆ
+        avatarModel.position.set(pos.x + 2, avatarModel.position.y, pos.z + 2);
+        resetCameraToAvatar();
+    } else {
+        // โหมด viewer (ไม่มี avatar): เลื่อนกล้อง/จุดหมุนไปที่ชิ้นส่วนนั้นตรงๆ
+        controls.target.copy(pos);
+        camera.position.set(pos.x + 4, pos.y + 3, pos.z + 4);
+        controls.update();
+    }
 }
 
 function disposeFactoryModel() {

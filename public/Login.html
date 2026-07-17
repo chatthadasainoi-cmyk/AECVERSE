@@ -624,7 +624,7 @@
           return;
         }
 
-        window.location.href = 'RoleRedirect.html';
+        window.location.href = 'RoleRedirect.html' + nextParamSuffix();
       } catch (err) {
         showError(err && err.message);
       } finally {
@@ -633,11 +633,18 @@
       }
     }
 
+    // ส่งต่อ ?next= (หน้าที่ผู้ใช้ตั้งใจจะไปก่อนโดนเด้งมา login เช่นจาก QR code) ไปให้
+    // RoleRedirect.html หลัง login สำเร็จ — ไม่งั้นสแกน QR แล้วต้องเข้าไปหาเองใหม่
+    function nextParamSuffix(){
+      const next = new URLSearchParams(location.search).get('next');
+      return next ? ('?next=' + encodeURIComponent(next)) : '';
+    }
+
     async function handleOAuth(provider){
       try {
         const { error } = await supabaseClient.auth.signInWithOAuth({
           provider,
-          options: { redirectTo: window.location.origin + '/RoleRedirect.html' }
+          options: { redirectTo: window.location.origin + '/RoleRedirect.html' + nextParamSuffix() }
         });
         if (error) showError(error.message);
       } catch (err) {

@@ -26,17 +26,30 @@
 // เพื่อไม่ให้ logic เช็ค role ซ้ำกันหลายที่ — เช็คสิทธิ์แล้วพา:
 //   admin        -> Dashboard.html (แอปแอดมินเดิม)
 //   user ทั่วไป  -> PublicHome.html (พอร์ทัลผู้ใช้ใหม่)
+// ยกเว้นมี ?next= แนบมา (เช่น สแกน QR code แล้วโดนเด้งมา login ก่อน) — พากลับไปหน้านั้นแทน
+
+// ตรวจ next ให้เป็นแค่ "ชื่อไฟล์ .html ในโฟลเดอร์เดียวกัน + query" เท่านั้น กัน open-redirect
+// (ห้ามเป็น URL เต็ม, ห้ามขึ้นต้นด้วย // หรือมี : เพราะนั่นคือพยายามชี้ออกนอกโดเมน)
+function safeNextPath(raw){
+  if (!raw) return null;
+  if (!/^[A-Za-z0-9_-]+\.html(\?[^\s]*)?$/.test(raw)) return null;
+  return raw;
+}
+
 (async function () {
+  const next = safeNextPath(new URLSearchParams(location.search).get('next'));
   try {
     const { data: { session } } = await supabaseClient.auth.getSession();
     if (!session) { window.location.href = 'Login.html'; return; }
 
     const res = await fetch('/api/me/role', { headers: { Authorization: 'Bearer ' + session.access_token } });
     const body = await res.json().catch(() => ({}));
-    window.location.href = (res.ok && body.isAdmin) ? 'Dashboard.html' : 'PublicHome.html';
+    const isAdmin = res.ok && body.isAdmin;
+    // next ใช้ได้เฉพาะฝั่ง user ทั่วไป (หน้า Public*) — admin ยังเข้าแอปแอดมินตามปกติเสมอ
+    window.location.href = next && !isAdmin ? next : (isAdmin ? 'Dashboard.html' : 'PublicHome.html');
   } catch (err) {
     // เช็ค role ไม่สำเร็จ (เช่น server ยังไม่พร้อม) -> ให้เข้าพอร์ทัลผู้ใช้ทั่วไปไว้ก่อน ปลอดภัยกว่าเดาเป็น admin
-    window.location.href = 'PublicHome.html';
+    window.location.href = next || 'PublicHome.html';
   }
 })();
 </script>
