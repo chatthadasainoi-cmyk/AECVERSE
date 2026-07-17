@@ -38,6 +38,21 @@ function isAdminUser(user) {
     return user.app_metadata?.role === 'admin';
 }
 
+// รายการ id งาน onboarding ที่นับ progress ได้ — ต้องตรงกับ ONBOARDING_TASKS ใน
+// public/public-portal.js เป๊ะๆ (ชื่อ id เท่านั้นพอ ไม่ต้องมี label/href/icon ฝั่งนี้)
+const ONBOARDING_TASK_IDS = ['avatarSaved', 'virtualTourVisited', 'digitalTwinVisited', 'knowledgeCheckPassed', 'settingsVisited'];
+
+function computeOnboardingProgress(user) {
+    const tasks = user.user_metadata?.onboardingTasks || {};
+    const done = ONBOARDING_TASK_IDS.filter(id => tasks[id]).length;
+    return {
+        done,
+        total: ONBOARDING_TASK_IDS.length,
+        percent: Math.round((done / ONBOARDING_TASK_IDS.length) * 100),
+        tasks: Object.fromEntries(ONBOARDING_TASK_IDS.map(id => [id, !!tasks[id]]))
+    };
+}
+
 async function requireAdmin(req, res, next) {
     if (!supabaseAdmin) return res.status(503).json({ error: 'Admin API ยังไม่ได้ตั้งค่า SUPABASE_SERVICE_ROLE_KEY บนเซิร์ฟเวอร์' });
     const token = (req.headers.authorization || '').replace(/^Bearer /, '');
@@ -65,7 +80,8 @@ app.get('/api/admin/users', requireAdmin, async (req, res) => {
             lastSignInAt: u.last_sign_in_at,
             // สถานะออนไลน์จริง — มาจาก socket ที่ต่ออยู่ตอนนี้ (ดูหมายเหตุที่ presence Map ด้านล่าง)
             online: !!(p && p.socketCount > 0),
-            lastSeenAt: p ? p.lastSeenAt : null
+            lastSeenAt: p ? p.lastSeenAt : null,
+            onboardingProgress: computeOnboardingProgress(u)
         };
     });
     res.json({ users, me: req.adminUser.id });
@@ -214,6 +230,68 @@ app.post('/api/knowledge-settings', requireAdmin, async (req, res) => {
     };
     await persistKnowledgeSettings();
     res.json({ success: true, settings: knowledgeSettings });
+});
+
+// ============================================================
+// KNOWLEDGE CHECK QUESTIONS — คลังคำถามแบบทดสอบ แก้ไขได้โดยแอดมินเอง
+// (แทนที่ QUESTIONS ที่เคย hardcode ไว้ในโค้ด client) เก็บ persist แบบเดียวกับ
+// knowledgeSettings ด้านบน
+// ============================================================
+const KNOWLEDGE_QUESTIONS_FILE = IS_PRODUCTION ? 'knowledge_questions_v1.json' : 'knowledge_questions_dev.json';
+const DEFAULT_KNOWLEDGE_QUESTIONS = [
+    { q: "ก๊าซชีวภาพ (Biogas) ที่ผลิตได้จากบ่อหมัก ส่วนใหญ่ประกอบด้วยก๊าซชนิดใด?", options: ["ก๊าซมีเทน (CH4)", "ก๊าซออกซิเจน (O2)", "ก๊าซไฮโดรเจน (H2)", "ไอน้ำ"], correct: 0, topic: "ความรู้พื้นฐานก๊าซชีวภาพ" },
+    { q: "ก่อนเข้าใกล้บริเวณที่มีความเสี่ยงก๊าซรั่ว ควรสวมใส่อุปกรณ์ใดเป็นอันดับแรก?", options: ["แว่นกันแดด", "เครื่องตรวจวัดก๊าซชนิดพกพา (4-Gas Detector)", "หมวกไหมพรม", "ไม่ต้องสวมใส่อะไร"], correct: 1, topic: "อุปกรณ์ป้องกันส่วนบุคคล (PPE)" },
+    { q: "หากพบว่าความดันในถังหมักก๊าซสูงเกินขีดจำกัดที่กำหนด ควรทำอย่างไรเป็นลำดับแรก?", options: ["เปิดฝาถังเองเพื่อระบายแรงดัน", "เพิกเฉยเพราะไม่ใช่หน้าที่ของตน", "แจ้งเจ้าหน้าที่ทันทีและปฏิบัติตามขั้นตอนฉุกเฉิน", "ถ่ายรูปโพสต์ลงโซเชียลมีเดีย"], correct: 2, topic: "ขั้นตอนฉุกเฉิน (Emergency Response)" },
+    { q: "ระบบ LOTO ที่ใช้ก่อนซ่อมบำรุงเครื่องจักร มีไว้เพื่อจุดประสงค์ใด?", options: ["ล็อกประตูอาคารสำนักงาน", "ป้องกันเครื่องจักรทำงานโดยไม่ตั้งใจขณะซ่อมบำรุง", "ชื่อโปรแกรมบันทึกข้อมูลการผลิต", "ชื่อทีมงานฝ่ายรักษาความปลอดภัย"], correct: 1, topic: "ความปลอดภัยงานบำรุงรักษา (LOTO)" },
+    { q: "ข้อใดคือพฤติกรรมที่ปลอดภัยที่สุดขณะเข้าเยี่ยมชมพื้นที่โรงงานจริง?", options: ["แยกออกจากกลุ่มเพื่อถ่ายรูปมุมสวย", "สัมผัสอุปกรณ์ทุกชิ้นที่พบเจอ", "เดินตามเส้นทางที่กำหนดและฟังคำแนะนำของเจ้าหน้าที่ตลอดเวลา", "สูบบุหรี่ในจุดที่ไม่มีป้ายห้ามชัดเจน"], correct: 2, topic: "พฤติกรรมความปลอดภัยทั่วไป" }
+];
+let knowledgeQuestions = DEFAULT_KNOWLEDGE_QUESTIONS;
+
+function sanitizeQuestions(list) {
+    if (!Array.isArray(list)) return null;
+    const clean = [];
+    for (const item of list) {
+        if (!item || typeof item.q !== 'string' || !item.q.trim()) continue;
+        const options = Array.isArray(item.options) ? item.options.map(o => String(o || '').trim()).filter(Boolean) : [];
+        if (options.length < 2) continue;
+        const correct = Number.isInteger(item.correct) && item.correct >= 0 && item.correct < options.length ? item.correct : 0;
+        clean.push({
+            q: item.q.trim().slice(0, 500),
+            options: options.slice(0, 6).map(o => o.slice(0, 200)),
+            correct,
+            topic: String(item.topic || '').trim().slice(0, 100) || 'ทั่วไป'
+        });
+    }
+    return clean.length ? clean : null;
+}
+
+async function loadKnowledgeQuestions() {
+    try {
+        const res = await fetch(`${SUPABASE_URL}/storage/v1/object/public/models/${KNOWLEDGE_QUESTIONS_FILE}?t=${Date.now()}`);
+        if (!res.ok) return;
+        const s = await res.json();
+        const clean = sanitizeQuestions(s);
+        if (clean) knowledgeQuestions = clean;
+    } catch (err) { console.warn('[KNOWLEDGE] โหลดคำถามไม่สำเร็จ:', err.message); }
+}
+async function persistKnowledgeQuestions() {
+    try {
+        await fetch(`${SUPABASE_URL}/storage/v1/object/models/${KNOWLEDGE_QUESTIONS_FILE}`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'application/json', 'x-upsert': 'true' },
+            body: JSON.stringify(knowledgeQuestions)
+        });
+    } catch (err) { console.warn('[KNOWLEDGE] บันทึกคำถามไม่สำเร็จ:', err.message); }
+}
+loadKnowledgeQuestions();
+
+app.get('/api/knowledge-questions', (req, res) => res.json(knowledgeQuestions));
+app.post('/api/knowledge-questions', requireAdmin, async (req, res) => {
+    const clean = sanitizeQuestions(req.body);
+    if (!clean) return res.status(400).json({ error: 'ต้องมีคำถามอย่างน้อย 1 ข้อ และแต่ละข้อต้องมีตัวเลือกอย่างน้อย 2 ตัวเลือกที่ไม่ว่าง' });
+    knowledgeQuestions = clean;
+    await persistKnowledgeQuestions();
+    res.json({ success: true, questions: knowledgeQuestions });
 });
 
 async function loadSceneState() {

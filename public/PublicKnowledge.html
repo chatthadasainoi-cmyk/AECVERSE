@@ -107,6 +107,15 @@ input::placeholder{color:var(--text-2);}
                   <button class="btn primary btn-sm" onclick="saveTopic()">บันทึก</button>
                 </div>
                 <div id="adminSaveStatus" style="font-size:11px;color:var(--green);margin-top:8px;min-height:14px;"></div>
+
+                <div class="hr" style="margin:14px 0;"></div>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                  <label class="field-label" style="margin:0;">คลังคำถามแบบทดสอบ (<span id="qBankCount">0</span> ข้อ)</label>
+                  <button class="btn outline btn-sm" onclick="addQuestionRow()">+ เพิ่มคำถาม</button>
+                </div>
+                <div id="qBankList" style="display:flex;flex-direction:column;gap:10px;max-height:420px;overflow-y:auto;padding-right:4px;"></div>
+                <button class="btn primary btn-sm" style="width:100%;margin-top:12px;" onclick="saveQuestions()">บันทึกคำถามทั้งหมด</button>
+                <div id="qBankSaveStatus" style="font-size:11px;margin-top:8px;min-height:14px;"></div>
               </div>
 
               <div class="topic-banner">
@@ -200,16 +209,21 @@ initUserChip();
 initPortalLiveFeed();
 
 (async function(){
-  const QUESTIONS = [
+  // ค่าตั้งต้น — ใช้เฉพาะตอนโหลดจาก server ไม่สำเร็จ (เช่น เซิร์ฟเวอร์ล่ม) เพื่อไม่ให้หน้าใช้งานไม่ได้เลย
+  const DEFAULT_QUESTIONS = [
     { q: "ก๊าซชีวภาพ (Biogas) ที่ผลิตได้จากบ่อหมัก ส่วนใหญ่ประกอบด้วยก๊าซชนิดใด?", options: ["ก๊าซมีเทน (CH4)", "ก๊าซออกซิเจน (O2)", "ก๊าซไฮโดรเจน (H2)", "ไอน้ำ"], correct: 0, topic: "ความรู้พื้นฐานก๊าซชีวภาพ" },
     { q: "ก่อนเข้าใกล้บริเวณที่มีความเสี่ยงก๊าซรั่ว ควรสวมใส่อุปกรณ์ใดเป็นอันดับแรก?", options: ["แว่นกันแดด", "เครื่องตรวจวัดก๊าซชนิดพกพา (4-Gas Detector)", "หมวกไหมพรม", "ไม่ต้องสวมใส่อะไร"], correct: 1, topic: "อุปกรณ์ป้องกันส่วนบุคคล (PPE)" },
     { q: "หากพบว่าความดันในถังหมักก๊าซสูงเกินขีดจำกัดที่กำหนด ควรทำอย่างไรเป็นลำดับแรก?", options: ["เปิดฝาถังเองเพื่อระบายแรงดัน", "เพิกเฉยเพราะไม่ใช่หน้าที่ของตน", "แจ้งเจ้าหน้าที่ทันทีและปฏิบัติตามขั้นตอนฉุกเฉิน", "ถ่ายรูปโพสต์ลงโซเชียลมีเดีย"], correct: 2, topic: "ขั้นตอนฉุกเฉิน (Emergency Response)" },
     { q: "ระบบ LOTO ที่ใช้ก่อนซ่อมบำรุงเครื่องจักร มีไว้เพื่อจุดประสงค์ใด?", options: ["ล็อกประตูอาคารสำนักงาน", "ป้องกันเครื่องจักรทำงานโดยไม่ตั้งใจขณะซ่อมบำรุง", "ชื่อโปรแกรมบันทึกข้อมูลการผลิต", "ชื่อทีมงานฝ่ายรักษาความปลอดภัย"], correct: 1, topic: "ความปลอดภัยงานบำรุงรักษา (LOTO)" },
     { q: "ข้อใดคือพฤติกรรมที่ปลอดภัยที่สุดขณะเข้าเยี่ยมชมพื้นที่โรงงานจริง?", options: ["แยกออกจากกลุ่มเพื่อถ่ายรูปมุมสวย", "สัมผัสอุปกรณ์ทุกชิ้นที่พบเจอ", "เดินตามเส้นทางที่กำหนดและฟังคำแนะนำของเจ้าหน้าที่ตลอดเวลา", "สูบบุหรี่ในจุดที่ไม่มีป้ายห้ามชัดเจน"], correct: 2, topic: "พฤติกรรมความปลอดภัยทั่วไป" }
   ];
+  // QUESTIONS = ชุดที่ใช้ทำแบบทดสอบจริง (โหลดจาก /api/knowledge-questions ด้านล่าง)
+  // questionBank = สำเนาแก้ไขได้สำหรับแอดมิน แยกจาก QUESTIONS จนกว่าจะกด "บันทึก"
+  let QUESTIONS = DEFAULT_QUESTIONS;
+  let questionBank = [];
   const DEFAULT_TOPIC = 'ความปลอดภัยเบื้องต้นในโรงงานก๊าซชีวภาพ (Biogas Plant Basic Safety)';
   let current = 0;
-  let answers = new Array(QUESTIONS.length).fill(null);
+  let answers = [];
   let session = null, isAdmin = false;
   let settings = { enabled: false, topic: DEFAULT_TOPIC };
 
@@ -231,8 +245,20 @@ initPortalLiveFeed();
       settings = await res.json();
     } catch (err) { /* ใช้ค่า default ไปก่อน */ }
   }
+  // ---- โหลดคลังคำถามจริงจาก server (แอดมินแก้ไขได้ผ่านแผงควบคุมด้านบน) ----
+  async function loadQuestions() {
+    try {
+      const res = await fetch('/api/knowledge-questions');
+      const data = await res.json();
+      if (Array.isArray(data) && data.length) QUESTIONS = data;
+    } catch (err) { /* ใช้ค่า default ไปก่อน */ }
+  }
   await loadSettings();
+  await loadQuestions();
+  questionBank = JSON.parse(JSON.stringify(QUESTIONS));
+  answers = new Array(QUESTIONS.length).fill(null);
   applyGateState();
+  if (isAdmin) renderQuestionBank();
 
   function applyGateState() {
     document.getElementById('topicBanner').textContent = settings.topic || DEFAULT_TOPIC;
@@ -270,6 +296,99 @@ initPortalLiveFeed();
 
   window.toggleQuizEnabled = function () { saveSettingsToServer({ enabled: !settings.enabled, topic: settings.topic }); };
   window.saveTopic = function () { saveSettingsToServer({ enabled: settings.enabled, topic: document.getElementById('topicInput').value.trim() || DEFAULT_TOPIC }); };
+
+  // ---- คลังคำถามแบบทดสอบ (แผงควบคุมแอดมิน) ----
+  function renderQuestionBank() {
+    const list = document.getElementById('qBankList');
+    document.getElementById('qBankCount').textContent = questionBank.length;
+    list.innerHTML = '';
+    questionBank.forEach((item, i) => {
+      const card = document.createElement('div');
+      card.style.cssText = 'padding:12px;border:1px solid var(--border);border-radius:9px;background:var(--panel);';
+
+      const topRow = document.createElement('div');
+      topRow.style.cssText = 'display:flex;gap:8px;margin-bottom:8px;';
+      const qInput = document.createElement('textarea');
+      qInput.value = item.q; qInput.rows = 2; qInput.placeholder = 'คำถาม';
+      qInput.style.cssText = 'flex:1;background:var(--panel-2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text-0);font-size:12.5px;font-family:inherit;resize:vertical;';
+      qInput.addEventListener('input', () => { questionBank[i].q = qInput.value; });
+      const delBtn = document.createElement('button');
+      delBtn.textContent = '✕'; delBtn.title = 'ลบคำถามนี้';
+      delBtn.style.cssText = 'background:var(--red-soft);color:var(--red);border:none;border-radius:6px;width:26px;height:26px;cursor:pointer;flex-shrink:0;';
+      delBtn.addEventListener('click', () => { questionBank.splice(i, 1); renderQuestionBank(); });
+      topRow.appendChild(qInput); topRow.appendChild(delBtn);
+      card.appendChild(topRow);
+
+      const topicInput = document.createElement('input');
+      topicInput.type = 'text'; topicInput.value = item.topic || ''; topicInput.placeholder = 'หัวข้อ (เช่น PPE, Emergency Response)';
+      topicInput.style.cssText = 'width:100%;margin-bottom:8px;';
+      topicInput.addEventListener('input', () => { questionBank[i].topic = topicInput.value; });
+      card.appendChild(topicInput);
+
+      item.options.forEach((opt, oi) => {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:6px;';
+        const radio = document.createElement('input');
+        radio.type = 'radio'; radio.name = 'qb-correct-' + i; radio.checked = item.correct === oi;
+        radio.title = 'เฉลย (คำตอบที่ถูก)';
+        radio.addEventListener('change', () => { questionBank[i].correct = oi; });
+        const optInput = document.createElement('input');
+        optInput.type = 'text'; optInput.value = opt; optInput.placeholder = 'ตัวเลือกที่ ' + (oi + 1);
+        optInput.style.cssText = 'flex:1;';
+        optInput.addEventListener('input', () => { questionBank[i].options[oi] = optInput.value; });
+        const rmOptBtn = document.createElement('button');
+        rmOptBtn.textContent = '−'; rmOptBtn.title = 'ลบตัวเลือกนี้';
+        rmOptBtn.style.cssText = 'width:22px;height:22px;flex-shrink:0;border:none;border-radius:5px;background:var(--panel-2);color:var(--text-2);cursor:pointer;';
+        rmOptBtn.addEventListener('click', () => {
+          if (questionBank[i].options.length <= 2) return;
+          questionBank[i].options.splice(oi, 1);
+          if (questionBank[i].correct >= questionBank[i].options.length) questionBank[i].correct = 0;
+          renderQuestionBank();
+        });
+        row.appendChild(radio); row.appendChild(optInput); row.appendChild(rmOptBtn);
+        card.appendChild(row);
+      });
+
+      const addOptBtn = document.createElement('button');
+      addOptBtn.textContent = '+ เพิ่มตัวเลือก'; addOptBtn.className = 'btn outline btn-sm'; addOptBtn.style.marginTop = '4px';
+      addOptBtn.addEventListener('click', () => {
+        if (questionBank[i].options.length >= 6) return;
+        questionBank[i].options.push('');
+        renderQuestionBank();
+      });
+      card.appendChild(addOptBtn);
+
+      list.appendChild(card);
+    });
+  }
+  window.addQuestionRow = function () {
+    questionBank.push({ q: '', options: ['', ''], correct: 0, topic: '' });
+    renderQuestionBank();
+  };
+  window.saveQuestions = async function () {
+    if (!session) return;
+    const status = document.getElementById('qBankSaveStatus');
+    const invalid = !questionBank.length || questionBank.some(q => !q.q.trim() || q.options.filter(o => o.trim()).length < 2);
+    if (invalid) { status.textContent = 'ต้องมีอย่างน้อย 1 คำถาม และแต่ละคำถามต้องมีข้อความกับตัวเลือกที่ไม่ว่างอย่างน้อย 2 ตัวเลือก'; status.style.color = 'var(--red)'; return; }
+    status.textContent = 'กำลังบันทึก...'; status.style.color = 'var(--text-2)';
+    try {
+      const res = await fetch('/api/knowledge-questions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + session.access_token },
+        body: JSON.stringify(questionBank)
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || 'บันทึกไม่สำเร็จ');
+      questionBank = body.questions;
+      QUESTIONS = questionBank; // ใช้ชุดใหม่ทันทีถ้าใครเริ่มทำแบบทดสอบต่อจากนี้
+      renderQuestionBank();
+      status.textContent = '✓ บันทึกแล้ว — มีผลกับผู้เยี่ยมชมทุกคนทันที';
+      status.style.color = 'var(--green)';
+    } catch (err) {
+      status.textContent = 'บันทึกไม่สำเร็จ: ' + err.message;
+      status.style.color = 'var(--red)';
+    }
+  };
 
   // ---- ประวัติการทำแบบทดสอบ — ผูกกับบัญชี (Supabase user_metadata แทน localStorage) ----
   function getHistory() { return (session && session.user.user_metadata && session.user.user_metadata.quizHistory) || []; }
@@ -317,7 +436,7 @@ initPortalLiveFeed();
   window.startQuiz = function () {
     document.getElementById('stepIntro').classList.add('hide');
     document.getElementById('stepQuiz').classList.remove('hide');
-    current = 0; renderQuestion();
+    current = 0; answers = new Array(QUESTIONS.length).fill(null); renderQuestion();
   };
   function renderQuestion() {
     const item = QUESTIONS[current];
@@ -351,7 +470,7 @@ initPortalLiveFeed();
     document.getElementById('stepQuiz').classList.add('hide');
     document.getElementById('stepResult').classList.remove('hide');
     document.getElementById('resultScoreText').textContent = `${score}/${QUESTIONS.length}`;
-    const passed = score >= 3;
+    const passed = score >= Math.ceil(QUESTIONS.length * 0.6); // เกณฑ์ผ่าน 60% (เท่ากับ 3/5 ข้อเดิม) สเกลตามจำนวนคำถามจริง
     if (passed) markTaskDone('knowledgeCheckPassed');
     const circle = document.getElementById('resultCircle');
     const badge = document.getElementById('resultBadge');
