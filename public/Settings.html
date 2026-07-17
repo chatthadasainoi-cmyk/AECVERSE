@@ -497,7 +497,7 @@
                         </div>
                         <div style="overflow-x:auto;padding:12px 4px 8px;">
                             <table id="umTable">
-                                <thead><tr><th>User</th><th>Email</th><th>Status</th><th>Last Sign In</th><th style="text-align:right;">Actions</th></tr></thead>
+                                <thead><tr><th>User</th><th>Email</th><th>Status</th><th>Checklist</th><th>Last Sign In</th><th style="text-align:right;">Actions</th></tr></thead>
                                 <tbody id="umTableBody"></tbody>
                             </table>
                         </div>
@@ -519,6 +519,14 @@
                             <div class="ud-row"><span class="ud-k">สถานะ</span><span class="ud-v" id="udStatus">—</span></div>
                             <div class="ud-row"><span class="ud-k">เข้าสู่ระบบล่าสุด</span><span class="ud-v" id="udLastSignIn">—</span></div>
                             <div class="ud-row"><span class="ud-k">สมัครสมาชิกเมื่อ</span><span class="ud-v" id="udCreated">—</span></div>
+                            <div class="hr"></div>
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                                <span style="font-size:11.5px;color:var(--text-2);font-weight:700;">Onboarding Checklist</span>
+                                <span class="ud-v" id="udOnboardingPercent">—</span>
+                            </div>
+                            <div class="progress" style="margin-bottom:10px;"><span id="udOnboardingBar" style="width:0%;background:linear-gradient(90deg,var(--blue),var(--green));"></span></div>
+                            <div id="udOnboardingList" style="display:flex;flex-direction:column;gap:4px;font-size:11.5px;"></div>
+                            <div class="hr"></div>
                             <button class="ud-btn promote" id="udPromoteBtn" style="display:none;" onclick="setRole(currentDetailUserId, 'admin')">⬆️ ตั้งเป็น Admin</button>
                             <button class="ud-btn demote" id="udDemoteBtn" style="display:none;" onclick="setRole(currentDetailUserId, 'user')">⬇️ ถอด Admin</button>
                             <div id="udBootstrapNote" style="display:none;color:var(--text-2);font-size:11px;margin-top:10px;text-align:center;">Admin ตั้งต้นจาก environment variable — แก้ผ่านหน้านี้ไม่ได้</div>
@@ -673,6 +681,20 @@
             ? '<span class="badge b-purple">Admin</span>'
             : '<span class="badge b-gray">User</span>';
 
+        // ต้องตรงกับ ONBOARDING_TASKS ใน public-portal.js และ ONBOARDING_TASK_IDS ใน server.js
+        const ONBOARDING_TASK_LABELS = {
+            avatarSaved: 'ปรับแต่งตัวละคร (Avatar)',
+            virtualTourVisited: 'เข้าชม Virtual Tour',
+            digitalTwinVisited: 'เข้าชม Digital Twin',
+            knowledgeCheckPassed: 'ทำแบบทดสอบผ่านเกณฑ์',
+            settingsVisited: 'ตั้งค่า Chat & Voice'
+        };
+        function onboardingBadge(p) {
+            if (!p) return '—';
+            const cls = p.percent >= 100 ? 'b-green' : p.percent > 0 ? 'b-blue' : 'b-gray';
+            return '<span class="badge ' + cls + '">' + p.done + '/' + p.total + ' (' + p.percent + '%)</span>';
+        }
+
         // ============================================================
         // USER MANAGEMENT — รายชื่อผู้ใช้ทั้งหมด (Supabase Admin API) +
         // สถานะออนไลน์จริง (นับจาก socket ที่ต่ออยู่ตอนนี้ — ดู server.js
@@ -734,6 +756,7 @@
                     '<td><div class="user-cell"><div class="u-ic">' + (u.email || '?').slice(0, 2).toUpperCase() + '</div><div><div class="u-name">' + u.email + (isMe ? ' <span style="color:var(--text-2);font-weight:400;">(คุณ)</span>' : '') + '</div><div class="u-sub">' + roleBadge(u.role) + '</div></div></div></td>' +
                     '<td>' + u.email + '</td>' +
                     '<td>' + presenceHtml + '</td>' +
+                    '<td>' + onboardingBadge(u.onboardingProgress) + '</td>' +
                     '<td>' + lastSignIn + '</td>' +
                     '<td style="text-align:right;color:var(--text-2);">→</td></tr>';
             }).join('');
@@ -756,6 +779,16 @@
             document.getElementById('udLastSignIn').textContent = u.lastSignInAt ? new Date(u.lastSignInAt).toLocaleString('th-TH') : '—';
             document.getElementById('udCreated').textContent = u.createdAt ? new Date(u.createdAt).toLocaleString('th-TH') : '—';
 
+            const prog = u.onboardingProgress || { done: 0, total: 5, percent: 0, tasks: {} };
+            document.getElementById('udOnboardingPercent').textContent = prog.done + '/' + prog.total + ' (' + prog.percent + '%)';
+            document.getElementById('udOnboardingBar').style.width = prog.percent + '%';
+            document.getElementById('udOnboardingList').innerHTML = Object.entries(ONBOARDING_TASK_LABELS).map(([id, label]) => {
+                const isDone = !!prog.tasks[id];
+                return '<div style="display:flex;align-items:center;gap:7px;color:' + (isDone ? 'var(--text-0)' : 'var(--text-2)') + ';">' +
+                    '<span style="color:' + (isDone ? 'var(--green)' : 'var(--text-2)') + ';">' + (isDone ? '✓' : '○') + '</span>' +
+                    '<span>' + label + '</span></div>';
+            }).join('');
+
             const promoteBtn = document.getElementById('udPromoteBtn'), demoteBtn = document.getElementById('udDemoteBtn'), bootstrapNote = document.getElementById('udBootstrapNote');
             promoteBtn.style.display = demoteBtn.style.display = bootstrapNote.style.display = 'none';
             if (u.isBootstrapAdmin) bootstrapNote.style.display = 'block';
@@ -775,7 +808,7 @@
                     headers: { Authorization: 'Bearer ' + session.access_token }
                 });
                 const data = await res.json();
-                if (!res.ok) { statusEl.textContent = ''; document.getElementById('umTableBody').innerHTML = '<tr><td colspan="5" style="color:var(--red);">' + (data.error || 'เกิดข้อผิดพลาด') + '</td></tr>'; return; }
+                if (!res.ok) { statusEl.textContent = ''; document.getElementById('umTableBody').innerHTML = '<tr><td colspan="6" style="color:var(--red);">' + (data.error || 'เกิดข้อผิดพลาด') + '</td></tr>'; return; }
 
                 umUsers = data.users;
                 umMeId = data.me;
@@ -784,7 +817,7 @@
                 subscribeAdminPresence(session.access_token);
             } catch (err) {
                 statusEl.textContent = '';
-                document.getElementById('umTableBody').innerHTML = '<tr><td colspan="5" style="color:var(--red);">เชื่อมต่อเซิร์ฟเวอร์ไม่ได้</td></tr>';
+                document.getElementById('umTableBody').innerHTML = '<tr><td colspan="6" style="color:var(--red);">เชื่อมต่อเซิร์ฟเวอร์ไม่ได้</td></tr>';
             }
         }
 

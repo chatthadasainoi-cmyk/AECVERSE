@@ -427,6 +427,11 @@
         <div style="color:var(--text-2);font-size:11px;margin-bottom:14px;">รายงานวิเคราะห์แนวโน้ม</div>
         <button class="btn btn-sm" style="width:100%;" onclick="generateReport('trend')">Generate</button>
         </div><div class="card">
+        <div class="icon-chip b-purple" style="background:var(--purple-soft, var(--panel-2));font-size:16px;">✅</div>
+        <div style="font-weight:700;margin:12px 0 3px 0;font-size:12.5px;">User Onboarding Progress</div>
+        <div style="color:var(--text-2);font-size:11px;margin-bottom:14px;">ความคืบหน้า Checklist ของผู้ใช้แต่ละคน</div>
+        <button class="btn btn-sm" style="width:100%;" onclick="generateReport('users')">Generate</button>
+        </div><div class="card">
         <div class="icon-chip b-gray" style="background:var(--gray-soft, var(--panel-2));font-size:16px;">🧩</div>
         <div style="font-weight:700;margin:12px 0 3px 0;font-size:12.5px;">Custom Report</div>
         <div style="color:var(--text-2);font-size:11px;margin-bottom:14px;">รายงานกำหนดเอง (ทุกข้อมูล)</div>
@@ -495,6 +500,25 @@
         }
         function noDataMsg(){ return '<p style="color:var(--text-2);">ยังไม่ได้รับข้อมูลจากเซิร์ฟเวอร์ กรุณารอสักครู่แล้วลองใหม่</p>'; }
 
+        // ต้องตรงกับ ONBOARDING_TASKS ใน public-portal.js / ONBOARDING_TASK_LABELS ใน Settings.html
+        const ONBOARDING_TASK_LABELS = {
+            avatarSaved: 'ปรับแต่งตัวละคร (Avatar)',
+            virtualTourVisited: 'เข้าชม Virtual Tour',
+            digitalTwinVisited: 'เข้าชม Digital Twin',
+            knowledgeCheckPassed: 'ทำแบบทดสอบผ่านเกณฑ์',
+            settingsVisited: 'ตั้งค่า Chat & Voice'
+        };
+        let latestUsers = null;
+        async function loadUsers(){
+            try {
+                const { data: { session } } = await supabaseClient.auth.getSession();
+                if (!session) return;
+                const res = await fetch('/api/admin/users', { headers: { Authorization: 'Bearer ' + session.access_token } });
+                const body = await res.json();
+                if (res.ok) latestUsers = body.users;
+            } catch (err) { /* ปล่อยให้ latestUsers เป็น null — reportBuilders.users จะโชว์ข้อความแทน */ }
+        }
+
         const reportBuilders = {
             production(d){
                 return '<div class="grid g3" style="margin-bottom:14px;">' +
@@ -553,6 +577,21 @@
                     last20.map(h => '<tr><td>' + new Date(h.t).toLocaleTimeString('th-TH') + '</td><td>' + fmt(h.ch4Percent) + '</td><td>' + fmt(h.flowRate) + '</td><td>' + fmt(h.efficiency) + '</td></tr>').join('') +
                     '</tbody></table>';
             },
+            users(list){
+                if (!list) return '<p style="color:var(--red);">โหลดข้อมูลผู้ใช้ไม่สำเร็จ (ต้องเป็นบัญชี Admin และเซิร์ฟเวอร์ต้องตั้งค่า Service Role Key)</p>';
+                if (!list.length) return '<p style="color:var(--text-2);">ยังไม่มีผู้ใช้ในระบบ</p>';
+                const sorted = list.slice().sort((a, b) => a.onboardingProgress.percent - b.onboardingProgress.percent);
+                return '<p style="color:var(--text-1);font-size:12px;">เรียงจากความคืบหน้าน้อยที่สุดก่อน (ต้องติดตามก่อน)</p>' +
+                    '<table><thead><tr><th>User</th><th>Role</th><th>Progress</th><th>รายละเอียด</th></tr></thead><tbody>' +
+                    sorted.map(u => {
+                        const p = u.onboardingProgress || { done: 0, total: 5, percent: 0, tasks: {} };
+                        const detail = Object.entries(ONBOARDING_TASK_LABELS)
+                            .map(([id, label]) => (p.tasks[id] ? '✓ ' : '✕ ') + label).join('<br>');
+                        return '<tr><td class="strong">' + u.email + '</td><td>' + (u.role === 'admin' ? 'Admin' : 'User') + '</td>' +
+                            '<td>' + p.done + '/' + p.total + ' (' + p.percent + '%)</td>' +
+                            '<td style="font-size:10.5px;line-height:1.7;">' + detail + '</td></tr>';
+                    }).join('') + '</tbody></table>';
+            },
             full(d, workflowDb){
                 return '<h4>Production</h4>' + reportBuilders.production(d) +
                     '<h4 style="margin-top:16px;">Equipment</h4>' + reportBuilders.equipment(d) +
@@ -564,12 +603,19 @@
         const titles = {
             production: 'Daily Production Report', equipment: 'Equipment Performance Report',
             maintenance: 'Maintenance Report', incident: 'Incident Report', energy: 'Energy Report',
-            psm: 'PSM Compliance Report', trend: 'Trend Analysis Report', full: 'Custom Report (ทุกข้อมูล)'
+            psm: 'PSM Compliance Report', trend: 'Trend Analysis Report', users: 'User Onboarding Progress Report',
+            full: 'Custom Report (ทุกข้อมูล)'
         };
 
-        window.generateReport = function(type){
+        window.generateReport = async function(type){
             openReportModal(titles[type] || 'Report');
             const bodyEl = document.getElementById('report-modal-body');
+            if (type === 'users') {
+                bodyEl.innerHTML = '<p style="color:var(--text-2);">กำลังโหลดข้อมูลผู้ใช้...</p>';
+                if (!latestUsers) await loadUsers();
+                bodyEl.innerHTML = reportBuilders.users(latestUsers);
+                return;
+            }
             if (!latestPlantData) { bodyEl.innerHTML = noDataMsg(); return; }
             bodyEl.innerHTML = (type === 'psm') ? reportBuilders.psm(latestWorkflowDb)
                 : (type === 'full') ? reportBuilders.full(latestPlantData, latestWorkflowDb)

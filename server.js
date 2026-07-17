@@ -38,6 +38,21 @@ function isAdminUser(user) {
     return user.app_metadata?.role === 'admin';
 }
 
+// รายการ id งาน onboarding ที่นับ progress ได้ — ต้องตรงกับ ONBOARDING_TASKS ใน
+// public/public-portal.js เป๊ะๆ (ชื่อ id เท่านั้นพอ ไม่ต้องมี label/href/icon ฝั่งนี้)
+const ONBOARDING_TASK_IDS = ['avatarSaved', 'virtualTourVisited', 'digitalTwinVisited', 'knowledgeCheckPassed', 'settingsVisited'];
+
+function computeOnboardingProgress(user) {
+    const tasks = user.user_metadata?.onboardingTasks || {};
+    const done = ONBOARDING_TASK_IDS.filter(id => tasks[id]).length;
+    return {
+        done,
+        total: ONBOARDING_TASK_IDS.length,
+        percent: Math.round((done / ONBOARDING_TASK_IDS.length) * 100),
+        tasks: Object.fromEntries(ONBOARDING_TASK_IDS.map(id => [id, !!tasks[id]]))
+    };
+}
+
 async function requireAdmin(req, res, next) {
     if (!supabaseAdmin) return res.status(503).json({ error: 'Admin API ยังไม่ได้ตั้งค่า SUPABASE_SERVICE_ROLE_KEY บนเซิร์ฟเวอร์' });
     const token = (req.headers.authorization || '').replace(/^Bearer /, '');
@@ -65,7 +80,8 @@ app.get('/api/admin/users', requireAdmin, async (req, res) => {
             lastSignInAt: u.last_sign_in_at,
             // สถานะออนไลน์จริง — มาจาก socket ที่ต่ออยู่ตอนนี้ (ดูหมายเหตุที่ presence Map ด้านล่าง)
             online: !!(p && p.socketCount > 0),
-            lastSeenAt: p ? p.lastSeenAt : null
+            lastSeenAt: p ? p.lastSeenAt : null,
+            onboardingProgress: computeOnboardingProgress(u)
         };
     });
     res.json({ users, me: req.adminUser.id });
