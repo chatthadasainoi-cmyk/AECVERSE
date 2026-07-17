@@ -352,6 +352,7 @@ initPortalLiveFeed();
     document.getElementById('stepResult').classList.remove('hide');
     document.getElementById('resultScoreText').textContent = `${score}/${QUESTIONS.length}`;
     const passed = score >= 3;
+    if (passed) markTaskDone('knowledgeCheckPassed');
     const circle = document.getElementById('resultCircle');
     const badge = document.getElementById('resultBadge');
     const msg = document.getElementById('resultMsg');

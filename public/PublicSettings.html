@@ -87,6 +87,7 @@ renderPortalSidebar('PublicSettings.html');
 renderPortalTopbar('Settings', '(ตั้งค่า)');
 initUserChip();
 initPortalLiveFeed();
+markTaskDone('settingsVisited');
 
 supabaseClient.auth.getSession().then(({ data: { session } }) => {
   if (!session) return;

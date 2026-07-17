@@ -64,6 +64,32 @@ async function handlePortalLogout() {
 }
 
 // ---------------------------------------------------------------------
+// ONBOARDING CHECKLIST — ผูกกับบัญชี (user_metadata.onboardingTasks)
+// แต่ละหน้าเรียก markTaskDone(id) เองตอนผู้ใช้ทำสิ่งนั้นสำเร็จ — ติ๊กถูกถาวร
+// ไม่มีปุ่ม "เลิกทำ" (เป็น checklist แนะนำการใช้งาน ไม่ใช่ toggle)
+// ---------------------------------------------------------------------
+const ONBOARDING_TASKS = [
+    { id: 'avatarSaved', label: 'ปรับแต่งตัวละคร (Avatar)', href: 'PublicAvatar.html', icon: '🧍' },
+    { id: 'virtualTourVisited', label: 'เข้าชม Virtual Tour', href: 'PublicVirtualTour.html', icon: '🧭' },
+    { id: 'digitalTwinVisited', label: 'เข้าชม Digital Twin', href: 'PublicDigitalTwin.html', icon: '🗺️' },
+    { id: 'knowledgeCheckPassed', label: 'ทำแบบทดสอบผ่านเกณฑ์', href: 'PublicKnowledge.html', icon: '📘' },
+    { id: 'settingsVisited', label: 'ตั้งค่า Chat & Voice', href: 'PublicSettings.html', icon: '⚙️' }
+];
+
+// ทำเครื่องหมายว่างานนี้เสร็จแล้ว — เขียนเฉพาะตอนยังไม่เคยติ๊กมาก่อน กัน
+// เรียก updateUser() ซ้ำโดยไม่จำเป็นทุกครั้งที่เปิดหน้า (เช่นหน้า Virtual Tour ที่
+// เรียกทุกครั้งที่เข้า แต่ถ้าติ๊กแล้วไม่ต้องเขียนซ้ำ)
+async function markTaskDone(taskId) {
+    try {
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        if (!session) return;
+        const current = session.user.user_metadata?.onboardingTasks || {};
+        if (current[taskId]) return; // ติ๊กไว้แล้ว ไม่ต้องเขียนซ้ำ
+        await supabaseClient.auth.updateUser({ data: { onboardingTasks: { ...current, [taskId]: true } } });
+    } catch (err) { /* บันทึกไม่สำเร็จ (เช่นออฟไลน์) — ไม่ใช่ฟีเจอร์หลัก ปล่อยผ่านเงียบๆ */ }
+}
+
+// ---------------------------------------------------------------------
 // live plant feed — เชื่อมต่อ 1 ครั้งต่อหน้า ใช้ทั้งอัปเดต sidebar mini-panel
 // และให้หน้าเฉพาะทาง (Home KPI, Digital Twin building info) ต่อยอดใช้ต่อได้
 // ผ่าน window.portalSocket / window.addEventListener('portal:plant_update')
