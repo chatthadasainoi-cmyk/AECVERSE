@@ -929,6 +929,13 @@ window.refreshModelLibrary();
 // ============================================================
 const AUTO_COMPRESS_EXTENSIONS = ['fbx', 'gltf']; // .glb บีบอัดอยู่แล้วในตัว ไม่ต้องแปลงซ้ำ
 const MAX_TEXTURE_DIM = 2048; // texture ใหญ่กว่านี้ (ต่อด้าน) จะถูกย่อลงมาก่อน export
+// ไฟล์ที่ใหญ่กว่านี้ "ข้าม" ขั้นตอนบีบอัด แล้วอัปโหลดไฟล์ต้นฉบับไปตรงๆ เหมือนก่อนมีฟีเจอร์นี้
+// เหตุผล: เดิมการอัปโหลดเป็นแค่ส่งไบต์ดิบขึ้น Supabase ไม่ต้อง parse ในเบราว์เซอร์เลย ความเสี่ยง
+// OOM มีแค่ตอน "เปิดดู" ทีหลัง แต่การบีบอัดอัตโนมัตินี้ต้อง parse ไฟล์ตั้งแต่ตอนอัปโหลดเลย —
+// ถ้าไม่จำกัดขนาดไว้ จะกลายเป็นว่าไฟล์ใหญ่ๆ ที่เคยอัปโหลดสำเร็จ (แค่ค้างตอนเปิดดูทีหลัง) จะ
+// พังตั้งแต่ตอนอัปโหลดแทน (ยืนยันจริงจากไฟล์ 100-200MB ที่ทำให้เบราว์เซอร์ out-of-memory
+// ระหว่างขั้นตอน parse เพื่อบีบอัดนี้)
+const AUTO_COMPRESS_MAX_FILE_BYTES = 80 * 1024 * 1024; // 80 MB
 
 function parseModelBufferAsync(loader, buf, resourcePath) {
     return new Promise((resolve, reject) => { loader.parse(buf, resourcePath, resolve, reject); });
@@ -986,6 +993,13 @@ function nextPaint() { return new Promise(r => setTimeout(r, 0)); }
 async function autoCompressModelFile(file) {
     const ext = file.name.split('.').pop().toLowerCase();
     if (!AUTO_COMPRESS_EXTENSIONS.includes(ext)) return file; // .glb อยู่แล้ว ไม่ต้องแปลง
+    if (file.size > AUTO_COMPRESS_MAX_FILE_BYTES) {
+        // ดูหมายเหตุที่ AUTO_COMPRESS_MAX_FILE_BYTES — ไฟล์ใหญ่ระดับนี้ parse เองก็เสี่ยง OOM
+        // พอกับตอนเปิดดู ไม่คุ้มที่จะเสี่ยงพังตั้งแต่ตอนอัปโหลด อัปโหลดไฟล์ต้นฉบับตรงๆ แทน
+        $('factory-status').innerText = `⚠️ ไฟล์ใหญ่กว่า ${(AUTO_COMPRESS_MAX_FILE_BYTES / 1024 / 1024).toFixed(0)} MB — ข้ามขั้นตอนบีบอัดอัตโนมัติ (เสี่ยงเบราว์เซอร์ค้างตอนแปลงไฟล์) จะอัปโหลดไฟล์ต้นฉบับแทน`;
+        await nextPaint();
+        return file;
+    }
 
     $('factory-status').innerText = `🗜️ กำลังบีบอัด ${file.name} เป็น .glb (ไฟล์ใหญ่อาจใช้เวลาสักครู่ อย่าปิดแท็บ)...`;
     await nextPaint();
