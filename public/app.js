@@ -748,19 +748,25 @@ function disposeFactoryModel() {
 function loadModelFromUrl(url, fileName, transform) {
     currentSceneModelUrl = url;
     currentSceneModelName = fileName;
-    fetch(url).then(r => r.arrayBuffer()).then(buf => {
-        currentModelRawBuffer = buf;
-        currentModelRawFileName = fileName;
-    }).catch(err => console.warn('ดึงไฟล์ดิบมาแคชไม่สำเร็จ (ไม่กระทบการแสดงผล):', err));
-
     disposeFactoryModel();
     originalMaterials.clear(); factoryColliders = [];
     $('factory-status').innerText = `⬇️ กำลังโหลดโมเดลจาก Cloud...`;
-    getLoaderForFile(fileName || url).load(url, obj => {
-        finalizeModelLoad(obj, { label: fileName, transform });
-    }, undefined, err => {
+    // ดึงไฟล์ดิบครั้งเดียวแล้วป้อนให้ loader ผ่าน .parse() แทนที่จะให้ loader ไป fetch()
+    // เองอีกรอบ (เดิม fetch สองรอบต่อการโหลดหนึ่งครั้ง: รอบแรกเพื่อแคชไว้ใช้ตอนเซฟฉาก
+    // รอบสองในตัว loader.load()) — โมเดลใหญ่ๆ เสียเวลาดาวน์โหลดซ้ำโดยไม่จำเป็นตรงนี้เยอะ
+    fetch(url).then(r => r.arrayBuffer()).then(buf => {
+        currentModelRawBuffer = buf;
+        currentModelRawFileName = fileName;
+        const resourcePath = THREE.LoaderUtils.extractUrlBase(url);
+        getLoaderForFile(fileName || url).parse(buf, resourcePath, obj => {
+            finalizeModelLoad(obj, { label: fileName, transform });
+        }, err => {
+            $('factory-status').innerText = `❌ โหลดล้มเหลว`;
+            console.error(err);
+        });
+    }).catch(err => {
         $('factory-status').innerText = `❌ โหลดล้มเหลว`;
-        console.error(err);
+        console.error('ดึงไฟล์โมเดลไม่สำเร็จ:', err);
     });
 }
 
@@ -807,6 +813,48 @@ async function deleteFromSupabaseStorage(fileUrl) {
 let currentSceneModelUrl = null, currentSceneModelName = null;
 let currentModelRawBuffer = null, currentModelRawFileName = null;
 
+// ---------- Model Library — เลือกโมเดลที่เคยอัปโหลดไว้ในบัคเก็ต Supabase มาใช้ซ้ำ
+// ได้เลยโดยไม่ต้องอัปโหลดไฟล์จากเครื่องใหม่ (แก้ปัญหาโมเดลใหญ่ๆ เสียเวลาอัปโหลด
+// ซ้ำซ้อนทุกครั้งที่อยากสลับกลับไปใช้โมเดลเดิม) ----------
+window.refreshModelLibrary = async function () {
+    const listEl = $('model-library-list');
+    if (!listEl) return;
+    listEl.innerHTML = '<div class="hint-text">กำลังโหลดรายการ...</div>';
+    try {
+        const res = await fetch(`${SUPABASE_URL}/storage/v1/object/list/${SUPABASE_BUCKET}`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prefix: '', limit: 100, sortBy: { column: 'created_at', order: 'desc' } })
+        });
+        const files = await res.json();
+        const modelFiles = (Array.isArray(files) ? files : []).filter(f => /\.(gltf|glb|fbx)$/i.test(f.name));
+        if (!modelFiles.length) { listEl.innerHTML = '<div class="hint-text">ยังไม่มีโมเดลที่เคยอัปโหลดไว้</div>'; return; }
+        listEl.innerHTML = '';
+        modelFiles.forEach(f => {
+            const sizeMb = f.metadata && f.metadata.size ? (f.metadata.size / 1024 / 1024).toFixed(1) + ' MB' : '';
+            const displayName = f.name.replace(/^model_\d+_/, ''); // ตัด timestamp prefix ออกให้อ่านง่าย
+            const row = document.createElement('div');
+            row.className = 'model-lib-row';
+            row.innerHTML = `<div style="overflow:hidden;"><div class="mlr-name">${displayName}</div><div class="mlr-meta">${sizeMb}</div></div>`;
+            const btn = document.createElement('button');
+            btn.className = 'mlr-use-btn';
+            btn.textContent = 'ใช้โมเดลนี้';
+            btn.addEventListener('click', () => useModelFromLibrary(f.name));
+            row.appendChild(btn);
+            listEl.appendChild(row);
+        });
+    } catch (err) {
+        listEl.innerHTML = '<div class="hint-text" style="color:#ef4444;">โหลดรายการไม่สำเร็จ</div>';
+        console.error('[Model Library] โหลดรายการไม่สำเร็จ:', err);
+    }
+};
+function useModelFromLibrary(fileName) {
+    const url = `${SUPABASE_URL}/storage/v1/object/public/${SUPABASE_BUCKET}/${fileName}`;
+    if (mpSocket && mpSocket.connected) mpSocket.emit('model_shared', { url, fileName });
+    else loadModelFromUrl(url, fileName);
+}
+window.refreshModelLibrary();
+
 $('factory-input')?.addEventListener('change', async function (event) {
     const files = event.target.files;
     if (!files.length) return;
@@ -819,6 +867,7 @@ $('factory-input')?.addEventListener('change', async function (event) {
         const url = await uploadToSupabase(modelFile);
         if (mpSocket && mpSocket.connected) mpSocket.emit('model_shared', { url, fileName: modelFile.name });
         else loadModelFromUrl(url, modelFile.name);
+        window.refreshModelLibrary(); // ให้ไฟล์ที่เพิ่งอัปโหลดขึ้นในคลังทันที ไม่ต้องกดรีเฟรชเอง
     } catch (err) {
         $('factory-status').innerText = `❌ อัปโหลดล้มเหลว: ${err.message}`;
     }
@@ -1512,39 +1561,72 @@ function handleMeasureClick(e) {
 // 10. TRANSFORM PANEL — REQ 1 & 2: scale/position/rotation + Lock
 // เฉพาะ Admin ที่ล็อกอินถูกต้องและปลดล็อกไว้เท่านั้นที่ปรับได้ ผู้ใช้ทั่วไปเห็นแบบอ่านอย่างเดียว
 // ทุกการปรับ sync ผ่าน server ให้ทุกคนในห้องเห็นตรงกันแบบเรียลไทม์
+//
+// ช่องตัวเลข (num-*) คือค่าจริงที่ใช้กับโมเดล ไม่มีลิมิต — พิมพ์ค่าเกินช่วงของ slider
+// ได้ตามปกติ, slider (param-*) เป็นแค่ตัวช่วยลากคร่าวๆ ในช่วงที่ตั้งไว้เฉยๆ ถ้าค่าจริง
+// เกินช่วงนั้น thumb ของ slider จะไปสุดปลายช่วงแต่ค่าที่ใช้จริงยังถูกต้องเสมอ
 // ============================================================
 let isAdmin = false;
 let modelLocked = true;
 const SLIDER_IDS = ['param-posX', 'param-posY', 'param-posZ', 'param-rotY', 'param-scale'];
+const NUMBER_IDS = ['num-posX', 'num-posY', 'num-posZ', 'num-rotY', 'num-scale'];
 
 function syncSlidersWithModel() {
     if (!factoryModel) return;
-    $('param-posX').value = factoryModel.position.x;
-    $('param-posY').value = factoryModel.position.y;
-    $('param-posZ').value = factoryModel.position.z;
-    $('param-rotY').value = Math.round(factoryModel.rotation.y * (180 / Math.PI));
-    $('param-scale').value = (factoryModel.scale.x / initialFactoryScale).toFixed(2);
-    updateSliderLabels();
+    $('num-posX').value = factoryModel.position.x.toFixed(2);
+    $('num-posY').value = factoryModel.position.y.toFixed(2);
+    $('num-posZ').value = factoryModel.position.z.toFixed(2);
+    $('num-rotY').value = Math.round(factoryModel.rotation.y * (180 / Math.PI));
+    $('num-scale').value = (factoryModel.scale.x / initialFactoryScale).toFixed(2);
+    syncSliderThumbsFromNumbers();
 }
-function updateSliderLabels() {
-    $('val-posX').innerText = parseFloat($('param-posX').value).toFixed(1);
-    $('val-posY').innerText = parseFloat($('param-posY').value).toFixed(2);
-    $('val-posZ').innerText = parseFloat($('param-posZ').value).toFixed(1);
-    $('val-rotY').innerText = $('param-rotY').value + '°';
-    $('val-scale').innerText = $('param-scale').value + 'x';
+function syncSliderThumbsFromNumbers() {
+    NUMBER_IDS.forEach((numId, i) => { $(SLIDER_IDS[i]).value = $(numId).value; });
 }
 
 let _lastTransformEmit = 0;
-SLIDER_IDS.forEach(id => {
+function applyTransformFromNumbers() {
+    if (!factoryModel || !isAdmin || modelLocked) return;
+    const px = parseFloat($('num-posX').value) || 0, py = parseFloat($('num-posY').value) || 0, pz = parseFloat($('num-posZ').value) || 0;
+    const ry = (parseFloat($('num-rotY').value) || 0) * (Math.PI / 180);
+    const sc = parseFloat($('num-scale').value) || 1;
+    factoryModel.position.set(px, py, pz);
+    factoryModel.rotation.y = ry;
+    factoryModel.scale.set(initialFactoryScale * sc, initialFactoryScale * sc, initialFactoryScale * sc);
+    syncSliderThumbsFromNumbers();
+    buildColliders();
+    buildProximityTags();
+    buildPPEZones();
+
+    const now = Date.now();
+    if (mpSocket && mpSocket.connected && now - _lastTransformEmit > 60) {
+        _lastTransformEmit = now;
+        mpSocket.emit('model_transform_update', { posX: px, posY: py, posZ: pz, rotY: ry, scale: sc });
+    }
+}
+// พิมพ์ในช่องตัวเลข -> ใช้ค่านั้นตรงๆ (ไม่ clamp ไม่มีลิมิต)
+NUMBER_IDS.forEach(id => { $(id)?.addEventListener('input', applyTransformFromNumbers); });
+// ลาก slider -> ก็อปค่าไปช่องตัวเลขก่อน แล้วค่อย apply ให้ทั้งสองฝั่งซิงก์กันเสมอ
+SLIDER_IDS.forEach((id, i) => {
     $(id)?.addEventListener('input', () => {
-        if (!factoryModel || !isAdmin || modelLocked) return;
-        const px = parseFloat($('param-posX').value), py = parseFloat($('param-posY').value), pz = parseFloat($('param-posZ').value);
-        const ry = parseFloat($('param-rotY').value) * (Math.PI / 180);
-        const sc = parseFloat($('param-scale').value);
-        factoryModel.position.set(px, py, pz);
-        factoryModel.rotation.y = ry;
-        factoryModel.scale.set(initialFactoryScale * sc, initialFactoryScale * sc, initialFactoryScale * sc);
-        updateSliderLabels();
+        $(NUMBER_IDS[i]).value = $(id).value;
+        applyTransformFromNumbers();
+    });
+});
+
+// ---------- Gizmo 3D (THREE.TransformControls) — ลากแกนสีในฉากโดยตรงแทนการลาก slider ----------
+let transformGizmo = null;
+function initTransformGizmo() {
+    if (transformGizmo || typeof THREE.TransformControls === 'undefined') return;
+    transformGizmo = new THREE.TransformControls(camera, renderer.domElement);
+    transformGizmo.setSize(0.9);
+    transformGizmo.enabled = false;
+    transformGizmo.visible = false;
+    // ปิด OrbitControls ชั่วคราวตอนลากแกน กันกล้องหมุนพร้อมกับลากโมเดล
+    transformGizmo.addEventListener('dragging-changed', e => { controls.enabled = !e.value; });
+    transformGizmo.addEventListener('objectChange', () => {
+        if (!factoryModel) return;
+        syncSlidersWithModel(); // อ่านค่าจากโมเดลกลับเข้าช่องตัวเลข + broadcast แบบเดียวกับตอนลาก slider
         buildColliders();
         buildProximityTags();
         buildPPEZones();
@@ -1552,16 +1634,42 @@ SLIDER_IDS.forEach(id => {
         const now = Date.now();
         if (mpSocket && mpSocket.connected && now - _lastTransformEmit > 60) {
             _lastTransformEmit = now;
-            mpSocket.emit('model_transform_update', { posX: px, posY: py, posZ: pz, rotY: ry, scale: sc });
+            const sc = factoryModel.scale.x / initialFactoryScale;
+            mpSocket.emit('model_transform_update', {
+                posX: factoryModel.position.x, posY: factoryModel.position.y, posZ: factoryModel.position.z,
+                rotY: factoryModel.rotation.y, scale: sc
+            });
         }
     });
-});
+    scene.add(transformGizmo);
+}
+initTransformGizmo();
+window.setGizmoMode = function (mode) {
+    if (!transformGizmo) return;
+    transformGizmo.setMode(mode);
+    ['translate', 'rotate', 'scale'].forEach(m => { $('gizmo-mode-' + m)?.classList.toggle('active', m === mode); });
+};
+function refreshGizmoAttachment() {
+    if (!transformGizmo) return;
+    const canEdit = isAdmin && !modelLocked && !!factoryModel;
+    if (canEdit) {
+        transformGizmo.attach(factoryModel);
+        transformGizmo.enabled = true;
+        transformGizmo.visible = true;
+    } else {
+        transformGizmo.enabled = false;
+        transformGizmo.visible = false;
+        transformGizmo.detach();
+    }
+}
 
-// เปิด/ปิดการใช้งาน slider ให้ตรงกับสิทธิ์ปัจจุบันเสมอ (เรียกทุกครั้งที่สถานะ admin/lock เปลี่ยน)
+// เปิด/ปิดการใช้งาน slider+number+gizmo ให้ตรงกับสิทธิ์ปัจจุบันเสมอ (เรียกทุกครั้งที่สถานะ admin/lock เปลี่ยน)
 // สิทธิ์ admin มาจากบัญชีที่ล็อกอิน (server ตรวจให้ตอนเชื่อมต่อ) — ไม่มีช่องกรอกรหัสผ่านอีกแล้ว
 function refreshTransformUiPermissions() {
     const canEdit = isAdmin && !modelLocked;
     SLIDER_IDS.forEach(id => { const el = $(id); if (el) el.disabled = !canEdit; });
+    NUMBER_IDS.forEach(id => { const el = $(id); if (el) el.disabled = !canEdit; });
+    refreshGizmoAttachment();
 
     const statusRow = $('admin-status-row');
     if (statusRow) statusRow.style.display = isAdmin ? 'flex' : 'none';
