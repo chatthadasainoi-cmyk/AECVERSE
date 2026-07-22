@@ -268,6 +268,17 @@
             <div class="ce-sub">อัปโหลดไฟล์ .gltf / .glb / .fbx จากแผง "โมเดล" ด้านซ้าย หรือโหลดฉากที่บันทึกไว้ (.zip) เพื่อเริ่มใช้งาน Digital Twin</div>
         </div>
 
+        <!-- โมเดลใหญ่เกินเกณฑ์ปลอดภัย — ไม่โหลดอัตโนมัติ รอผู้ใช้กดยืนยันเองก่อนเสี่ยง parse -->
+        <div id="canvas-large-model-prompt" style="display:none;">
+            <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M12 9v4M12 17h.01"/><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+            <div class="ce-title">โมเดลนี้ใหญ่เกินกว่าจะโหลดอัตโนมัติ</div>
+            <div class="ce-sub">
+                <span id="large-model-name">—</span> (<span id="large-model-size">—</span>)<br>
+                การเปิดดูอาจทำให้เบราว์เซอร์ค้างหรือแครช (Out of Memory) — แนะนำให้ลดขนาดโมเดลก่อน แต่ถ้าต้องการดูจริงๆ กดยืนยันด้านล่าง
+            </div>
+            <button class="panel-action-btn action-block" style="margin-top:14px;max-width:220px;" onclick="confirmLoadLargeModel()">🚀 โหลดเลย (เสี่ยงเบราว์เซอร์ค้าง)</button>
+        </div>
+
         <div id="mobile-controls-container">
             <div id="mobile-joystick-zone"></div>
             <div id="mobile-action-zone">

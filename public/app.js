@@ -801,7 +801,51 @@ async function putCachedModel(url, fileName, buf) {
     } catch (err) { console.warn('[Model Cache] เซฟแคชไม่สำเร็จ (ไม่กระทบการใช้งานตอนนี้ แค่รอบหน้าจะโหลดจาก cloud อีกครั้ง):', err); }
 }
 
-function loadModelFromUrl(url, fileName, transform) {
+// ตรวจขนาดไฟล์ก่อนโหลดจริงด้วย HEAD request (เบามาก ไม่ดึงเนื้อไฟล์) — ใช้ตัดสินใจว่า
+// จะโหลดอัตโนมัติเลย หรือต้องรอผู้ใช้ยืนยันก่อนเพราะเสี่ยง OOM
+async function checkUrlSize(url) {
+    try {
+        const res = await fetch(url, { method: 'HEAD' });
+        const len = res.headers.get('content-length');
+        return len ? parseInt(len, 10) : null;
+    } catch (err) { return null; }
+}
+
+let pendingLargeModelLoad = null; // callback ที่รอผู้ใช้กด "โหลดเลย" ในกล่องเตือน
+function showLargeModelPrompt(fileName, sizeBytes, onConfirm) {
+    pendingLargeModelLoad = onConfirm;
+    const sizeMb = (sizeBytes / 1024 / 1024).toFixed(0) + ' MB';
+    $('large-model-name').innerText = fileName || 'โมเดล';
+    $('large-model-size').innerText = sizeMb;
+    $('canvas-large-model-prompt').style.display = 'flex';
+    $('factory-status').innerText = `⏸️ รอการยืนยัน — โมเดล "${fileName}" (${sizeMb}) ใหญ่เกินกว่าจะโหลดอัตโนมัติ`;
+}
+window.confirmLoadLargeModel = function () {
+    $('canvas-large-model-prompt').style.display = 'none';
+    const fn = pendingLargeModelLoad;
+    pendingLargeModelLoad = null;
+    if (fn) fn();
+};
+
+// จุดเข้าโหลดโมเดลจริง (เรียกจาก self_init ตอนเข้าห้อง, load_model ตอนมีคนแชร์โมเดลใหม่,
+// และตอนอัปโหลดเอง) — เช็คขนาดก่อนเสมอ ถ้าใหญ่เกิน AUTO_COMPRESS_MAX_FILE_BYTES จะไม่โหลด
+// อัตโนมัติทันที (ทั้งฝั่งคนอัปโหลดเองและทุกคนในห้อง) แต่รอให้กดยืนยันก่อน — นี่คือขั้นตอนที่
+// เคยทำให้เบราว์เซอร์ค้าง/แครชตอนแชร์โมเดลใหญ่แล้วระบบพยายามโหลดแสดงให้ทุกคนอัตโนมัติ
+async function loadModelFromUrl(url, fileName, transform) {
+    // ล้าง prompt/callback ค้างจากคำขอโหลดครั้งก่อนเสมอ กันกรณีโมเดล A ใหญ่เกินโชว์ prompt
+    // ค้างไว้ แล้วมีคนแชร์โมเดล B (เล็กกว่า) มาแทนก่อนใครจะกดยืนยัน A — ไม่งั้น prompt ของ A
+    // จะค้างอยู่บนจอทั้งที่ B โหลดเสร็จไปแล้วเบื้องหลัง
+    $('canvas-large-model-prompt').style.display = 'none';
+    pendingLargeModelLoad = null;
+    const sizeBytes = await checkUrlSize(url);
+    if (sizeBytes && sizeBytes > AUTO_COMPRESS_MAX_FILE_BYTES) {
+        showLargeModelPrompt(fileName, sizeBytes, () => loadModelFromUrlConfirmed(url, fileName, transform));
+        return;
+    }
+    loadModelFromUrlConfirmed(url, fileName, transform);
+}
+
+function loadModelFromUrlConfirmed(url, fileName, transform) {
     currentSceneModelUrl = url;
     currentSceneModelName = fileName;
     disposeFactoryModel();

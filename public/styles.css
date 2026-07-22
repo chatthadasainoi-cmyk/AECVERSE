@@ -127,6 +127,18 @@ button{font-family:inherit;}
 }
 #canvas-empty-hint .ce-sub { font-size: 12px; color: var(--text-2); max-width: 340px; line-height: 1.6; }
 
+/* ---------- โมเดลใหญ่เกินเกณฑ์ปลอดภัย รอผู้ใช้ยืนยันก่อนโหลด ---------- */
+#canvas-large-model-prompt {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 10px; z-index: 6; text-align: center; padding: 24px;
+    background: rgba(8, 11, 17, 0.75);
+}
+#canvas-large-model-prompt svg { color: #f59e0b; }
+#canvas-large-model-prompt .ce-title { font-family: "Sora", "Inter", sans-serif; font-size: 15px; font-weight: 700; color: var(--text-0); }
+#canvas-large-model-prompt .ce-sub { font-size: 12px; color: var(--text-2); max-width: 360px; line-height: 1.6; }
+#canvas-large-model-prompt #large-model-name { color: var(--text-0); font-weight: 700; }
+
 /* ---------- การ์ด (เหมือน .card ของหน้าเว็บหลัก) ---------- */
 .panel {
     position: relative;
