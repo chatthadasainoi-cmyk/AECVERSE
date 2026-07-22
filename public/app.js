@@ -801,7 +801,51 @@ async function putCachedModel(url, fileName, buf) {
     } catch (err) { console.warn('[Model Cache] เซฟแคชไม่สำเร็จ (ไม่กระทบการใช้งานตอนนี้ แค่รอบหน้าจะโหลดจาก cloud อีกครั้ง):', err); }
 }
 
-function loadModelFromUrl(url, fileName, transform) {
+// ตรวจขนาดไฟล์ก่อนโหลดจริงด้วย HEAD request (เบามาก ไม่ดึงเนื้อไฟล์) — ใช้ตัดสินใจว่า
+// จะโหลดอัตโนมัติเลย หรือต้องรอผู้ใช้ยืนยันก่อนเพราะเสี่ยง OOM
+async function checkUrlSize(url) {
+    try {
+        const res = await fetch(url, { method: 'HEAD' });
+        const len = res.headers.get('content-length');
+        return len ? parseInt(len, 10) : null;
+    } catch (err) { return null; }
+}
+
+let pendingLargeModelLoad = null; // callback ที่รอผู้ใช้กด "โหลดเลย" ในกล่องเตือน
+function showLargeModelPrompt(fileName, sizeBytes, onConfirm) {
+    pendingLargeModelLoad = onConfirm;
+    const sizeMb = (sizeBytes / 1024 / 1024).toFixed(0) + ' MB';
+    $('large-model-name').innerText = fileName || 'โมเดล';
+    $('large-model-size').innerText = sizeMb;
+    $('canvas-large-model-prompt').style.display = 'flex';
+    $('factory-status').innerText = `⏸️ รอการยืนยัน — โมเดล "${fileName}" (${sizeMb}) ใหญ่เกินกว่าจะโหลดอัตโนมัติ`;
+}
+window.confirmLoadLargeModel = function () {
+    $('canvas-large-model-prompt').style.display = 'none';
+    const fn = pendingLargeModelLoad;
+    pendingLargeModelLoad = null;
+    if (fn) fn();
+};
+
+// จุดเข้าโหลดโมเดลจริง (เรียกจาก self_init ตอนเข้าห้อง, load_model ตอนมีคนแชร์โมเดลใหม่,
+// และตอนอัปโหลดเอง) — เช็คขนาดก่อนเสมอ ถ้าใหญ่เกิน AUTO_COMPRESS_MAX_FILE_BYTES จะไม่โหลด
+// อัตโนมัติทันที (ทั้งฝั่งคนอัปโหลดเองและทุกคนในห้อง) แต่รอให้กดยืนยันก่อน — นี่คือขั้นตอนที่
+// เคยทำให้เบราว์เซอร์ค้าง/แครชตอนแชร์โมเดลใหญ่แล้วระบบพยายามโหลดแสดงให้ทุกคนอัตโนมัติ
+async function loadModelFromUrl(url, fileName, transform) {
+    // ล้าง prompt/callback ค้างจากคำขอโหลดครั้งก่อนเสมอ กันกรณีโมเดล A ใหญ่เกินโชว์ prompt
+    // ค้างไว้ แล้วมีคนแชร์โมเดล B (เล็กกว่า) มาแทนก่อนใครจะกดยืนยัน A — ไม่งั้น prompt ของ A
+    // จะค้างอยู่บนจอทั้งที่ B โหลดเสร็จไปแล้วเบื้องหลัง
+    $('canvas-large-model-prompt').style.display = 'none';
+    pendingLargeModelLoad = null;
+    const sizeBytes = await checkUrlSize(url);
+    if (sizeBytes && sizeBytes > AUTO_COMPRESS_MAX_FILE_BYTES) {
+        showLargeModelPrompt(fileName, sizeBytes, () => loadModelFromUrlConfirmed(url, fileName, transform));
+        return;
+    }
+    loadModelFromUrlConfirmed(url, fileName, transform);
+}
+
+function loadModelFromUrlConfirmed(url, fileName, transform) {
     currentSceneModelUrl = url;
     currentSceneModelName = fileName;
     disposeFactoryModel();
@@ -929,6 +973,13 @@ window.refreshModelLibrary();
 // ============================================================
 const AUTO_COMPRESS_EXTENSIONS = ['fbx', 'gltf']; // .glb บีบอัดอยู่แล้วในตัว ไม่ต้องแปลงซ้ำ
 const MAX_TEXTURE_DIM = 2048; // texture ใหญ่กว่านี้ (ต่อด้าน) จะถูกย่อลงมาก่อน export
+// ไฟล์ที่ใหญ่กว่านี้ "ข้าม" ขั้นตอนบีบอัด แล้วอัปโหลดไฟล์ต้นฉบับไปตรงๆ เหมือนก่อนมีฟีเจอร์นี้
+// เหตุผล: เดิมการอัปโหลดเป็นแค่ส่งไบต์ดิบขึ้น Supabase ไม่ต้อง parse ในเบราว์เซอร์เลย ความเสี่ยง
+// OOM มีแค่ตอน "เปิดดู" ทีหลัง แต่การบีบอัดอัตโนมัตินี้ต้อง parse ไฟล์ตั้งแต่ตอนอัปโหลดเลย —
+// ถ้าไม่จำกัดขนาดไว้ จะกลายเป็นว่าไฟล์ใหญ่ๆ ที่เคยอัปโหลดสำเร็จ (แค่ค้างตอนเปิดดูทีหลัง) จะ
+// พังตั้งแต่ตอนอัปโหลดแทน (ยืนยันจริงจากไฟล์ 100-200MB ที่ทำให้เบราว์เซอร์ out-of-memory
+// ระหว่างขั้นตอน parse เพื่อบีบอัดนี้)
+const AUTO_COMPRESS_MAX_FILE_BYTES = 80 * 1024 * 1024; // 80 MB
 
 function parseModelBufferAsync(loader, buf, resourcePath) {
     return new Promise((resolve, reject) => { loader.parse(buf, resourcePath, resolve, reject); });
@@ -986,6 +1037,13 @@ function nextPaint() { return new Promise(r => setTimeout(r, 0)); }
 async function autoCompressModelFile(file) {
     const ext = file.name.split('.').pop().toLowerCase();
     if (!AUTO_COMPRESS_EXTENSIONS.includes(ext)) return file; // .glb อยู่แล้ว ไม่ต้องแปลง
+    if (file.size > AUTO_COMPRESS_MAX_FILE_BYTES) {
+        // ดูหมายเหตุที่ AUTO_COMPRESS_MAX_FILE_BYTES — ไฟล์ใหญ่ระดับนี้ parse เองก็เสี่ยง OOM
+        // พอกับตอนเปิดดู ไม่คุ้มที่จะเสี่ยงพังตั้งแต่ตอนอัปโหลด อัปโหลดไฟล์ต้นฉบับตรงๆ แทน
+        $('factory-status').innerText = `⚠️ ไฟล์ใหญ่กว่า ${(AUTO_COMPRESS_MAX_FILE_BYTES / 1024 / 1024).toFixed(0)} MB — ข้ามขั้นตอนบีบอัดอัตโนมัติ (เสี่ยงเบราว์เซอร์ค้างตอนแปลงไฟล์) จะอัปโหลดไฟล์ต้นฉบับแทน`;
+        await nextPaint();
+        return file;
+    }
 
     $('factory-status').innerText = `🗜️ กำลังบีบอัด ${file.name} เป็น .glb (ไฟล์ใหญ่อาจใช้เวลาสักครู่ อย่าปิดแท็บ)...`;
     await nextPaint();
