@@ -580,12 +580,24 @@
       el.type = el.type === 'password' ? 'text' : 'password';
     }
 
-    function showError(msg){
+    // รับได้ทั้ง string ธรรมดา (ข้อความ validation ของเราเอง) และ error object จาก Supabase
+    // (Supabase auth บางกรณีคืน error.message เป็น "{}" ทั้งที่ error จริงมีรายละเอียดใน
+    // .status/.name — โชว์รายละเอียดนั้นแทนข้อความ generic เปล่าๆ และ log raw error ไว้ใน
+    // console ให้เช็คต่อได้)
+    function showError(msgOrErr){
       const el = document.getElementById('signupError');
       el.className = 'auth-error';
-      el.textContent = (typeof msg === 'string' && msg.trim() && msg.trim() !== '{}')
-        ? msg
-        : 'เกิดข้อผิดพลาดจากระบบ กรุณาลองใหม่อีกครั้ง (Supabase อาจกำลังมีปัญหาชั่วคราว)';
+      let text;
+      if (typeof msgOrErr === 'string' && msgOrErr.trim() && msgOrErr.trim() !== '{}') {
+        text = msgOrErr;
+      } else if (msgOrErr && typeof msgOrErr === 'object') {
+        console.error('[Signup] auth error:', msgOrErr);
+        const detail = [msgOrErr.name, msgOrErr.status ? ('HTTP ' + msgOrErr.status) : null].filter(Boolean).join(' · ');
+        text = 'สมัครสมาชิกไม่สำเร็จ — ระบบ Supabase มีปัญหาฝั่งเซิร์ฟเวอร์' + (detail ? ' (' + detail + ')' : '') + ' กรุณาลองใหม่อีกครั้ง หรือแจ้งผู้ดูแลระบบ';
+      } else {
+        text = 'เกิดข้อผิดพลาดจากระบบ กรุณาลองใหม่อีกครั้ง (Supabase อาจกำลังมีปัญหาชั่วคราว)';
+      }
+      el.textContent = text;
       el.style.display = 'block';
     }
 
@@ -615,13 +627,13 @@
         const { error } = await supabaseClient.auth.signUp({ email, password: pwd });
 
         if (error) {
-          showError(error.message);
+          showError(error);
           return;
         }
 
         window.location.href = 'RoleRedirect.html';
       } catch (err) {
-        showError(err && err.message);
+        showError(err);
       } finally {
         btn.disabled = false;
         btn.textContent = 'Create Account';
@@ -634,9 +646,9 @@
           provider,
           options: { redirectTo: window.location.origin + '/RoleRedirect.html' }
         });
-        if (error) showError(error.message);
+        if (error) showError(error);
       } catch (err) {
-        showError(err && err.message);
+        showError(err);
       }
     }
     </script>
