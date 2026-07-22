@@ -1102,14 +1102,22 @@ $('factory-input')?.addEventListener('change', async function (event) {
     }
 });
 
+// อัตราส่วนที่แอดมินปรับ "ขนาดโมเดล (Scale)" ไว้ตอนนี้ เทียบกับขนาดตั้งต้น — วงความปลอดภัย
+// ทุกชนิด (PPE zone, Ex-Zone, ระยะร่น, รัศมีฟ้าผ่า) และระยะ padding ของ hitbox ต้องคูณด้วย
+// ค่านี้เสมอ ไม่งั้นตอนขยายโมเดลใหญ่ขึ้น วงพวกนี้จะยังเป็นขนาดเดิม ดูเล็กเกินไปเทียบกับโมเดล
+function currentModelScaleFactor() {
+    return factoryModel ? factoryModel.scale.x / initialFactoryScale : 1;
+}
+
 function buildColliders() {
     factoryColliders = [];
     if (!factoryModel) return;
     factoryModel.updateMatrixWorld(true);
+    const padding = HITBOX_PADDING * currentModelScaleFactor();
     factoryModel.traverse(child => {
         if (!child.isMesh) return;
         const box = new THREE.Box3().setFromObject(child);
-        box.expandByScalar(HITBOX_PADDING);
+        box.expandByScalar(padding);
         factoryColliders.push({ uuid: child.uuid, mesh: child, box });
     });
 }
@@ -1541,6 +1549,9 @@ function buildPPEZones() {
     if (!factoryModel) return;
     if (!safetyLayers.ppe) return; // ผู้ใช้ปิดชั้น PPE ไว้ในแท็บ "เลเยอร์"
 
+    const sf = currentModelScaleFactor();
+    const radius = PPE_ZONE_RADIUS * sf; // วงต้องโตตามโมเดลที่แอดมินปรับขนาดไว้ ไม่งั้นดูเล็กเกินไป
+
     factoryModel.traverse(child => {
         if (!child.isMesh) return;
         const key = resolveDatabaseKey(child, child.name);
@@ -1549,7 +1560,7 @@ function buildPPEZones() {
 
         const worldPos = new THREE.Vector3(); child.getWorldPosition(worldPos);
 
-        const ringGeo = new THREE.RingGeometry(PPE_ZONE_RADIUS - 0.15, PPE_ZONE_RADIUS + 0.15, 64);
+        const ringGeo = new THREE.RingGeometry(radius - 0.15 * sf, radius + 0.15 * sf, 64);
         const ringMat = new THREE.MeshBasicMaterial({ color: 0xffaa00, side: THREE.DoubleSide, transparent: true, opacity: 0.5 });
         const ring = new THREE.Mesh(ringGeo, ringMat);
         ring.rotation.x = -Math.PI / 2;
@@ -1561,13 +1572,13 @@ function buildPPEZones() {
         ctx.fillStyle = 'rgba(255,170,0,0.88)';
         if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(4, 4, 504, 120, 14); ctx.fill(); } else ctx.fillRect(4, 4, 504, 120);
         ctx.font = 'bold 32px Arial'; ctx.fillStyle = '#000'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText('🛡️ PPE Zone 15m — สวมอุปกรณ์ป้องกันก่อนเข้า', 256, 64);
+        ctx.fillText('🛡️ PPE Zone 15m — สวมอุปกรณ์ป้องกันก่อนเข้า', 256, 64); // ข้อความคงระยะจริงตามมาตรฐานไว้ ไม่เปลี่ยนตามภาพ
         const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), depthTest: false }));
         label.scale.set(8, 2, 1);
-        label.position.set(worldPos.x, 1.5, worldPos.z - PPE_ZONE_RADIUS + 1);
+        label.position.set(worldPos.x, 1.5, worldPos.z - radius + 1);
         scene.add(label);
 
-        ppeZoneObjects.push({ ring, label, centerX: worldPos.x, centerZ: worldPos.z });
+        ppeZoneObjects.push({ ring, label, centerX: worldPos.x, centerZ: worldPos.z, radius });
     });
 }
 function checkPPEZones() {
@@ -1575,7 +1586,7 @@ function checkPPEZones() {
     const ax = avatarModel.position.x, az = avatarModel.position.z;
     let inside = false;
     for (const z of ppeZoneObjects) {
-        if (Math.hypot(ax - z.centerX, az - z.centerZ) <= PPE_ZONE_RADIUS) { inside = true; break; }
+        if (Math.hypot(ax - z.centerX, az - z.centerZ) <= z.radius) { inside = true; break; }
     }
     if (inside && !ppeAlertActive) {
         ppeAlertActive = true;
@@ -1651,6 +1662,10 @@ function buildExtraSafetyLayers() {
     if (!factoryModel) return;
     factoryModel.updateMatrixWorld(true);
     const addObj = o => { scene.add(o); safetyOverlayObjects.push(o); };
+    // วงเหล่านี้อ้างอิงระยะจริงเป็นเมตร แต่ต้องคูณด้วยอัตราส่วนสเกลของโมเดลตอนนี้เสมอ ไม่งั้น
+    // พอแอดมินขยายโมเดลใหญ่ขึ้น วงจะยังเป็นขนาดเดิม ดูเล็กจิ๋วเทียบกับโมเดล (ป้ายข้อความยังโชว์
+    // ระยะจริงตามมาตรฐานเดิมไว้ ไม่เปลี่ยนเลข แค่ตัววงและตำแหน่งป้ายที่ขยายตามภาพ)
+    const sf = currentModelScaleFactor();
 
     factoryModel.traverse(child => {
         if (!child.isMesh) return;
@@ -1662,37 +1677,40 @@ function buildExtraSafetyLayers() {
 
         // ---- IOC ข้อ 4: Ex-Zone 0/1/2 วงสีซ้อนกันรอบจุดเสี่ยงก๊าซไวไฟ ----
         if (safetyLayers.exzone && EXZONE_TYPES.includes(key)) {
-            EXZONE_RINGS.forEach(zone => addObj(makeGroundRing(pos.x, pos.z, zone.r, zone.color, zone.opacity)));
+            const outerR = EXZONE_RINGS[2].r * sf;
+            EXZONE_RINGS.forEach(zone => addObj(makeGroundRing(pos.x, pos.z, zone.r * sf, zone.color, zone.opacity)));
             const label = makeTextSprite('☣️ Ex-Zone 0 / 1 / 2 — พื้นที่ก๊าซไวไฟ ห้ามประกายไฟ', 'rgba(239,68,68,0.9)', 7);
-            label.position.set(pos.x, 0.7, pos.z + EXZONE_RINGS[2].r - 0.4);
+            label.position.set(pos.x, 0.7, pos.z + outerR - 0.4);
             addObj(label);
         }
 
         // ---- IOC ข้อ 1: วงระยะปลอดภัย/ระยะร่นตามมาตรฐาน ----
         if (safetyLayers.setback && SETBACK_RULES[key]) {
             const rule = SETBACK_RULES[key];
-            addObj(makeGroundRing(pos.x, pos.z, rule.r, 0x38bdf8, 0.45));
+            const r = rule.r * sf;
+            addObj(makeGroundRing(pos.x, pos.z, r, 0x38bdf8, 0.45));
             const label = makeTextSprite(rule.label, 'rgba(14,116,178,0.9)', 8);
-            label.position.set(pos.x, 1.1, pos.z + rule.r - 0.5);
+            label.position.set(pos.x, 1.1, pos.z + r - 0.5);
             addObj(label);
         }
 
         // ---- IOC ข้อ 5: โดมรัศมีป้องกันฟ้าผ่า (Rolling Sphere) ครอบพื้นที่ ----
         if (safetyLayers.lightning && key === 'lightning_rod') {
+            const radius = LIGHTNING_SPHERE_R * sf;
             const rodTop = new THREE.Box3().setFromObject(child).max.y;
             const dome = new THREE.Mesh(
-                new THREE.SphereGeometry(LIGHTNING_SPHERE_R, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2),
+                new THREE.SphereGeometry(radius, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2),
                 new THREE.MeshBasicMaterial({ color: 0xa855f7, transparent: true, opacity: 0.07, side: THREE.DoubleSide, depthWrite: false })
             );
             dome.position.set(pos.x, 0, pos.z);
             addObj(dome);
             const wire = new THREE.Mesh(
-                new THREE.SphereGeometry(LIGHTNING_SPHERE_R, 24, 10, 0, Math.PI * 2, 0, Math.PI / 2),
+                new THREE.SphereGeometry(radius, 24, 10, 0, Math.PI * 2, 0, Math.PI / 2),
                 new THREE.MeshBasicMaterial({ color: 0xa855f7, wireframe: true, transparent: true, opacity: 0.14 })
             );
             wire.position.set(pos.x, 0, pos.z);
             addObj(wire);
-            addObj(makeGroundRing(pos.x, pos.z, LIGHTNING_SPHERE_R, 0xa855f7, 0.4));
+            addObj(makeGroundRing(pos.x, pos.z, radius, 0xa855f7, 0.4));
             const label = makeTextSprite(`⚡ รัศมีป้องกันฟ้าผ่า Rolling Sphere ≈ ${LIGHTNING_SPHERE_R} ม. (คลุมโดมก๊าซ 100%)`, 'rgba(126,58,242,0.9)', 9);
             label.position.set(pos.x, rodTop + 1.2, pos.z);
             addObj(label);
