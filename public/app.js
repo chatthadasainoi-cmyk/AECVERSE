@@ -745,16 +745,80 @@ function disposeFactoryModel() {
     factoryModel = null;
 }
 
+// ============================================================
+// MODEL CACHE (IndexedDB) — เก็บไฟล์โมเดลดิบไว้ในเครื่องผู้ใช้ กันต้องดาวน์โหลดซ้ำ
+// ทุกครั้งที่รีเฟรชหน้า (Supabase Storage ส่ง Cache-Control: no-cache มาให้ไฟล์ในบัคเก็ต
+// models ทำให้ browser HTTP cache เชื่อถือไม่ได้ว่าจะข้ามการดาวน์โหลดจริงๆ โดยเฉพาะไฟล์
+// ใหญ่ๆ หลักร้อย MB) เก็บสูงสุด MODEL_CACHE_MAX_ENTRIES ไฟล์ล่าสุด กันแคชบวมไม่จำกัด
+// ============================================================
+const MODEL_CACHE_DB = 'aec_model_cache';
+const MODEL_CACHE_STORE = 'models';
+const MODEL_CACHE_MAX_ENTRIES = 5;
+
+function openModelCacheDb() {
+    return new Promise((resolve, reject) => {
+        if (!window.indexedDB) { reject(new Error('IndexedDB ไม่รองรับในเบราว์เซอร์นี้')); return; }
+        const req = indexedDB.open(MODEL_CACHE_DB, 1);
+        req.onupgradeneeded = () => {
+            if (!req.result.objectStoreNames.contains(MODEL_CACHE_STORE)) {
+                req.result.createObjectStore(MODEL_CACHE_STORE, { keyPath: 'url' });
+            }
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+    });
+}
+async function getCachedModel(url) {
+    try {
+        const db = await openModelCacheDb();
+        return await new Promise(resolve => {
+            const req = db.transaction(MODEL_CACHE_STORE, 'readonly').objectStore(MODEL_CACHE_STORE).get(url);
+            req.onsuccess = () => resolve(req.result || null);
+            req.onerror = () => resolve(null);
+        });
+    } catch (err) { return null; }
+}
+async function putCachedModel(url, fileName, buf) {
+    try {
+        const db = await openModelCacheDb();
+        const tx = db.transaction(MODEL_CACHE_STORE, 'readwrite');
+        const store = tx.objectStore(MODEL_CACHE_STORE);
+        store.put({ url, fileName, buf, cachedAt: Date.now() });
+        const all = await new Promise(resolve => {
+            const req = store.getAll();
+            req.onsuccess = () => resolve(req.result || []);
+            req.onerror = () => resolve([]);
+        });
+        if (all.length > MODEL_CACHE_MAX_ENTRIES) {
+            all.sort((a, b) => a.cachedAt - b.cachedAt);
+            all.slice(0, all.length - MODEL_CACHE_MAX_ENTRIES).forEach(e => store.delete(e.url));
+        }
+    } catch (err) { console.warn('[Model Cache] เซฟแคชไม่สำเร็จ (ไม่กระทบการใช้งานตอนนี้ แค่รอบหน้าจะโหลดจาก cloud อีกครั้ง):', err); }
+}
+
 function loadModelFromUrl(url, fileName, transform) {
     currentSceneModelUrl = url;
     currentSceneModelName = fileName;
     disposeFactoryModel();
     originalMaterials.clear(); factoryColliders = [];
-    $('factory-status').innerText = `⬇️ กำลังโหลดโมเดลจาก Cloud...`;
-    // ดึงไฟล์ดิบครั้งเดียวแล้วป้อนให้ loader ผ่าน .parse() แทนที่จะให้ loader ไป fetch()
-    // เองอีกรอบ (เดิม fetch สองรอบต่อการโหลดหนึ่งครั้ง: รอบแรกเพื่อแคชไว้ใช้ตอนเซฟฉาก
-    // รอบสองในตัว loader.load()) — โมเดลใหญ่ๆ เสียเวลาดาวน์โหลดซ้ำโดยไม่จำเป็นตรงนี้เยอะ
-    fetch(url).then(r => r.arrayBuffer()).then(buf => {
+
+    (async () => {
+        let buf = null;
+        const cached = await getCachedModel(url);
+        if (cached && cached.buf) {
+            buf = cached.buf;
+            $('factory-status').innerText = `⚡ โหลดจากแคชในเครื่อง (ไม่ต้องดาวน์โหลดซ้ำ)...`;
+        } else {
+            $('factory-status').innerText = `⬇️ กำลังโหลดโมเดลจาก Cloud...`;
+            try {
+                buf = await fetch(url).then(r => r.arrayBuffer());
+            } catch (err) {
+                $('factory-status').innerText = `❌ โหลดล้มเหลว`;
+                console.error('ดึงไฟล์โมเดลไม่สำเร็จ:', err);
+                return;
+            }
+            putCachedModel(url, fileName, buf); // ไม่ await — เซฟแคชเบื้องหลัง ไม่บล็อกการแสดงผลโมเดล
+        }
         currentModelRawBuffer = buf;
         currentModelRawFileName = fileName;
         const resourcePath = THREE.LoaderUtils.extractUrlBase(url);
@@ -764,10 +828,7 @@ function loadModelFromUrl(url, fileName, transform) {
             $('factory-status').innerText = `❌ โหลดล้มเหลว`;
             console.error(err);
         });
-    }).catch(err => {
-        $('factory-status').innerText = `❌ โหลดล้มเหลว`;
-        console.error('ดึงไฟล์โมเดลไม่สำเร็จ:', err);
-    });
+    })();
 }
 
 function loadModelFromBlobUrl(blobUrl, fileName, transform, onDone) {
