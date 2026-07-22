@@ -754,6 +754,10 @@ function disposeFactoryModel() {
 const MODEL_CACHE_DB = 'aec_model_cache';
 const MODEL_CACHE_STORE = 'models';
 const MODEL_CACHE_MAX_ENTRIES = 5;
+// ไฟล์ที่ใหญ่กว่านี้ไม่แคช — ไฟล์ระดับนี้เสี่ยง browser out-of-memory ตอน parse อยู่แล้ว
+// การเขียนสำเนาลง IndexedDB เพิ่ม (ซ้อนกับ buffer ที่กำลังป้อนให้ loader.parse()) มีแต่จะ
+// เพิ่มหน่วยความจำสูงสุดตอนโหลด ทำให้พังง่ายกว่าเดิมโดยไม่ได้ประโยชน์ (ถ้าโหลดครั้งแรกพังอยู่แล้ว ก็ไม่มีทางถึงขั้นตอนแคชด้วยซ้ำ)
+const MODEL_CACHE_MAX_FILE_BYTES = 120 * 1024 * 1024; // 120 MB
 
 function openModelCacheDb() {
     return new Promise((resolve, reject) => {
@@ -779,6 +783,7 @@ async function getCachedModel(url) {
     } catch (err) { return null; }
 }
 async function putCachedModel(url, fileName, buf) {
+    if (buf.byteLength > MODEL_CACHE_MAX_FILE_BYTES) return; // ดูหมายเหตุที่ MODEL_CACHE_MAX_FILE_BYTES ด้านบน
     try {
         const db = await openModelCacheDb();
         const tx = db.transaction(MODEL_CACHE_STORE, 'readwrite');
@@ -922,6 +927,15 @@ $('factory-input')?.addEventListener('change', async function (event) {
     let modelFile = null;
     for (const f of files) { if (['gltf', 'glb', 'fbx'].includes(f.name.split('.').pop().toLowerCase())) { modelFile = f; break; } }
     if (!modelFile) { $('factory-status').innerText = '❌ ไม่พบไฟล์ 3D หลัก (.gltf/.glb/.fbx)'; return; }
+    if (modelFile.size > MODEL_CACHE_MAX_FILE_BYTES) {
+        const sizeMb = (modelFile.size / 1024 / 1024).toFixed(0);
+        const proceed = confirm(
+            `ไฟล์นี้ขนาด ${sizeMb} MB — ใหญ่มากสำหรับดูในเบราว์เซอร์ มีความเสี่ยงสูงที่หน้าจะค้าง/แครช (Out of Memory) ตอนโหลด\n\n` +
+            `แนะนำให้ลดขนาดโมเดลก่อน (ลด polygon, บีบอัดพื้นผิว/texture, หรือแปลงเป็น .glb แบบบีบอัด Draco) แล้วค่อยอัปโหลดใหม่\n\n` +
+            `ยืนยันจะอัปโหลดไฟล์นี้ต่อเลยหรือไม่?`
+        );
+        if (!proceed) { $('factory-status').innerText = 'ยกเลิกอัปโหลด — ไฟล์ใหญ่เกินไป'; event.target.value = ''; return; }
+    }
     try {
         currentModelRawBuffer = await modelFile.arrayBuffer();
         currentModelRawFileName = modelFile.name;
