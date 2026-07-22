@@ -754,6 +754,10 @@ function disposeFactoryModel() {
 const MODEL_CACHE_DB = 'aec_model_cache';
 const MODEL_CACHE_STORE = 'models';
 const MODEL_CACHE_MAX_ENTRIES = 5;
+// ไฟล์ที่ใหญ่กว่านี้ไม่แคช — ไฟล์ระดับนี้เสี่ยง browser out-of-memory ตอน parse อยู่แล้ว
+// การเขียนสำเนาลง IndexedDB เพิ่ม (ซ้อนกับ buffer ที่กำลังป้อนให้ loader.parse()) มีแต่จะ
+// เพิ่มหน่วยความจำสูงสุดตอนโหลด ทำให้พังง่ายกว่าเดิมโดยไม่ได้ประโยชน์ (ถ้าโหลดครั้งแรกพังอยู่แล้ว ก็ไม่มีทางถึงขั้นตอนแคชด้วยซ้ำ)
+const MODEL_CACHE_MAX_FILE_BYTES = 120 * 1024 * 1024; // 120 MB
 
 function openModelCacheDb() {
     return new Promise((resolve, reject) => {
@@ -779,6 +783,7 @@ async function getCachedModel(url) {
     } catch (err) { return null; }
 }
 async function putCachedModel(url, fileName, buf) {
+    if (buf.byteLength > MODEL_CACHE_MAX_FILE_BYTES) return; // ดูหมายเหตุที่ MODEL_CACHE_MAX_FILE_BYTES ด้านบน
     try {
         const db = await openModelCacheDb();
         const tx = db.transaction(MODEL_CACHE_STORE, 'readwrite');
@@ -916,13 +921,118 @@ function useModelFromLibrary(fileName) {
 }
 window.refreshModelLibrary();
 
+// ============================================================
+// AUTO-COMPRESS ON UPLOAD — ไฟล์ .fbx/.gltf ที่อัปโหลดใหม่จะถูกแปลงเป็น .glb (binary,
+// กะทัดรัดกว่า FBX/GLTF มาก) โดยอัตโนมัติก่อนอัปโหลดขึ้น Supabase — mesh/ชื่อ object
+// ทุกชิ้นยังอยู่ครบเหมือนเดิม (แค่เปลี่ยน "หีบห่อ" ไฟล์ใหม่ ไม่ตัดชิ้นส่วนออก) พร้อมย่อ
+// texture ที่ใหญ่เกินจำเป็นลงด้วย กันโมเดลใหม่ๆ โหลดช้า/ค้างซ้ำแบบที่เจอไปก่อนหน้า
+// ============================================================
+const AUTO_COMPRESS_EXTENSIONS = ['fbx', 'gltf']; // .glb บีบอัดอยู่แล้วในตัว ไม่ต้องแปลงซ้ำ
+const MAX_TEXTURE_DIM = 2048; // texture ใหญ่กว่านี้ (ต่อด้าน) จะถูกย่อลงมาก่อน export
+
+function parseModelBufferAsync(loader, buf, resourcePath) {
+    return new Promise((resolve, reject) => { loader.parse(buf, resourcePath, resolve, reject); });
+}
+
+// ย่อ texture ที่ใหญ่เกิน maxDim ผ่าน canvas — ลดหน่วยความจำ/ขนาดไฟล์ลงมากโดยรูปทรง/
+// ชิ้นส่วนของโมเดลไม่เปลี่ยน (แค่ความละเอียดพื้นผิวลดลง)
+function downscaleOversizedTextures(root, maxDim) {
+    const seen = new Set();
+    root.traverse(child => {
+        if (!child.isMesh || !child.material) return;
+        const mats = Array.isArray(child.material) ? child.material : [child.material];
+        mats.forEach(mat => {
+            ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'emissiveMap', 'bumpMap'].forEach(key => {
+                const tex = mat[key];
+                if (!tex || !tex.image || seen.has(tex.uuid)) return;
+                seen.add(tex.uuid);
+                const img = tex.image;
+                const w = img.width, h = img.height;
+                if (!w || !h || Math.max(w, h) <= maxDim) return;
+                const scale = maxDim / Math.max(w, h);
+                const canvas = document.createElement('canvas');
+                canvas.width = Math.round(w * scale);
+                canvas.height = Math.round(h * scale);
+                canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+                tex.image = canvas;
+                tex.needsUpdate = true;
+            });
+        });
+    });
+}
+
+function exportObjectToGlb(obj) {
+    // GLTFExporter (three@0.128) เป็น parse(input, onDone, options) แค่ 3 พารามิเตอร์
+    // ไม่มี onError callback แยก — ห่อด้วย try/catch เอาเองแทน
+    return new Promise((resolve, reject) => {
+        try {
+            new THREE.GLTFExporter().parse(obj, result => {
+                if (result instanceof ArrayBuffer) resolve(result);
+                else reject(new Error('GLTFExporter ไม่ได้คืนค่าเป็น binary (.glb) ตามที่ตั้งค่าไว้'));
+            }, { binary: true, embedImages: true });
+        } catch (err) {
+            reject(err instanceof Error ? err : new Error(String(err)));
+        }
+    });
+}
+
+// yield ให้ browser paint ข้อความสถานะก่อนเริ่มงานหนัก — parse/export ยัง block main thread
+// เหมือนเดิม (Three.js loader ไม่รองรับ Web Worker) แต่อย่างน้อยผู้ใช้เห็นข้อความ "กำลัง
+// บีบอัด..." ก่อนหน้าจอจะหยุดตอบสนองชั่วคราว แทนที่จะค้างเงียบๆ ไม่รู้สถานะ
+// ใช้ setTimeout แทน requestAnimationFrame เพราะ rAF จะถูก browser พักการทำงานถ้าแท็บ
+// ไม่ได้ active/มองเห็นอยู่ ทำให้ค้างได้ถ้าผู้ใช้สลับแท็บระหว่างอัปโหลด
+function nextPaint() { return new Promise(r => setTimeout(r, 0)); }
+
+async function autoCompressModelFile(file) {
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (!AUTO_COMPRESS_EXTENSIONS.includes(ext)) return file; // .glb อยู่แล้ว ไม่ต้องแปลง
+
+    $('factory-status').innerText = `🗜️ กำลังบีบอัด ${file.name} เป็น .glb (ไฟล์ใหญ่อาจใช้เวลาสักครู่ อย่าปิดแท็บ)...`;
+    await nextPaint();
+    try {
+        const buf = await file.arrayBuffer();
+        const obj = await parseModelBufferAsync(getLoaderForFile(file.name), buf, '');
+        const root = obj.scene ? obj.scene : obj;
+
+        $('factory-status').innerText = `🗜️ กำลังลดขนาด texture ที่ใหญ่เกินไป...`;
+        await nextPaint();
+        downscaleOversizedTextures(root, MAX_TEXTURE_DIM);
+
+        $('factory-status').innerText = `🗜️ กำลังเข้ารหัสเป็น .glb...`;
+        await nextPaint();
+        const glbBuffer = await exportObjectToGlb(root);
+
+        const newName = file.name.replace(/\.(fbx|gltf)$/i, '') + '.glb';
+        const glbFile = new File([glbBuffer], newName, { type: 'model/gltf-binary' });
+        const savedPct = Math.round((1 - glbFile.size / file.size) * 100);
+        $('factory-status').innerText = `✓ บีบอัดสำเร็จ: ${(file.size / 1024 / 1024).toFixed(1)} MB → ${(glbFile.size / 1024 / 1024).toFixed(1)} MB` +
+            (savedPct > 0 ? ` (เล็กลง ${savedPct}%)` : ' (ขนาดใกล้เคียงเดิม)');
+        return glbFile;
+    } catch (err) {
+        console.warn('[Auto-Compress] แปลงเป็น .glb ไม่สำเร็จ — จะอัปโหลดไฟล์ต้นฉบับแทน:', err);
+        $('factory-status').innerText = `⚠️ บีบอัดไม่สำเร็จ (${err.message || 'ไฟล์อาจใหญ่เกินไปสำหรับเบราว์เซอร์'}) — จะอัปโหลดไฟล์ต้นฉบับแทน`;
+        await nextPaint();
+        return file; // fallback: อัปโหลดไฟล์เดิมไปแทน ดีกว่าอัปโหลดไม่ได้เลย
+    }
+}
+
 $('factory-input')?.addEventListener('change', async function (event) {
     const files = event.target.files;
     if (!files.length) return;
     let modelFile = null;
     for (const f of files) { if (['gltf', 'glb', 'fbx'].includes(f.name.split('.').pop().toLowerCase())) { modelFile = f; break; } }
     if (!modelFile) { $('factory-status').innerText = '❌ ไม่พบไฟล์ 3D หลัก (.gltf/.glb/.fbx)'; return; }
+    if (modelFile.size > MODEL_CACHE_MAX_FILE_BYTES) {
+        const sizeMb = (modelFile.size / 1024 / 1024).toFixed(0);
+        const proceed = confirm(
+            `ไฟล์นี้ขนาด ${sizeMb} MB — ใหญ่มากสำหรับดูในเบราว์เซอร์ มีความเสี่ยงสูงที่หน้าจะค้าง/แครช (Out of Memory) ตอนบีบอัด/โหลด\n\n` +
+            `ระบบจะพยายามบีบอัดเป็น .glb ให้อัตโนมัติก่อนอัปโหลด แต่ถ้าไฟล์ใหญ่เกินไปเบราว์เซอร์ก็ยังอาจแครชได้ระหว่างขั้นตอนนี้อยู่ดี\n\n` +
+            `ยืนยันจะอัปโหลดไฟล์นี้ต่อเลยหรือไม่?`
+        );
+        if (!proceed) { $('factory-status').innerText = 'ยกเลิกอัปโหลด — ไฟล์ใหญ่เกินไป'; event.target.value = ''; return; }
+    }
     try {
+        modelFile = await autoCompressModelFile(modelFile); // แปลง .fbx/.gltf เป็น .glb บีบอัดก่อนอัปโหลด (ถ้าทำได้)
         currentModelRawBuffer = await modelFile.arrayBuffer();
         currentModelRawFileName = modelFile.name;
         const url = await uploadToSupabase(modelFile);
