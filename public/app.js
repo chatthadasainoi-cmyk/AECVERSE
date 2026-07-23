@@ -630,8 +630,16 @@ function optimizeMeshForRender(mesh) {
     mesh.castShadow = false;
     mesh.receiveShadow = false;
     if (mesh.material) {
-        if (mesh.material.roughness !== undefined) mesh.material.roughness = 0.8;
-        if (mesh.material.metalness !== undefined) mesh.material.metalness = 0.2;
+        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        mats.forEach(mat => {
+            // material เริ่มต้นจาก loader มักเป็น FrontSide (เห็น/คลิกได้แค่ผิวด้านนอก) —
+            // ผู้ใช้เดินเข้าไป "ข้างใน" ชิ้นส่วนได้จริง (เช่น เดินเข้าไปในถังหมัก หรือโมเดลที่
+            // ถูกขยายสเกลใหญ่มากจนตัวละครยืนอยู่ในตัวชิ้นส่วน) ถ้าเป็น FrontSide การคลิกเลือก
+            // (raycast) จากด้านในจะไม่ชนอะไรเลย เพราะไม่มีผิวด้านหน้าให้ชน จึงต้องเป็น DoubleSide เสมอ
+            mat.side = THREE.DoubleSide;
+            if (mat.roughness !== undefined) mat.roughness = 0.8;
+            if (mat.metalness !== undefined) mat.metalness = 0.2;
+        });
     }
 }
 
