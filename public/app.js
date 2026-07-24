@@ -1157,7 +1157,7 @@ window.setFactoryMaterialMode = setFactoryMaterialMode;
 // ชี้ซ้ำที่จุดเดิม หรือเดินออกไปไกล -> ข้อมูลหายอัตโนมัติ
 // ไม่มีการ "จับ/ลาก" ชิ้นส่วนใดๆ (ตามที่ระบุว่าจะทำให้ระบบซับซ้อนเกินไป)
 // ============================================================
-const selection = { uuid: null, key: 'default' };
+const selection = { uuid: null, key: 'default', viaWalkCollision: false };
 const raycaster = new THREE.Raycaster();
 const pointerNDC = new THREE.Vector2();
 const PROXIMITY_RANGE = 3.0;   // ระยะขยายป้าย (ตามคู่มือ 2-3 เมตร)
@@ -1185,6 +1185,10 @@ function selectPart(mesh, method) {
     if (selection.uuid === mesh.uuid) { deselectPart(); return; }
 
     selection.uuid = mesh.uuid;
+    // ป้ายที่เปิดจากการ "เดินชน" เท่านั้นที่ควรปิดอัตโนมัติเมื่อเดินออกห่าง (checkAutoDeselect) —
+    // ป้ายที่เปิดจากการคลิก/เลือกจากลิสต์/QR ต้องค้างอยู่แม้ตัวละครอยู่ไกล ไม่งั้นคลิกวัตถุที่อยู่
+    // ไกลๆ จะเห็นป้ายเปิดแวบเดียวแล้วปิดตัวเองทันทีในเฟรมถัดไป (ดูเหมือนคลิกไม่ติดอะไรเลย)
+    selection.viaWalkCollision = (method === '🚶 ตัวละครเดินชนวัตถุ');
     const key = resolveDatabaseKey(mesh, mesh.name);
     selection.key = key;
     applyHighlight(mesh.uuid);
@@ -1198,6 +1202,7 @@ function selectPart(mesh, method) {
 function deselectPart() {
     selection.uuid = null;
     selection.key = 'default';
+    selection.viaWalkCollision = false;
     $('process-panel').style.display = 'none';
     if (factoryModel && currentMaterialMode === 'solid') {
         factoryModel.traverse(child => {
@@ -1253,9 +1258,10 @@ function checkWalkCollision(nextX, nextZ, currentY) {
     }
 }
 
-// REQ 6: เดินออกไปไกลจากจุดที่เลือกไว้ -> ปิดป้ายอัตโนมัติ
+// REQ 6: เดินออกไปไกลจากจุดที่เลือกไว้ -> ปิดป้ายอัตโนมัติ (เฉพาะป้ายที่เปิดจากการเดินชน
+// เท่านั้น — ป้ายที่เปิดจากคลิก/เลือกจากลิสต์/QR ไม่ควรปิดเองแค่เพราะตัวละครยืนอยู่ไกล)
 function checkAutoDeselect() {
-    if (!avatarModel || !factoryModel || !selection.uuid) return;
+    if (!avatarModel || !factoryModel || !selection.uuid || !selection.viaWalkCollision) return;
     if (isEditingActive()) return;
     let pos = null;
     factoryModel.traverse(child => { if (child.isMesh && child.uuid === selection.uuid) { pos = new THREE.Vector3(); child.getWorldPosition(pos); } });
