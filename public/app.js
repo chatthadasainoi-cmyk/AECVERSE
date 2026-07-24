@@ -650,9 +650,14 @@ function populateMeshList(root) {
     root.traverse(child => {
         if (!child.isMesh) return;
         meshCount++;
+        // optimizeMeshForRender ต้องมาก่อนเสมอ (ตั้ง material.side = DoubleSide ให้คลิกเลือกได้
+        // จากด้านในชิ้นส่วนด้วย) เพราะ originalMaterials เก็บสำเนาไว้ใช้ "คืนค่าตอน deselect/
+        // เปลี่ยนโหมดพื้นผิว" — ถ้า clone ไปก่อนแก้ side จะได้สำเนาเก่าที่ยัง FrontSide ค้างอยู่
+        // แล้วพอมีการคืนค่าทีหลัง (applyHighlight ตอน deselect, setFactoryMaterialMode) จะดึง
+        // ค่า FrontSide เดิมกลับมาทับ ทำให้คลิกจากด้านในไม่ติดอีกหลังจากเคยเลือก/ยกเลิกเลือกไปแล้ว
+        optimizeMeshForRender(child);
         originalMaterials.set(child.uuid, child.material.clone());
         if (!child._original3DName) child._original3DName = child.name || `Object_${meshCount}`;
-        optimizeMeshForRender(child);
 
         // คืนชื่อที่ผู้ใช้เคยแก้ไว้ — ข้อมูล sync มาจาก server ก่อนโมเดลโหลดเสร็จเสมอ
         // (เดิมทำเฉพาะตอนโหลดจากไฟล์ .zip ทำให้ชื่อที่แก้หายหลังรีเฟรช)
