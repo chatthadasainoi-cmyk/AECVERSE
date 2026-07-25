@@ -540,9 +540,16 @@
                                 </div>
                             </div>
                         </div>
+                        <!-- Bulk actions — เลือกได้ทั้งแก้ไขทีละคน (คลิกแถว) หรือเลือกหลายคนพร้อมกันแล้วแก้รวด -->
+                        <div id="umBulkBar" style="display:none;align-items:center;gap:10px;padding:10px 16px;margin:10px 16px 0 16px;background:var(--blue-soft);border:1px solid var(--blue);border-radius:9px;font-size:12px;">
+                            <span id="umBulkCount" style="font-weight:700;color:#8fb8ff;flex:1;">0 คนถูกเลือก</span>
+                            <button class="btn btn-sm" onclick="bulkSetRole('admin')">⬆️ ตั้งเป็น Admin ทั้งหมด</button>
+                            <button class="btn btn-sm" onclick="bulkSetRole('user')">⬇️ ถอด Admin ทั้งหมด</button>
+                            <button class="btn btn-sm outline" onclick="clearUmSelection()">ยกเลิกเลือก</button>
+                        </div>
                         <div style="overflow-x:auto;padding:12px 4px 8px;">
                             <table id="umTable">
-                                <thead><tr><th>User</th><th>Email</th><th>Status</th><th>Checklist</th><th>Last Sign In</th><th style="text-align:right;">Actions</th></tr></thead>
+                                <thead><tr><th style="width:30px;"><input type="checkbox" id="umSelectAll" onclick="toggleUmSelectAll(this.checked)" style="width:14px;height:14px;accent-color:var(--blue);"></th><th>User</th><th>Email</th><th>Status</th><th>Checklist</th><th>Last Sign In</th><th style="text-align:right;">Actions</th></tr></thead>
                                 <tbody id="umTableBody"></tbody>
                             </table>
                         </div>
@@ -1001,6 +1008,7 @@
         let umMeId = null;
         let umStatusFilter = 'all';
         let currentDetailUserId = null;
+        const umSelected = new Set(); // เลือกได้หลายคนพร้อมกัน — ไว้แก้ role รวดเดียว (แยกจากการคลิกแถวเพื่อดู/แก้ทีละคน)
 
         function toggleUmDropdown() {
             document.getElementById('umStatusFilter').classList.toggle('open');
@@ -1048,7 +1056,9 @@
                 const presenceHtml = u.online
                     ? '<span class="presence online"><span class="p-dot"></span>Online now</span>'
                     : '<span class="presence offline"><span class="p-dot"></span>Offline</span>' + (u.lastSeenAt ? '<div class="presence-sub">last seen ' + relativeLastSeen(u.lastSeenAt) + '</div>' : '');
+                const selectable = !isMe && !u.isBootstrapAdmin;
                 return '<tr onclick="showUserDetail(\'' + u.id + '\')" style="cursor:pointer;">' +
+                    '<td onclick="event.stopPropagation();">' + (selectable ? '<input type="checkbox" class="um-row-check" data-uid="' + u.id + '" ' + (umSelected.has(u.id) ? 'checked' : '') + ' onclick="toggleUmRowCheck(\'' + u.id + '\', this.checked)" style="width:14px;height:14px;accent-color:var(--blue);">' : '') + '</td>' +
                     '<td><div class="user-cell"><div class="u-ic">' + (u.email || '?').slice(0, 2).toUpperCase() + '</div><div><div class="u-name">' + u.email + (isMe ? ' <span style="color:var(--text-2);font-weight:400;">(คุณ)</span>' : '') + '</div><div class="u-sub">' + roleBadge(u.role) + '</div></div></div></td>' +
                     '<td>' + u.email + '</td>' +
                     '<td>' + presenceHtml + '</td>' +
@@ -1057,6 +1067,10 @@
                     '<td style="text-align:right;color:var(--text-2);">→</td></tr>';
             }).join('');
             document.getElementById('usermgmt-status').textContent = rows.length + ' / ' + umUsers.length + ' บัญชี';
+            // rows ที่ถูกกรองออกไป (search/status) ไม่ควรค้างอยู่ในเซ็ตที่เลือก เพราะมองไม่เห็นแล้วว่าเลือกอะไรอยู่
+            const visibleIds = new Set(rows.map(u => u.id));
+            [...umSelected].forEach(id => { if (!visibleIds.has(id)) umSelected.delete(id); });
+            updateUmBulkBar();
         }
 
         window.showUserDetail = function (userId) {
@@ -1128,6 +1142,53 @@
             const data = await res.json();
             if (!res.ok) { alert(data.error || 'เกิดข้อผิดพลาด'); return; }
             loadUserManagement();
+        }
+
+        // ---------- bulk select: แก้ role ของหลายบัญชีพร้อมกัน (แยกจาก setRole ทีละคนด้านบน) ----------
+        function toggleUmSelectAll(checked) {
+            document.querySelectorAll('.um-row-check').forEach(cb => {
+                cb.checked = checked;
+                if (checked) umSelected.add(cb.dataset.uid); else umSelected.delete(cb.dataset.uid);
+            });
+            updateUmBulkBar();
+        }
+        function toggleUmRowCheck(userId, checked) {
+            if (checked) umSelected.add(userId); else umSelected.delete(userId);
+            updateUmBulkBar();
+        }
+        function clearUmSelection() {
+            umSelected.clear();
+            const selectAll = document.getElementById('umSelectAll');
+            if (selectAll) selectAll.checked = false;
+            renderUmTable();
+        }
+        function updateUmBulkBar() {
+            const bar = document.getElementById('umBulkBar');
+            const count = umSelected.size;
+            bar.style.display = count > 0 ? 'flex' : 'none';
+            if (count > 0) document.getElementById('umBulkCount').textContent = count + ' คนถูกเลือก';
+            const selectAll = document.getElementById('umSelectAll');
+            const selectableCount = document.querySelectorAll('.um-row-check').length;
+            if (selectAll) selectAll.checked = selectableCount > 0 && count === selectableCount;
+        }
+        async function bulkSetRole(role) {
+            if (!umSelected.size) return;
+            const label = role === 'admin' ? 'ตั้งเป็น Admin' : 'ถอด Admin';
+            if (!confirm(label + ' ผู้ใช้ ' + umSelected.size + ' คนที่เลือกไว้?')) return;
+            const { data: { session } } = await supabaseClient.auth.getSession();
+            if (!session) return;
+            const ids = [...umSelected];
+            const results = await Promise.all(ids.map(id =>
+                fetch('/api/admin/users/' + id + '/role', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + session.access_token },
+                    body: JSON.stringify({ role })
+                }).then(res => res.ok)
+            ));
+            const failCount = results.filter(ok => !ok).length;
+            umSelected.clear();
+            await loadUserManagement();
+            if (failCount) alert(failCount + ' / ' + ids.length + ' บัญชีแก้ไขไม่สำเร็จ');
         }
 
         // ---------- real-time presence: subscribe once, merge updates into the table ----------
