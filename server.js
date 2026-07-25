@@ -294,6 +294,145 @@ app.post('/api/knowledge-questions', requireAdmin, async (req, res) => {
     res.json({ success: true, questions: knowledgeQuestions });
 });
 
+// ============================================================
+// GENERAL SETTINGS — ข้อมูลองค์กร/ภูมิภาค/สถานะระบบ (ตั้งค่าโดยแอดมิน)
+// จากมอคอัพ "AEC VERSE — Settings · General" ที่เพื่อนผู้ใช้ทำมา
+// ============================================================
+const GENERAL_SETTINGS_FILE = IS_PRODUCTION ? 'general_settings_v1.json' : 'general_settings_dev.json';
+const DEFAULT_GENERAL_SETTINGS = {
+    orgName: 'AEC VERS Co., Ltd.',
+    timezone: '(UTC+7) Bangkok, Jakarta',
+    dateFormat: 'DD/MM/YYYY',
+    language: 'th',
+    tempUnit: 'C',
+    pressureUnit: 'bar',
+    flowUnit: 'm3h',
+    maintenanceMode: false,
+    publicRegistration: true
+};
+let generalSettings = { ...DEFAULT_GENERAL_SETTINGS };
+
+async function loadGeneralSettings() {
+    try {
+        const res = await fetch(`${SUPABASE_URL}/storage/v1/object/public/models/${GENERAL_SETTINGS_FILE}?t=${Date.now()}`);
+        if (!res.ok) return;
+        const s = await res.json();
+        if (s && typeof s === 'object') generalSettings = { ...DEFAULT_GENERAL_SETTINGS, ...s };
+    } catch (err) { console.warn('[SETTINGS] โหลด general settings ไม่สำเร็จ:', err.message); }
+}
+async function persistGeneralSettings() {
+    try {
+        await fetch(`${SUPABASE_URL}/storage/v1/object/models/${GENERAL_SETTINGS_FILE}`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'application/json', 'x-upsert': 'true' },
+            body: JSON.stringify(generalSettings)
+        });
+    } catch (err) { console.warn('[SETTINGS] บันทึก general settings ไม่สำเร็จ:', err.message); }
+}
+loadGeneralSettings();
+
+app.get('/api/settings/general', (req, res) => res.json(generalSettings));
+app.post('/api/settings/general', requireAdmin, async (req, res) => {
+    const b = req.body || {};
+    generalSettings = {
+        orgName: String(b.orgName || generalSettings.orgName).slice(0, 200),
+        timezone: String(b.timezone || generalSettings.timezone).slice(0, 100),
+        dateFormat: String(b.dateFormat || generalSettings.dateFormat).slice(0, 40),
+        language: String(b.language || generalSettings.language).slice(0, 20),
+        tempUnit: String(b.tempUnit || generalSettings.tempUnit).slice(0, 10),
+        pressureUnit: String(b.pressureUnit || generalSettings.pressureUnit).slice(0, 10),
+        flowUnit: String(b.flowUnit || generalSettings.flowUnit).slice(0, 10),
+        maintenanceMode: !!b.maintenanceMode,
+        publicRegistration: b.publicRegistration !== undefined ? !!b.publicRegistration : generalSettings.publicRegistration
+    };
+    await persistGeneralSettings();
+    res.json({ success: true, settings: generalSettings });
+});
+
+// ============================================================
+// FEATURE TOGGLES — เปิด/ปิดฟีเจอร์ต่างๆ ของ Visitor Portal / Employee Portal
+// ============================================================
+const FEATURE_TOGGLES_FILE = IS_PRODUCTION ? 'feature_toggles_v1.json' : 'feature_toggles_dev.json';
+const DEFAULT_FEATURE_TOGGLES = {
+    virtualTour: true,
+    digitalTwin: true,
+    knowledgeCheck: true,
+    chatVoice: true,
+    qrScanner: true,
+    workOrder: true,
+    emergency: true,
+    analytics: true
+};
+let featureToggles = { ...DEFAULT_FEATURE_TOGGLES };
+
+async function loadFeatureToggles() {
+    try {
+        const res = await fetch(`${SUPABASE_URL}/storage/v1/object/public/models/${FEATURE_TOGGLES_FILE}?t=${Date.now()}`);
+        if (!res.ok) return;
+        const s = await res.json();
+        if (s && typeof s === 'object') featureToggles = { ...DEFAULT_FEATURE_TOGGLES, ...s };
+    } catch (err) { console.warn('[SETTINGS] โหลด feature toggles ไม่สำเร็จ:', err.message); }
+}
+async function persistFeatureToggles() {
+    try {
+        await fetch(`${SUPABASE_URL}/storage/v1/object/models/${FEATURE_TOGGLES_FILE}`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'application/json', 'x-upsert': 'true' },
+            body: JSON.stringify(featureToggles)
+        });
+    } catch (err) { console.warn('[SETTINGS] บันทึก feature toggles ไม่สำเร็จ:', err.message); }
+}
+loadFeatureToggles();
+
+app.get('/api/settings/features', (req, res) => res.json(featureToggles));
+app.post('/api/settings/features', requireAdmin, async (req, res) => {
+    const b = req.body || {};
+    const clean = {};
+    Object.keys(DEFAULT_FEATURE_TOGGLES).forEach(k => { clean[k] = !!b[k]; });
+    featureToggles = clean;
+    await persistFeatureToggles();
+    res.json({ success: true, features: featureToggles });
+});
+
+// ============================================================
+// SITE CONTENT — เนื้อหาหน้า Home / Process / About Us ที่แอดมินแก้ไขได้
+// (ยังไม่เชื่อมเข้าหน้า Public*.html จริง — เก็บ persist ไว้ก่อนสำหรับเฟสถัดไป)
+// ============================================================
+const SITE_CONTENT_FILE = IS_PRODUCTION ? 'site_content_v1.json' : 'site_content_dev.json';
+const DEFAULT_SITE_CONTENT = { home: {}, process: {}, aboutUs: {} };
+let siteContent = { ...DEFAULT_SITE_CONTENT };
+
+async function loadSiteContent() {
+    try {
+        const res = await fetch(`${SUPABASE_URL}/storage/v1/object/public/models/${SITE_CONTENT_FILE}?t=${Date.now()}`);
+        if (!res.ok) return;
+        const s = await res.json();
+        if (s && typeof s === 'object') siteContent = { ...DEFAULT_SITE_CONTENT, ...s };
+    } catch (err) { console.warn('[SETTINGS] โหลด site content ไม่สำเร็จ:', err.message); }
+}
+async function persistSiteContent() {
+    try {
+        await fetch(`${SUPABASE_URL}/storage/v1/object/models/${SITE_CONTENT_FILE}`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'application/json', 'x-upsert': 'true' },
+            body: JSON.stringify(siteContent)
+        });
+    } catch (err) { console.warn('[SETTINGS] บันทึก site content ไม่สำเร็จ:', err.message); }
+}
+loadSiteContent();
+
+app.get('/api/settings/site-content', (req, res) => res.json(siteContent));
+app.post('/api/settings/site-content', requireAdmin, async (req, res) => {
+    const b = req.body || {};
+    siteContent = {
+        home: (b.home && typeof b.home === 'object') ? b.home : siteContent.home,
+        process: (b.process && typeof b.process === 'object') ? b.process : siteContent.process,
+        aboutUs: (b.aboutUs && typeof b.aboutUs === 'object') ? b.aboutUs : siteContent.aboutUs
+    };
+    await persistSiteContent();
+    res.json({ success: true, content: siteContent });
+});
+
 async function loadSceneState() {
     try {
         const res = await fetch(`${SUPABASE_URL}/storage/v1/object/public/models/${SCENE_STATE_FILE}?t=${Date.now()}`);
