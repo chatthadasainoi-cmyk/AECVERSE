@@ -532,6 +532,8 @@ h3, h4 { margin: 0 0 10px 0; font-size: 13px; font-weight: 700; color: var(--tex
     display: inline-flex; align-items: center; justify-content: center; gap: 6px;
 }
 .panel-action-btn:hover { filter: brightness(1.15); border-color: #2a3644; }
+.panel-action-btn.walk-active { background: var(--green); color: #04150b; border-color: var(--green); animation: walkPulse 1.1s ease-in-out infinite; }
+@keyframes walkPulse { 0%, 100% { opacity: 1; } 50% { opacity: .65; } }
 .action-block { width: 100%; padding: 9px; }
 .btn-edit-trigger { background: var(--blue-soft); color: #8fb8ff; border: 1px solid rgba(59,130,246,0.3); }
 .btn-edit-trigger:hover { background: rgba(59,130,246,0.22); }
