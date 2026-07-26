@@ -50,6 +50,14 @@ body{
 a{color:inherit;text-decoration:none;}
 button{font-family:inherit;}
 
+/* ---------- fade-in entrance (มาต่อจาก Login -> RoleRedirect ให้เนียนต่อเนื่อง) ----------
+   ค่าเริ่มต้นต้อง "เห็นปกติ" เสมอ (opacity:1) กันหน้าจอค้างดำ/มองไม่เห็นถ้า JS พลาดไม่ติด
+   class .app-ready ทัน — ซ่อนเฉพาะช่วงสั้นๆ ที่ตั้งใจให้ซ่อนผ่าน .pre-fade เท่านั้น */
+body.pre-fade .app-shell{ opacity:0; transform:translateY(8px); }
+@media (prefers-reduced-motion: no-preference){
+  .app-shell{ transition:opacity .4s ease, transform .4s ease; }
+}
+
 /* ---------- shell ---------- */
 .app-shell{display:flex;min-height:100vh;}
 
@@ -292,7 +300,8 @@ tbody td.strong{color:var(--text-0);font-weight:600;}
 </style>
 
 </head>
-<body>
+<body class="pre-fade">
+  <script>requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.remove('pre-fade')));</script>
   <div class="app-shell">
     <aside class="sidebar">
       <div class="sb-logo">

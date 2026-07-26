@@ -22,7 +22,8 @@
 .onboard-arrow{color:var(--text-2);font-size:12px;flex-shrink:0;}
 </style>
 </head>
-<body>
+<body class="pre-fade">
+  <script>requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.remove('pre-fade')));</script>
   <div class="app-shell">
     <aside class="sidebar" id="portal-sidebar"></aside>
 

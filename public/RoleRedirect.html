@@ -4,22 +4,47 @@
 <meta charset="UTF-8">
 <title>AEC VERSE — กำลังเข้าสู่ระบบ...</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="supabaseClient.js"></script>
 <style>
-  html,body{margin:0;padding:0;height:100%;background:#080b11;color:#9aa7b8;
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;height:100%;}
+  body{
+    background:radial-gradient(1200px 800px at 15% 10%, #0d1c2c 0%, #050b14 55%), #050b14;
+    color:#a8b7c7;
     font-family:"Inter",system-ui,-apple-system,sans-serif;
-    display:flex;align-items:center;justify-content:center;font-size:13px;}
-  .spinner{width:28px;height:28px;border-radius:50%;border:3px solid #1c2531;border-top-color:#3b82f6;
-    animation:spin .8s linear infinite;margin:0 auto 14px auto;}
-  @keyframes spin{to{transform:rotate(360deg);}}
-  .box{text-align:center;}
+    display:flex;align-items:center;justify-content:center;font-size:13.5px;
+    opacity:0; transition:opacity .35s ease;
+  }
+  body.ready{ opacity:1; }
+  .box{ text-align:center; }
+
+  .brand-mark{ width:56px;height:56px;object-fit:contain;margin:0 auto 18px auto;display:block; }
+  @media (prefers-reduced-motion: no-preference){
+    .brand-mark{ animation:pulseLogo 1.8s ease-in-out infinite; }
+  }
+  @keyframes pulseLogo{ 0%,100%{ transform:scale(1); opacity:1; } 50%{ transform:scale(1.06); opacity:.85; } }
+
+  .ring-wrap{ width:44px;height:44px;margin:0 auto 18px auto;position:relative; }
+  .ring{
+    position:absolute;inset:0;border-radius:50%;
+    border:3px solid #1c2c3f;border-top-color:#3b82f6;border-right-color:#22d3ee;
+    animation:spin .85s linear infinite;
+  }
+  @keyframes spin{ to{ transform:rotate(360deg); } }
+
+  .msg{ font-size:13.5px; color:#a8b7c7; font-weight:500; }
+  .sub{ font-size:11.5px; color:#54677b; margin-top:6px; }
 </style>
 </head>
 <body>
   <div class="box">
-    <div class="spinner"></div>
-    <div>กำลังพาคุณไปยังหน้าที่เหมาะสม...</div>
+    <img src="Logo.png" alt="" class="brand-mark">
+    <div class="ring-wrap"><div class="ring"></div></div>
+    <div class="msg">กำลังพาคุณไปยังหน้าที่เหมาะสม...</div>
+    <div class="sub">AEC VERSE</div>
   </div>
 <script>
 // จุดตัดสินใจเดียวสำหรับทุก flow การล็อกอิน (email/password, OAuth, สมัครสมาชิก, รีเซ็ตรหัสผ่าน)
@@ -27,6 +52,8 @@
 //   admin        -> Dashboard.html (แอปแอดมินเดิม)
 //   user ทั่วไป  -> PublicHome.html (พอร์ทัลผู้ใช้ใหม่)
 // ยกเว้นมี ?next= แนบมา (เช่น สแกน QR code แล้วโดนเด้งมา login ก่อน) — พากลับไปหน้านั้นแทน
+
+requestAnimationFrame(() => document.body.classList.add('ready'));
 
 // ตรวจ next ให้เป็นแค่ "ชื่อไฟล์ .html ในโฟลเดอร์เดียวกัน + query" เท่านั้น กัน open-redirect
 // (ห้ามเป็น URL เต็ม, ห้ามขึ้นต้นด้วย // หรือมี : เพราะนั่นคือพยายามชี้ออกนอกโดเมน)
@@ -36,20 +63,26 @@ function safeNextPath(raw){
   return raw;
 }
 
+function goTo(url){
+  // fade ออกก่อนเปลี่ยนหน้าจริง ให้ต่อเนื่องกับ fade-in ของหน้าเป้าหมาย ไม่ใช่ตัดฉากทันที
+  document.body.classList.remove('ready');
+  setTimeout(() => { window.location.href = url; }, 220);
+}
+
 (async function () {
   const next = safeNextPath(new URLSearchParams(location.search).get('next'));
   try {
     const { data: { session } } = await supabaseClient.auth.getSession();
-    if (!session) { window.location.href = 'Login.html'; return; }
+    if (!session) { goTo('Login.html'); return; }
 
     const res = await fetch('/api/me/role', { headers: { Authorization: 'Bearer ' + session.access_token } });
     const body = await res.json().catch(() => ({}));
     const isAdmin = res.ok && body.isAdmin;
     // next ใช้ได้เฉพาะฝั่ง user ทั่วไป (หน้า Public*) — admin ยังเข้าแอปแอดมินตามปกติเสมอ
-    window.location.href = next && !isAdmin ? next : (isAdmin ? 'Dashboard.html' : 'PublicHome.html');
+    goTo(next && !isAdmin ? next : (isAdmin ? 'Dashboard.html' : 'PublicHome.html'));
   } catch (err) {
     // เช็ค role ไม่สำเร็จ (เช่น server ยังไม่พร้อม) -> ให้เข้าพอร์ทัลผู้ใช้ทั่วไปไว้ก่อน ปลอดภัยกว่าเดาเป็น admin
-    window.location.href = next || 'PublicHome.html';
+    goTo(next || 'PublicHome.html');
   }
 })();
 </script>
