@@ -1278,8 +1278,15 @@ function deselectPart() {
 // (มีเฉพาะโหมด Metaverse ที่มี avatar — โหมด Digital Twin viewer ไม่มีตัวละครให้เดิน)
 function walkToSelected() {
     if (!avatarModel || !factoryModel || !selection.uuid) return;
+    // ใช้จุดกึ่งกลาง "กล่องขอบเขต" ของชิ้นส่วน (เหมือนที่ระบบชนใช้) แทนจุดหมุน (pivot) ของโมเดล —
+    // โมเดลที่ export จาก CAD มักตั้ง pivot ไว้มุมใดมุมหนึ่งไม่ตรงกลางชิ้นงานจริง ถ้าใช้ pivot ตรงๆ
+    // ตัวละครจะเดินไปหยุดที่จุดที่ดูไม่ตรงกับรูปทรงที่ไฮไลท์ไว้บนจอ
     let targetPos = null;
-    factoryModel.traverse(child => { if (!targetPos && child.isMesh && child.uuid === selection.uuid) { targetPos = new THREE.Vector3(); child.getWorldPosition(targetPos); } });
+    const col = factoryColliders.find(c => c.uuid === selection.uuid);
+    if (col) { targetPos = col.box.getCenter(new THREE.Vector3()); }
+    else {
+        factoryModel.traverse(child => { if (!targetPos && child.isMesh && child.uuid === selection.uuid) { targetPos = new THREE.Vector3(); child.getWorldPosition(targetPos); } });
+    }
     if (!targetPos) return;
     if (isFreeLook) { isFreeLook = false; resetCameraToAvatar(); } // เดินอัตโนมัติต้องอยู่โหมดกล้องติดตามตัวละคร
     autoWalk.active = true;
@@ -1341,8 +1348,12 @@ function interactNearestMesh() {
 }
 
 // REQ 4: เดินชน hitbox -> ขึ้นข้อมูลทันที (ไม่บล็อกการเดิน เดินทะลุได้อิสระ)
+// ระหว่างเดินอัตโนมัติไปหาชิ้นส่วนที่เลือกไว้ (walkToSelected) ห้ามให้ชิ้นส่วนอื่นที่บังเอิญ
+// เดินผ่านแนวมาแย่งเปลี่ยนป้ายข้อมูล/ไฮไลท์ไปกลางทาง — ผู้ใช้กด "เดินไปที่นี่" เพราะอยากดูข้อมูล
+// ของชิ้นที่เลือกไว้ตอนไปถึง ไม่ใช่ของอย่างอื่นที่บังเอิญอยู่ระหว่างทาง
 function checkWalkCollision(nextX, nextZ, currentY) {
     for (const col of factoryColliders) {
+        if (autoWalk.active && col.uuid !== selection.uuid) continue;
         const box = col.box;
         if (nextX + avatarConfig.radius > box.min.x && nextX - avatarConfig.radius < box.max.x &&
             nextZ + avatarConfig.radius > box.min.z && nextZ - avatarConfig.radius < box.max.z &&
