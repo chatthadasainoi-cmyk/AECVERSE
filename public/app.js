@@ -388,7 +388,13 @@ const _glbCache = {};
 function loadGlb(url) {
     if (!_glbCache[url]) {
         _glbCache[url] = new Promise((resolve, reject) => {
-            new THREE.GLTFLoader().load(url, resolve, undefined, reject);
+            const loader = new THREE.GLTFLoader();
+            if (typeof THREE.DRACOLoader === 'function') {
+                const dl = new THREE.DRACOLoader();
+                dl.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
+                loader.setDRACOLoader(dl);
+            }
+            loader.load(url, resolve, undefined, reject);
         });
     }
     return _glbCache[url];
@@ -619,9 +625,17 @@ let factoryColliders = [];
 
 const HITBOX_PADDING = 0.6; // ขยาย hitbox ให้ชนง่ายขึ้น ไม่ต้องเดินตามขอบโมเดลเป๊ะๆ
 
+// รองรับโมเดลที่บีบอัดแบบ Draco (KHR_draco_mesh_compression) — จำเป็นสำหรับโมเดลโรงงาน
+// ที่ export จาก CAD/BIM ซึ่งมักมีจำนวน vertex สูงมากจนไฟล์ใหญ่เกินจะโหลดตรงๆ ได้ไหว
+const sharedDracoLoader = (typeof THREE.DRACOLoader === 'function') ? new THREE.DRACOLoader() : null;
+if (sharedDracoLoader) sharedDracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
+
 function getLoaderForFile(fileName) {
     const ext = (fileName || '').split('.').pop().toLowerCase();
-    return (ext === 'fbx') ? new THREE.FBXLoader() : new THREE.GLTFLoader();
+    if (ext === 'fbx') return new THREE.FBXLoader();
+    const loader = new THREE.GLTFLoader();
+    if (sharedDracoLoader) loader.setDRACOLoader(sharedDracoLoader);
+    return loader;
 }
 
 // ปรับแต่ง mesh ให้เรนเดอร์เบาลง เหมาะกับโมเดลโรงงานที่มีชิ้นส่วนจำนวนมาก
