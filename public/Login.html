@@ -472,6 +472,36 @@
         .features{grid-template-columns:1fr;}
         body{padding:14px;}
       }
+
+      /* ---------- entrance + transition polish ---------- */
+      @media (prefers-reduced-motion: no-preference){
+        .card-outer{ opacity:0; transform:translateY(14px); animation:riseIn .6s cubic-bezier(.2,.8,.25,1) .05s forwards; }
+        .features{ opacity:0; transform:translateY(14px); animation:riseIn .6s cubic-bezier(.2,.8,.25,1) .22s forwards; }
+        .brand-mark{ opacity:0; transform:scale(.85); animation:popIn .5s cubic-bezier(.2,.8,.25,1) .15s forwards; }
+      }
+      @keyframes riseIn{ to{ opacity:1; transform:translateY(0); } }
+      @keyframes popIn{ to{ opacity:1; transform:scale(1); } }
+
+      body.leaving .card-outer, body.leaving .features{
+        transition:opacity .35s ease, transform .35s ease;
+        opacity:0; transform:translateY(-10px) scale(.99);
+      }
+
+      .field.shake{ animation:shakeX .38s ease; }
+      @keyframes shakeX{
+        10%,90%{transform:translateX(-1px);} 20%,80%{transform:translateX(2px);}
+        30%,50%,70%{transform:translateX(-4px);} 40%,60%{transform:translateX(4px);}
+      }
+
+      .btn-signin{ position:relative; overflow:hidden; }
+      .btn-signin .spin{
+        display:none; width:16px;height:16px;border-radius:50%;
+        border:2px solid rgba(4,21,11,0.35); border-top-color:#04150b;
+        animation:spin .7s linear infinite; margin-right:8px;
+      }
+      .btn-signin.loading .spin{ display:inline-block; vertical-align:-3px; }
+      .btn-signin.success{ background:linear-gradient(90deg,#22c55e,#4ade80); }
+      @keyframes spin{ to{ transform:rotate(360deg); } }
     </style>
   </head>
 
@@ -553,7 +583,7 @@
             <a href="ForgotPassword.html" class="link">Forgot password?</a>
           </div>
 
-          <button class="btn-signin" id="signInBtn" onclick="handleSignIn()">Sign In</button>
+          <button class="btn-signin" id="signInBtn" onclick="handleSignIn()"><span class="spin"></span><span id="signInBtnLabel">Sign In</span></button>
 
           <div class="divider">or continue with</div>
 
@@ -601,6 +631,12 @@
         ? msg
         : 'เกิดข้อผิดพลาดจากระบบ กรุณาลองใหม่อีกครั้ง (Supabase อาจกำลังมีปัญหาชั่วคราว)';
       el.style.display = 'block';
+      // สั่นช่องกรอกเบาๆ เป็น feedback ทันทีว่าล็อกอินไม่ผ่าน — เห็นชัดกว่าแค่ข้อความสีแดงลอยขึ้น
+      document.querySelectorAll('.field').forEach(f => {
+        f.classList.remove('shake');
+        void f.offsetWidth; // reflow กันแอนิเมชันไม่เล่นซ้ำถ้า error ติดกันสองครั้ง
+        f.classList.add('shake');
+      });
     }
 
     async function handleSignIn(){
@@ -612,8 +648,10 @@
       }
 
       const btn = document.getElementById('signInBtn');
+      const label = document.getElementById('signInBtnLabel');
       btn.disabled = true;
-      btn.textContent = 'กำลังเข้าสู่ระบบ...';
+      btn.classList.add('loading');
+      label.textContent = 'กำลังเข้าสู่ระบบ...';
 
       try {
         const { error } = await supabaseClient.auth.signInWithPassword({ email, password: pwd });
@@ -621,15 +659,24 @@
         if (error) {
           const msg = error.message || '';
           showError(msg === 'Invalid login credentials' ? 'อีเมลหรือรหัสผ่านไม่ถูกต้อง' : msg);
+          btn.disabled = false;
+          btn.classList.remove('loading');
+          label.textContent = 'Sign In';
           return;
         }
 
-        window.location.href = 'RoleRedirect.html' + nextParamSuffix();
+        // เข้าสู่ระบบสำเร็จ — โชว์สถานะสำเร็จสั้นๆ แล้วค่อย fade ออกก่อนเปลี่ยนหน้า
+        // แทนที่จะตัดฉากทันที ให้ความรู้สึกต่อเนื่อง ไม่เหมือนหน้าเว็บกระตุก
+        btn.classList.remove('loading');
+        btn.classList.add('success');
+        label.textContent = '✓ สำเร็จ กำลังพาเข้าสู่ระบบ...';
+        document.body.classList.add('leaving');
+        setTimeout(() => { window.location.href = 'RoleRedirect.html' + nextParamSuffix(); }, 380);
       } catch (err) {
         showError(err && err.message);
-      } finally {
         btn.disabled = false;
-        btn.textContent = 'Sign In';
+        btn.classList.remove('loading');
+        label.textContent = 'Sign In';
       }
     }
 

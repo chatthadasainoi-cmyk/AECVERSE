@@ -43,6 +43,14 @@ h1,h2,h3,h4,p{margin:0;}
 
 .app-shell{display:flex;min-height:100vh;}
 
+/* ---------- fade-in entrance (มาต่อจาก Login -> RoleRedirect ให้เนียนต่อเนื่อง) ----------
+   ค่าเริ่มต้นต้อง "เห็นปกติ" เสมอ (opacity:1) กันหน้าจอค้างมองไม่เห็นถ้า JS พลาดไม่ทัน
+   ใส่ .app-ready ให้ — ซ่อนเฉพาะช่วงสั้นๆ ที่ตั้งใจให้ซ่อนผ่าน .pre-fade บน <body> เท่านั้น */
+body.pre-fade .app-shell{ opacity:0; transform:translateY(8px); }
+@media (prefers-reduced-motion: no-preference){
+  .app-shell{ transition:opacity .4s ease, transform .4s ease; }
+}
+
 /* ---------- sidebar ---------- */
 .sidebar{
   width:var(--sidebar-w);flex-shrink:0;
