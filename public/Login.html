@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-  <html lang="th" data-no-entrance-fade>
+  <html lang="th">
   <head>
     <meta charset="UTF-8">
     <title>AEC VERSE — Sign In</title>
@@ -475,14 +475,18 @@
         body{padding:14px;}
       }
 
-      /* ---------- entrance + transition polish ---------- */
-      @media (prefers-reduced-motion: no-preference){
-        .card-outer{ opacity:0; transform:translateY(14px); animation:riseIn .6s cubic-bezier(.2,.8,.25,1) .05s forwards; }
-        .features{ opacity:0; transform:translateY(14px); animation:riseIn .6s cubic-bezier(.2,.8,.25,1) .22s forwards; }
-        .brand-mark{ opacity:0; transform:scale(.85); animation:popIn .5s cubic-bezier(.2,.8,.25,1) .15s forwards; }
+      /* ---------- entrance + transition polish ----------
+         การ fade ต้องทำงานเสมอ ส่วนที่ปิดเมื่อผู้ใช้ตั้งค่า "ลดการเคลื่อนไหว" คือการขยับตำแหน่งเท่านั้น
+         (ถ้าเอา opacity ไปไว้ใน @media no-preference เอฟเฟกต์จะหายทั้งหมดบนเครื่องที่ปิดอนิเมชันไว้) */
+      .card-outer{ opacity:0; animation:riseIn .6s cubic-bezier(.2,.8,.25,1) .05s forwards; }
+      .features{ opacity:0; animation:riseIn .6s cubic-bezier(.2,.8,.25,1) .22s forwards; }
+      .brand-mark{ opacity:0; animation:popIn .5s cubic-bezier(.2,.8,.25,1) .15s forwards; }
+      @keyframes riseIn{ from{ opacity:0; transform:translateY(14px); } to{ opacity:1; transform:translateY(0); } }
+      @keyframes popIn{ from{ opacity:0; transform:scale(.85); } to{ opacity:1; transform:scale(1); } }
+      @media (prefers-reduced-motion: reduce){
+        .card-outer, .features, .brand-mark{ animation-name:fadeOnly; }
       }
-      @keyframes riseIn{ to{ opacity:1; transform:translateY(0); } }
-      @keyframes popIn{ to{ opacity:1; transform:scale(1); } }
+      @keyframes fadeOnly{ from{ opacity:0; } to{ opacity:1; } }
 
       body.leaving .card-outer, body.leaving .features{
         transition:opacity .35s ease, transform .35s ease;
@@ -673,7 +677,12 @@
         btn.classList.add('success');
         label.textContent = '✓ สำเร็จ กำลังพาเข้าสู่ระบบ...';
         document.body.classList.add('leaving');
-        setTimeout(() => { window.location.href = 'RoleRedirect.html' + nextParamSuffix(); }, 380);
+        const nextUrl = 'RoleRedirect.html' + nextParamSuffix();
+        // ใช้ม่านเปลี่ยนหน้าชุดเดียวกับทั้งเว็บ (page-transitions.js) ให้ต่อเนื่องเป็นชุดเดียวกัน
+        setTimeout(() => {
+          if (window.aecNavigate) window.aecNavigate(nextUrl);
+          else window.location.href = nextUrl;
+        }, 320);
       } catch (err) {
         showError(err && err.message);
         btn.disabled = false;
