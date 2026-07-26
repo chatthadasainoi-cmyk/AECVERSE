@@ -288,6 +288,17 @@
             </div>
         </div>
 
+        <!-- ลูกศรบอกทิศ + ระยะทาง ตอนกำลังเดินอัตโนมัติไปหาชิ้นส่วนที่เลือก (ปุ่ม "เดินไปที่นี่") -->
+        <div id="walk-arrow-hud" style="display:none; position:fixed; left:50%; bottom:130px; transform:translateX(-50%); z-index:60; flex-direction:column; align-items:center; gap:6px; pointer-events:none;">
+            <div id="walk-arrow-icon" style="width:38px; height:38px; transition: transform .15s ease; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));">
+                <svg viewBox="0 0 24 24" width="38" height="38" fill="none" stroke="#22c55e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v16M12 3l-6 6M12 3l6 6"/></svg>
+            </div>
+            <div style="background:rgba(8,11,17,0.85); border:1px solid rgba(255,255,255,0.15); border-radius:8px; padding:5px 12px; font-size:11.5px; color:#fff; font-weight:700; white-space:nowrap; pointer-events:auto; display:flex; align-items:center; gap:8px;">
+                <span>🚶 กำลังเดินไป... <span id="walk-arrow-dist">—</span></span>
+                <span onclick="cancelAutoWalk()" style="cursor:pointer; color:#ef4444; font-weight:800;" title="ยกเลิก">✕</span>
+            </div>
+        </div>
+
         <!-- LIVE DATA DOCK — แถบข้อมูลโปร่งแสงลอยขอบล่างฉาก ไม่บังมุมมอง 3D
              ปกติย่อเหลือบรรทัดเดียว กดลูกศรเพื่อขยายดู TANK-01 + Alerts เต็มรายการ -->
         <div id="plant-dock" class="collapsed">
@@ -344,6 +355,7 @@
                     <span id="detection-method" class="method-tag" style="flex-shrink: 0;">ระบบตรวจจับ</span>
                 </div>
                 <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                    <button id="btn-walk-to" class="panel-action-btn" onclick="walkToSelected()" style="display:none;background:var(--green-soft);border-color:rgba(34,197,94,0.35);color:var(--green); font-size:11.5px; padding:6px 10px;">🚶 เดินไปที่นี่</button>
                     <button id="btn-assign-type" class="panel-action-btn" onclick="openTypeSelectorForActive()" style="background:var(--purple-soft);border-color:rgba(168,85,247,0.35);color:var(--purple); font-size:11.5px; padding:6px 10px;">กำหนด Type</button>
                     <button id="btn-edit-mode" class="panel-action-btn btn-edit-trigger" onclick="enableLiveEdit()" style="font-size:11.5px; padding:6px 10px;">แก้ไขข้อมูล</button>
                     <div id="edit-actions-group" style="display: none; gap: 6px;">

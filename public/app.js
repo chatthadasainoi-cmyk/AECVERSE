@@ -368,6 +368,61 @@ const jumpConfig = { velocity: 0, gravity: -0.012, jumpForce: 0.24, isJumping: f
 const defaultCameraOffset = new THREE.Vector3(0, 2.5, 5);
 
 // ============================================================
+// พื้นตามจริง (ground follow) — เดิมตัวละครยืนที่ Y คงที่ (jumpConfig.groundY) เสมอ ไม่มีการ
+// raycast หาพื้นจริงเลย เดินขึ้นบันได/ทางลาดไม่ได้ ระบบนี้ยิงรังสีลงจากตัวละครทุกไม่กี่เฟรม
+// เพื่อ "ไล่ตาม" ความสูงพื้นผิวจริงของโมเดล (ขั้นบันได/พื้นต่างระดับ) แบบนุ่มนวล
+// calibrate ตัวเอง (groundFootOffset) ครั้งแรกที่เจอตัวละครยืนนิ่งพอดีที่ groundY มาตรฐาน
+// บนพื้นผิวจริง — ถ้าไม่เจอเลยก็ปิดระบบนี้ไปเฉยๆ (fallback พฤติกรรมเดิมทุกประการ ไม่เสี่ยงพัง)
+// ============================================================
+const groundRayDown = new THREE.Raycaster();
+const DOWN_VECTOR = new THREE.Vector3(0, -1, 0);
+let dynamicGroundY = null;       // null = ยังไม่พบพื้นจริงที่เชื่อถือได้ ใช้ jumpConfig.groundY แบบเดิม
+let groundFootOffset = null;     // null = ยังไม่ calibrate
+let groundRayFrame = 0;
+const GROUND_RAY_THROTTLE = 4;       // เช็คทุก 4 เฟรม พอสำหรับบันได ไม่หนักเกินไปกับโมเดลใหญ่
+const GROUND_CALIBRATE_TOLERANCE = 0.05;
+const GROUND_RAY_MAX_RISE = 1.2;     // ก้าวขึ้นได้ทีละไม่เกินนี้ต่อการอัปเดต (~ความสูงขั้นบันได) กันเดินทะลุแล้ว "ลอย"
+const GROUND_RAY_MAX_DROP = 3;       // กันตกไปพื้นชั้นล่างที่มองทะลุเห็นแต่ไม่ได้ยืนอยู่จริง
+
+function updateDynamicGroundY() {
+    if (!avatarModel || !factoryModel) { dynamicGroundY = null; return; }
+    const origin = avatarModel.position.clone();
+    origin.y += 1.5; // ยิงจากเหนือหัวเล็กน้อย กันกรณียืนอยู่ "ใน" เนื้อโมเดลพอดีจนยิงจากในทะลุไม่โดน
+    groundRayDown.set(origin, DOWN_VECTOR);
+    groundRayDown.far = 1.5 + GROUND_RAY_MAX_DROP + 1;
+    const hits = groundRayDown.intersectObject(factoryModel, true);
+    if (!hits.length) { dynamicGroundY = null; return; }
+    const hitY = hits[0].point.y;
+
+    if (groundFootOffset === null) {
+        // calibrate เฉพาะตอนตัวละครยืนนิ่งบนพื้นราบมาตรฐานพอดี — หาว่า "พื้นผิวจริงอยู่ต่ำกว่าจุดหมุน
+        // ตัวละครเท่าไหร่" โดยไม่ต้องเดารูปแบบของแต่ละโมเดล ถ้ายังไม่เคยเจอจังหวะนี้เลยก็ปิดระบบไปก่อน
+        if (Math.abs(avatarModel.position.y - jumpConfig.groundY) < GROUND_CALIBRATE_TOLERANCE) {
+            groundFootOffset = jumpConfig.groundY - hitY;
+        } else {
+            dynamicGroundY = null;
+            return;
+        }
+    }
+
+    const candidateY = hitY + groundFootOffset;
+    if (candidateY > avatarModel.position.y + GROUND_RAY_MAX_RISE || candidateY < avatarModel.position.y - GROUND_RAY_MAX_DROP) {
+        dynamicGroundY = null; // ต่างระดับเกินสมเหตุสมผลต่อเฟรม (เช่น พื้นชั้นล่างที่มองทะลุเห็น) — เมินไป
+        return;
+    }
+    dynamicGroundY = candidateY;
+}
+
+// ============================================================
+// เดินไปที่วัตถุอัตโนมัติ (ปุ่ม "🚶 เดินไปที่นี่" ในป้ายข้อมูล) — REQ ใหม่: กดจากระยะไกลได้
+// เลย ไม่ต้องเดินเข้าไปชนเองก็ถึง ระบบหันหน้าเข้าเป้าหมายแล้วเดินหน้าอัตโนมัติ ยกเลิกได้ทันทีที่
+// มีการบังคับเดินเอง (กันแย่งควบคุมตัวละครจากผู้เล่น)
+// ============================================================
+const autoWalk = { active: false, targetX: 0, targetZ: 0 };
+const AUTO_WALK_STOP_DIST = 1.6;
+const AUTO_WALK_TURN_ONLY_ANGLE = 0.6; // มุมห่างเป้าหมายเกินนี้ (rad) ให้หมุนตัวก่อน ยังไม่เดินหน้า กันอ้อม
+
+// ============================================================
 // 3.5 ตัวละคร FBX (Mixamo) — โหลดครั้งเดียวแล้ว clone ให้ผู้เล่นทุกคน
 // character.glb (3MB) + walk_anim.glb (46KB, ตรึงสะโพกให้เดินอยู่กับที่แล้ว)
 // เลือกร่างได้ที่หน้า Avatar — ค่าถูกเก็บใน user_metadata ของบัญชี
@@ -547,10 +602,10 @@ window.addEventListener('keydown', (e) => {
         mpAppendChat({ name: 'ระบบกล้อง', color: '#00ffff', text: isFreeLook ? '🎥 โหมด Free Look (W A S D บินกล้องอิสระ)' : '👤 กลับสู่โหมดติดตามตัวละคร' });
         return;
     }
-    if (e.key === 'ArrowUp' || key === 'w' || key === 'ฟ' || key === 'ไ') moveStatus.forward = true;
-    if (e.key === 'ArrowDown' || key === 's' || key === 'ห') moveStatus.backward = true;
-    if (e.key === 'ArrowLeft' || key === 'a' || key === 'ฟ' || key === 'ภ') moveStatus.left = true;
-    if (e.key === 'ArrowRight' || key === 'd' || key === 'ด' || key === 'ก') moveStatus.right = true;
+    if (e.key === 'ArrowUp' || key === 'w' || key === 'ฟ' || key === 'ไ') { cancelAutoWalk(); moveStatus.forward = true; }
+    if (e.key === 'ArrowDown' || key === 's' || key === 'ห') { cancelAutoWalk(); moveStatus.backward = true; }
+    if (e.key === 'ArrowLeft' || key === 'a' || key === 'ฟ' || key === 'ภ') { cancelAutoWalk(); moveStatus.left = true; }
+    if (e.key === 'ArrowRight' || key === 'd' || key === 'ด' || key === 'ก') { cancelAutoWalk(); moveStatus.right = true; }
     if (e.key === ' ' && !jumpConfig.isJumping && !isFreeLook) triggerAvatarJump();
 
     // หมายเหตุแป้นไทย (เกษมณี): H=้, M=ท, T=ะ, R=พ, V=อ, /=ฝ
@@ -582,6 +637,7 @@ function initMobileJoystick() {
     const manager = nipplejs.create({ zone, mode: 'static', position: { left: '50%', top: '50%' }, color: '#3b82f6', size: 100 });
     manager.on('move', (evt, data) => {
         if (!data.vector) return;
+        cancelAutoWalk();
         const forward = data.vector.y, turn = data.vector.x, threshold = 0.2;
         moveStatus.forward = forward > threshold;
         moveStatus.backward = forward < -threshold;
@@ -1138,6 +1194,9 @@ function currentModelScaleFactor() {
 
 function buildColliders() {
     factoryColliders = [];
+    // โมเดล/ตำแหน่ง/สเกลเปลี่ยน — ค่า calibrate พื้นเดิมใช้ไม่ได้แล้ว ต้องหาใหม่
+    dynamicGroundY = null;
+    groundFootOffset = null;
     if (!factoryModel) return;
     factoryModel.updateMatrixWorld(true);
     const padding = HITBOX_PADDING * currentModelScaleFactor();
@@ -1211,6 +1270,8 @@ function selectPart(mesh, method) {
     renderWorkflowUI(data.name || mesh.name, data.desc, data.steps, method, data.colorClass || 'tag-blue');
     cancelLiveEdit();
     $('process-panel').style.display = 'block';
+    const walkBtn = $('btn-walk-to');
+    if (walkBtn) walkBtn.style.display = avatarModel ? 'inline-flex' : 'none'; // มีเฉพาะโหมด Metaverse ที่มี avatar
 }
 
 function deselectPart() {
@@ -1218,11 +1279,45 @@ function deselectPart() {
     selection.key = 'default';
     selection.viaWalkCollision = false;
     $('process-panel').style.display = 'none';
+    const walkBtn = $('btn-walk-to');
+    if (walkBtn) walkBtn.style.display = 'none';
     if (factoryModel && currentMaterialMode === 'solid') {
         factoryModel.traverse(child => {
             if (child.isMesh && originalMaterials.has(child.uuid)) child.material = originalMaterials.get(child.uuid).clone();
         });
     }
+}
+
+// ปุ่ม "🚶 เดินไปที่นี่" ในป้ายข้อมูล — เดินอัตโนมัติเข้าหาชิ้นส่วนที่เลือกอยู่ ไม่ต้องเดินเองก็ถึง
+// (มีเฉพาะโหมด Metaverse ที่มี avatar — โหมด Digital Twin viewer ไม่มีตัวละครให้เดิน)
+function walkToSelected() {
+    if (!avatarModel || !factoryModel || !selection.uuid) return;
+    let targetPos = null;
+    factoryModel.traverse(child => { if (!targetPos && child.isMesh && child.uuid === selection.uuid) { targetPos = new THREE.Vector3(); child.getWorldPosition(targetPos); } });
+    if (!targetPos) return;
+    if (isFreeLook) { isFreeLook = false; resetCameraToAvatar(); } // เดินอัตโนมัติต้องอยู่โหมดกล้องติดตามตัวละคร
+    autoWalk.active = true;
+    autoWalk.targetX = targetPos.x;
+    autoWalk.targetZ = targetPos.z;
+    const hud = $('walk-arrow-hud'); if (hud) hud.style.display = 'flex';
+    const btn = $('btn-walk-to'); if (btn) btn.classList.add('walk-active');
+}
+window.walkToSelected = walkToSelected;
+
+function cancelAutoWalk() {
+    if (!autoWalk.active) return;
+    autoWalk.active = false;
+    moveStatus.forward = false;
+    const hud = $('walk-arrow-hud'); if (hud) hud.style.display = 'none';
+    const btn = $('btn-walk-to'); if (btn) btn.classList.remove('walk-active');
+}
+window.cancelAutoWalk = cancelAutoWalk;
+
+function updateWalkArrowHud(dist, angleDiff) {
+    const icon = $('walk-arrow-icon');
+    if (icon) icon.style.transform = `rotate(${angleDiff}rad)`;
+    const distEl = $('walk-arrow-dist');
+    if (distEl) distEl.textContent = dist.toFixed(1) + ' ม.';
 }
 
 // ชี้ (คลิกเมาส์ / แตะจอ) — แยกจาก drag กล้อง โดยเช็คระยะขยับของ pointer
@@ -2789,13 +2884,36 @@ function updateAvatarPhysics() {
     }
     if (!avatarModel) return;
 
+    groundRayFrame++;
+    if (groundRayFrame % GROUND_RAY_THROTTLE === 0) updateDynamicGroundY();
+    const effectiveGroundY = dynamicGroundY !== null ? dynamicGroundY : jumpConfig.groundY;
+
     if (jumpConfig.isJumping) {
         avatarModel.position.y += jumpConfig.velocity;
         jumpConfig.velocity += jumpConfig.gravity;
-        if (avatarModel.position.y <= jumpConfig.groundY) { avatarModel.position.y = jumpConfig.groundY; jumpConfig.isJumping = false; }
-    } else if (avatarModel.position.y > jumpConfig.groundY) {
-        avatarModel.position.y += jumpConfig.gravity;
-        if (avatarModel.position.y < jumpConfig.groundY) avatarModel.position.y = jumpConfig.groundY;
+        if (avatarModel.position.y <= effectiveGroundY) { avatarModel.position.y = effectiveGroundY; jumpConfig.isJumping = false; }
+    } else if (Math.abs(avatarModel.position.y - effectiveGroundY) > 0.02) {
+        // ไล่ตามพื้นแบบนุ่มนวล (ขึ้นบันได/ทางลาด หรือร่วงตกจากขอบพื้นต่างระดับ) แทนสแนปทันที
+        avatarModel.position.y += (effectiveGroundY - avatarModel.position.y) * 0.25;
+    } else {
+        avatarModel.position.y = effectiveGroundY;
+    }
+
+    if (autoWalk.active) {
+        const dx = autoWalk.targetX - avatarModel.position.x;
+        const dz = autoWalk.targetZ - avatarModel.position.z;
+        const dist = Math.hypot(dx, dz);
+        if (dist < AUTO_WALK_STOP_DIST) {
+            cancelAutoWalk();
+        } else {
+            const targetAngle = Math.atan2(-dx, -dz);
+            let angleDiff = targetAngle - avatarModel.rotation.y;
+            angleDiff = Math.atan2(Math.sin(angleDiff), Math.cos(angleDiff)); // normalize -pi..pi
+            avatarModel.rotation.y += Math.sign(angleDiff) * Math.min(Math.abs(angleDiff), avatarConfig.turnSpeed);
+            moveStatus.left = moveStatus.right = moveStatus.backward = false;
+            moveStatus.forward = Math.abs(angleDiff) < AUTO_WALK_TURN_ONLY_ANGLE;
+            updateWalkArrowHud(dist, angleDiff);
+        }
     }
 
     if (moveStatus.left) avatarModel.rotation.y += avatarConfig.turnSpeed;
@@ -2812,7 +2930,7 @@ function updateAvatarPhysics() {
     if (isMoving) {
         const nextX = avatarModel.position.x + moveVector.x;
         const nextZ = avatarModel.position.z + moveVector.z;
-        const currentY = avatarModel.position.y - jumpConfig.groundY;
+        const currentY = avatarModel.position.y - (groundFootOffset !== null ? groundFootOffset : jumpConfig.groundY);
         avatarModel.position.x = nextX;
         avatarModel.position.z = nextZ;
         checkWalkCollision(nextX, nextZ, currentY);
