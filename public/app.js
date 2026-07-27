@@ -592,37 +592,61 @@ function isTypingInField() {
     return t === 'INPUT' || t === 'TEXTAREA';
 }
 
+// ---------- ปุ่มควบคุมที่ผู้ใช้เปลี่ยนเองได้ (ตั้งค่าที่หน้า Settings → world-prefs.js) ----------
+const BIND_DEFAULTS = { forward: 'w', backward: 's', left: 'a', right: 'd', jump: ' ', mic: 'v', chat: '/', freelook: 'f', resetcam: 'r' };
+// ปุ่มเทียบเท่าเดิม: ลูกศร + แป้นไทยเกษมณี (ไ=w, ห=s, ฟ=a, ก=d, ด=f, พ=r, อ=v, ฝ=/)
+// จะใช้ได้เฉพาะตอนที่ผู้ใช้ "ยังไม่ได้เปลี่ยน" ปุ่มนั้นเอง ไม่งั้นปุ่มเก่าจะค้างทำงานทับปุ่มใหม่
+const BIND_ALIASES = {
+    forward: ['arrowup', 'ไ'], backward: ['arrowdown', 'ห'],
+    left: ['arrowleft', 'ฟ'], right: ['arrowright', 'ก'],
+    mic: ['อ'], chat: ['ฝ'], freelook: ['ด'], resetcam: ['พ']
+};
+let userBinds = { ...BIND_DEFAULTS };
+function reloadUserBinds() {
+    if (window.AecWorldPrefs) userBinds = { ...BIND_DEFAULTS, ...AecWorldPrefs.loadBinds() };
+}
+reloadUserBinds();
+// แก้ปุ่มที่หน้า Settings (คนละแท็บ) แล้วมีผลกับโลก 3D ที่เปิดค้างอยู่ทันที
+window.addEventListener('storage', e => { if (e.key === 'aec_keybinds') reloadUserBinds(); });
+
+function isBind(action, e) {
+    const k = (e.key || '').toLowerCase();
+    if (k === String(userBinds[action] || '').toLowerCase()) return true;
+    if (userBinds[action] === BIND_DEFAULTS[action]) return (BIND_ALIASES[action] || []).includes(k);
+    return false;
+}
+
 window.addEventListener('keydown', (e) => {
     if (isTypingInField()) return;
     const key = e.key.toLowerCase();
 
-    if (key === 'f' || key === 'ด') {
+    if (isBind('freelook', e)) {
         isFreeLook = !isFreeLook;
         if (!isFreeLook) resetCameraToAvatar();
         mpAppendChat({ name: 'ระบบกล้อง', color: '#00ffff', text: isFreeLook ? '🎥 โหมด Free Look (W A S D บินกล้องอิสระ)' : '👤 กลับสู่โหมดติดตามตัวละคร' });
         return;
     }
-    if (e.key === 'ArrowUp' || key === 'w' || key === 'ฟ' || key === 'ไ') { cancelAutoWalk(); moveStatus.forward = true; }
-    if (e.key === 'ArrowDown' || key === 's' || key === 'ห') { cancelAutoWalk(); moveStatus.backward = true; }
-    if (e.key === 'ArrowLeft' || key === 'a' || key === 'ฟ' || key === 'ภ') { cancelAutoWalk(); moveStatus.left = true; }
-    if (e.key === 'ArrowRight' || key === 'd' || key === 'ด' || key === 'ก') { cancelAutoWalk(); moveStatus.right = true; }
-    if (e.key === ' ' && !jumpConfig.isJumping && !isFreeLook) triggerAvatarJump();
+    if (isBind('forward', e))  { cancelAutoWalk(); moveStatus.forward = true; }
+    if (isBind('backward', e)) { cancelAutoWalk(); moveStatus.backward = true; }
+    if (isBind('left', e))     { cancelAutoWalk(); moveStatus.left = true; }
+    if (isBind('right', e))    { cancelAutoWalk(); moveStatus.right = true; }
+    if (isBind('jump', e) && !jumpConfig.isJumping && !isFreeLook) triggerAvatarJump();
 
-    // หมายเหตุแป้นไทย (เกษมณี): H=้, M=ท, T=ะ, R=พ, V=อ, /=ฝ
+    // แผงต่างๆ ยังใช้ปุ่มตายตัวเหมือนเดิม (ไม่ได้อยู่ในชุดที่ให้เปลี่ยนเอง)
+    // หมายเหตุแป้นไทย (เกษมณี): H=้, M=ท, T=ะ
     if (key === 'h' || key === '้') togglePanelElement('dashboard');
     if (key === 'm' || key === 'ท') togglePanelElement('details-panel');
     if (key === 't' || key === 'ะ') togglePanelElement('transform-panel');
     if (key === 'u') togglePanelElement('multiplayer-panel');
-    if (key === 'r' || key === 'พ') resetCameraToAvatar();
-    if (key === 'v' || key === 'อ') toggleMic();                          // เปิด/ปิดไมค์
-    if (e.key === '/' || e.key === 'ฝ') { e.preventDefault(); openChatInput(); } // เปิดช่องพิมพ์แชท
+    if (isBind('resetcam', e)) resetCameraToAvatar();
+    if (isBind('mic', e)) toggleMic();                            // เปิด/ปิดไมค์
+    if (isBind('chat', e)) { e.preventDefault(); openChatInput(); } // เปิดช่องพิมพ์แชท
 });
 window.addEventListener('keyup', (e) => {
-    const key = e.key.toLowerCase();
-    if (e.key === 'ArrowUp' || key === 'w' || key === 'ฟ' || key === 'ไ') moveStatus.forward = false;
-    if (e.key === 'ArrowDown' || key === 's' || key === 'ห') moveStatus.backward = false;
-    if (e.key === 'ArrowLeft' || key === 'a' || key === 'ฟ' || key === 'ภ') moveStatus.left = false;
-    if (e.key === 'ArrowRight' || key === 'd' || key === 'ด' || key === 'ก') moveStatus.right = false;
+    if (isBind('forward', e))  moveStatus.forward = false;
+    if (isBind('backward', e)) moveStatus.backward = false;
+    if (isBind('left', e))     moveStatus.left = false;
+    if (isBind('right', e))    moveStatus.right = false;
 });
 
 function togglePanelElement(elementId) {
@@ -1742,13 +1766,35 @@ function checkPPEZones() {
 // ทางหนีไฟ จุดที่ต้องระวัง ฯลฯ วงกลมเรืองแสงบนพื้น + ชื่อจะโผล่เมื่อเดินเข้าใกล้
 // ตำแหน่งเก็บเป็นพิกัดโลกจริง (ไม่ผูกกับ mesh) จึงยังอยู่ที่เดิมแม้เปลี่ยนโมเดล
 // ============================================================
+// ชุดสีเดิม (marker ที่บันทึกไว้ก่อนมีจานสี) — ของใหม่เก็บเป็น '#rrggbb' ตรงๆ
 const MARKER_COLOR_HEX = {
     red: 0xef4444, orange: 0xf97316, yellow: 0xfacc15,
     green: 0x22c55e, blue: 0x38bdf8, purple: 0xa78bfa
 };
+function markerColorToHex(color) {
+    if (typeof color === 'string' && /^#[0-9a-f]{6}$/i.test(color)) return parseInt(color.slice(1), 16);
+    return MARKER_COLOR_HEX[color] !== undefined ? MARKER_COLOR_HEX[color] : MARKER_COLOR_HEX.blue;
+}
 const MARKER_LABEL_RANGE = 8;   // ระยะที่เริ่มเห็นชื่อจุด
 const markerStore = {};         // id -> { id, name, color, x, y, z } (ตรงกับฝั่ง server)
-const markerObjects = new Map();// id -> { ring, disc, label, x, y, z }
+const markerObjects = new Map();// id -> { badge, ring, label, x, y, z }
+
+// ป้ายวงกลมลอย — หน้าตาเดียวกับป้ายเตือนของระบบเดิม เห็นได้จากไกลและรู้ทันทีว่าเป็นจุดที่ปักไว้
+function markerBadgeSprite(colorHex) {
+    const css = '#' + colorHex.toString(16).padStart(6, '0');
+    const canvas = document.createElement('canvas');
+    canvas.width = 128; canvas.height = 128;
+    const ctx = canvas.getContext('2d');
+    ctx.beginPath(); ctx.arc(64, 64, 46, 0, Math.PI * 2);
+    ctx.fillStyle = css; ctx.fill();
+    ctx.lineWidth = 7; ctx.strokeStyle = '#ffffff'; ctx.stroke();
+    ctx.font = 'bold 62px Arial'; ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('!', 64, 68);
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), depthTest: false, transparent: true }));
+    sprite.renderOrder = 1001;
+    return sprite;
+}
 
 function markerLabelSprite(name, colorHex) {
     const canvas = document.createElement('canvas');
@@ -1773,43 +1819,43 @@ function markerLabelSprite(name, colorHex) {
 }
 
 function addMarkerVisual(m) {
-    const colorHex = MARKER_COLOR_HEX[m.color] || MARKER_COLOR_HEX.blue;
+    const colorHex = markerColorToHex(m.color);
     const sf = currentModelScaleFactor();
-    const r = 1.6 * sf;
 
+    // วงแหวนบางๆ บนพื้น บอกตำแหน่งจริงว่าจุดอยู่ตรงไหน
+    const r = 1.4 * sf;
     const ring = new THREE.Mesh(
-        new THREE.RingGeometry(r * 0.72, r, 48),
-        new THREE.MeshBasicMaterial({ color: colorHex, side: THREE.DoubleSide, transparent: true, opacity: 0.95, depthTest: false })
+        new THREE.RingGeometry(r * 0.82, r, 48),
+        new THREE.MeshBasicMaterial({ color: colorHex, side: THREE.DoubleSide, transparent: true, opacity: 0.75, depthTest: false })
     );
     ring.rotation.x = -Math.PI / 2;
     ring.position.set(m.x, m.y + 0.06, m.z);
     ring.renderOrder = 998;
     scene.add(ring);
 
-    const disc = new THREE.Mesh(
-        new THREE.CircleGeometry(r * 0.72, 48),
-        new THREE.MeshBasicMaterial({ color: colorHex, side: THREE.DoubleSide, transparent: true, opacity: 0.2, depthTest: false })
-    );
-    disc.rotation.x = -Math.PI / 2;
-    disc.position.set(m.x, m.y + 0.05, m.z);
-    disc.renderOrder = 997;
-    scene.add(disc);
+    // ป้ายวงกลมลอยเหนือจุด — ตัวหลักที่ผู้ใช้มองหา
+    const badge = markerBadgeSprite(colorHex);
+    badge.scale.set(0.85 * sf, 0.85 * sf, 1);
+    badge.position.set(m.x, m.y + 1.7 * sf, m.z);
+    scene.add(badge);
 
     const label = markerLabelSprite(m.name, colorHex);
-    label.position.set(m.x, m.y + 2.2 * sf, m.z);
+    label.position.set(m.x, m.y + 2.9 * sf, m.z);
     label.visible = false; // โผล่เมื่อเดินเข้าใกล้เท่านั้น
     scene.add(label);
 
-    markerObjects.set(m.id, { ring, disc, label, x: m.x, y: m.y, z: m.z });
+    markerObjects.set(m.id, { badge, ring, label, x: m.x, y: m.y, z: m.z, sf });
 }
 
 function removeMarkerVisual(id) {
     const o = markerObjects.get(id);
     if (!o) return;
-    [o.ring, o.disc].forEach(mesh => { scene.remove(mesh); mesh.geometry.dispose(); mesh.material.dispose(); });
-    scene.remove(o.label);
-    o.label.material.map?.dispose();
-    o.label.material.dispose();
+    scene.remove(o.ring); o.ring.geometry.dispose(); o.ring.material.dispose();
+    [o.badge, o.label].forEach(sprite => {
+        scene.remove(sprite);
+        sprite.material.map?.dispose();
+        sprite.material.dispose();
+    });
     markerObjects.delete(id);
 }
 
@@ -1822,11 +1868,15 @@ function rebuildMarkers() {
 function updateMarkers() {
     if (markerObjects.size === 0) return;
     const pulse = 1 + Math.sin(Date.now() * 0.003) * 0.08;
+    const bob = Math.sin(Date.now() * 0.0022) * 0.12;
     const pos = avatarModel ? avatarModel.position : camera.position;
+    const range = MARKER_LABEL_RANGE * currentModelScaleFactor();
     markerObjects.forEach(o => {
         o.ring.scale.set(pulse, pulse, 1);
+        o.badge.scale.set(0.85 * o.sf * pulse, 0.85 * o.sf * pulse, 1);
+        o.badge.position.y = o.y + (1.7 + bob) * o.sf; // ลอยขึ้นลงเบาๆ ให้สังเกตเห็นง่าย
         const d = Math.hypot(pos.x - o.x, pos.z - o.z);
-        o.label.visible = d <= MARKER_LABEL_RANGE * currentModelScaleFactor();
+        o.label.visible = d <= range;
     });
 }
 
@@ -1850,23 +1900,46 @@ window.openMarkerEditorForActive = function () {
     const existing = markerStore[id];
 
     markerEditorTarget = { id, x: center.x, y: box.min.y, z: center.z, label: mesh.name || id };
-    markerEditorColor = existing ? existing.color : 'blue';
+    // เก็บเป็น hex เสมอ — marker เก่าที่บันทึกเป็นชื่อสีจะถูกแปลงให้อัตโนมัติ
+    const startHex = '#' + markerColorToHex(existing ? existing.color : 'blue').toString(16).padStart(6, '0');
+    markerEditorColor = startHex;
 
     $('marker-editor-target').innerText = `📦 ${mesh.name || mesh.uuid.slice(0, 8)}`;
     $('marker-name-input').value = existing ? existing.name : (mesh.name || '');
     renderMarkerColorRow();
+    mountMarkerColorWheel(startHex);
     $('marker-editor-overlay').style.display = 'flex';
 };
+
+let markerWheel = null;
+function mountMarkerColorWheel(hex) {
+    const box = $('marker-color-wheel');
+    if (!box || !window.AecColorWheel) return;
+    // สร้างครั้งเดียวแล้วใช้ setHex ตอนเปิดซ้ำ — สร้างใหม่ทุกครั้งจะทิ้ง canvas/listener เก่าไว้เรื่อยๆ
+    if (!markerWheel) {
+        markerWheel = AecColorWheel.mount(box, hex, h => {
+            markerEditorColor = h;
+            renderMarkerColorRow(); // ยกเลิกไฮไลท์สีด่วนถ้าลากไปสีอื่นแล้ว
+        });
+    } else {
+        markerWheel.setHex(hex);
+    }
+}
 
 function renderMarkerColorRow() {
     const row = $('marker-color-row');
     if (!row) return;
     row.innerHTML = Object.keys(MARKER_COLOR_HEX).map(key => {
         const css = '#' + MARKER_COLOR_HEX[key].toString(16).padStart(6, '0');
-        return `<button class="marker-color-dot${key === markerEditorColor ? ' sel' : ''}" style="background:${css};color:${css};" onclick="pickMarkerColor('${key}')" title="${key}"></button>`;
+        const sel = css.toLowerCase() === String(markerEditorColor).toLowerCase();
+        return `<button class="marker-color-dot${sel ? ' sel' : ''}" style="background:${css};color:${css};" onclick="pickMarkerColor('${css}')" title="${key}"></button>`;
     }).join('');
 }
-window.pickMarkerColor = function (key) { markerEditorColor = key; renderMarkerColorRow(); };
+window.pickMarkerColor = function (hex) {
+    markerEditorColor = hex;
+    renderMarkerColorRow();
+    if (markerWheel) markerWheel.setHex(hex);
+};
 
 window.closeMarkerEditor = function () {
     const o = $('marker-editor-overlay');
@@ -2409,10 +2482,18 @@ async function initMultiplayer() {
             }
             if (!VIEWER_MODE) data.others.forEach(p => addRemote(p));
             mpAppendChat({ name: 'ระบบ', color: '#22c55e', text: `เข้าสู่โลกในชื่อ "${data.self.name}" (ตามบัญชีของคุณ)` });
+            // เติมชื่อปัจจุบันให้ในช่องล็อบบี้ ผู้ใช้จะได้เห็นว่าตอนนี้ชื่ออะไรและแก้ได้เลย
+            const nickInput = $('lobby-nickname');
+            if (nickInput && !nickInput.value) nickInput.value = data.self.name || '';
         }
 
         if (data.modelUrl) loadModelFromUrl(data.modelUrl, data.modelName, data.modelTransform);
         updateMpUI();
+        if (lobbyActive) {
+            setLobbyStatus(data.modelUrl ? 'พร้อมแล้ว — กดเริ่มสำรวจได้เลย' : 'ยังไม่มีโมเดลในโลกนี้ — เข้าไปได้แต่จะเห็นพื้นที่ว่าง');
+            const startBtn = $('lobby-start');
+            if (startBtn) startBtn.disabled = false;
+        }
     });
 
     // จุดที่คนอื่นปัก/ลบ — เห็นตรงกันทุกคนแบบเรียลไทม์
@@ -2738,7 +2819,20 @@ async function toggleMic() {
     if (!micOn) {
         try {
             if (!micStream) {
-                micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+                // ใช้ไมค์ตัวที่ผู้ใช้เลือกไว้เองที่หน้า Settings (บางเครื่องมีหลายตัว
+                // แล้วเบราว์เซอร์เลือกตัวที่ไม่มีเสียงให้) — ไม่ได้เลือกไว้ก็ใช้ค่าเริ่มต้นตามเดิม
+                const wantedMic = window.AecWorldPrefs ? AecWorldPrefs.getMicDeviceId() : '';
+                const audioConstraints = { echoCancellation: true, noiseSuppression: true };
+                if (wantedMic) audioConstraints.deviceId = { exact: wantedMic };
+                try {
+                    micStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
+                } catch (errDevice) {
+                    // ไมค์ตัวที่เลือกไว้ถูกถอดออก/ใช้ไม่ได้ -> ถอยไปใช้ตัวเริ่มต้น ดีกว่าเปิดไมค์ไม่ได้เลย
+                    if (!wantedMic) throw errDevice;
+                    console.warn('[VOICE] ไมค์ที่เลือกไว้ใช้ไม่ได้ ใช้ตัวเริ่มต้นแทน:', errDevice);
+                    micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+                    mpAppendChat({ name: '🎙️ ระบบ', color: '#f59e0b', text: 'ไมโครโฟนที่เลือกไว้ใช้ไม่ได้ — เปลี่ยนไปใช้ตัวเริ่มต้นให้แล้ว' });
+                }
                 // มี peer อยู่แล้ว (เคยรับเสียงคนอื่น) -> ยัด track ของเราเข้าไป ระบบจะ negotiate ใหม่เอง
                 Object.values(voicePeers).forEach(p => {
                     if (p.pc.getSenders().every(s => !s.track)) micStream.getTracks().forEach(t => p.pc.addTrack(t, micStream));
@@ -3057,9 +3151,74 @@ setInterval(() => {
 }, 500);
 
 // ============================================================
+// 13.9 WORLD LOBBY — หน้าจอก่อนเข้าโลก (โลโก้ + ตั้งชื่อเล่น + ปุ่ม Start)
+// ระหว่างอยู่หน้านี้กล้องจะวนรอบแผนที่ให้ดูก่อน แล้วค่อยส่งการควบคุมให้ผู้เล่น
+// โหมด viewer (Digital Twin) ไม่มีตัวละคร จึงไม่ต้องมีล็อบบี้
+// ============================================================
+let lobbyActive = !VIEWER_MODE;
+let lobbyAngle = 0;
+
+if (lobbyActive) controls.enabled = false; // กัน OrbitControls แย่งคุมกล้องระหว่างวนชมแผนที่
+else { const el = $('world-lobby'); if (el) el.style.display = 'none'; }
+
+function lobbyOrbitTick() {
+    lobbyAngle += 0.0018;
+    const target = new THREE.Vector3(0, 2, 0);
+    let radius = 26;
+    if (factoryModel) {
+        const box = new THREE.Box3().setFromObject(factoryModel);
+        const size = box.getSize(new THREE.Vector3());
+        box.getCenter(target);
+        radius = Math.max(size.x, size.z) * 0.85 + 10;
+    }
+    camera.position.set(
+        target.x + Math.cos(lobbyAngle) * radius,
+        target.y + radius * 0.45,
+        target.z + Math.sin(lobbyAngle) * radius
+    );
+    camera.lookAt(target);
+    controls.target.copy(target);
+}
+
+function setLobbyStatus(text) { const el = $('lobby-status'); if (el) el.textContent = text; }
+
+async function startWorld() {
+    const btn = $('lobby-start');
+    if (btn) btn.disabled = true;
+    const nick = ($('lobby-nickname')?.value || '').trim().slice(0, 20);
+
+    try {
+        // ชื่อเล่นเก็บใน display_name ของบัญชี (server อ่านค่านี้ตอนเชื่อมต่อเพื่อตั้งชื่อตัวละคร)
+        // จึงต้องต่อ socket ใหม่หลังบันทึก ไม่งั้นชื่อจะยังเป็นของเดิมจนกว่าจะรีเฟรช
+        if (nick && typeof supabaseClient !== 'undefined') {
+            setLobbyStatus('กำลังบันทึกชื่อเล่น...');
+            await supabaseClient.auth.updateUser({ data: { display_name: nick } });
+            if (mpSocket) { mpSocket.disconnect(); mpSocket.connect(); }
+        }
+    } catch (err) {
+        console.warn('[LOBBY] บันทึกชื่อเล่นไม่สำเร็จ:', err);
+        // ตั้งชื่อไม่สำเร็จไม่ควรกันไม่ให้เข้าเล่น — เข้าไปด้วยชื่อเดิมได้เลย
+    }
+
+    lobbyActive = false;
+    controls.enabled = true;
+    resetCameraToAvatar();
+
+    const lobby = $('world-lobby');
+    if (lobby) {
+        lobby.classList.add('lobby-hidden');
+        setTimeout(() => { lobby.style.display = 'none'; }, 600);
+    }
+}
+$('lobby-start')?.addEventListener('click', startWorld);
+$('lobby-nickname')?.addEventListener('keydown', e => { if (e.key === 'Enter') startWorld(); });
+
+// ============================================================
 // 14. MAIN LOOP — เรียกทุกระบบผ่าน safeCall() กัน error หนึ่งจุดลากทั้งเฟรมพัง
 // ============================================================
 function updateAvatarPhysics() {
+    // อยู่หน้าล็อบบี้ -> กล้องหมุนชมแผนที่ไปเรื่อยๆ ยังไม่ส่งคุมให้ผู้เล่น
+    if (lobbyActive) { lobbyOrbitTick(); return; }
     if (isTypingInField()) return;
 
     if (isFreeLook) {

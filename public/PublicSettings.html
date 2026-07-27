@@ -13,6 +13,7 @@
 <script src="supabaseClient.js"></script>
 <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 <script src="public-portal.js"></script>
+<script src="world-prefs.js"></script>
 </head>
 <body>
   <div class="app-shell">
@@ -58,16 +59,15 @@
 
             <div style="display:flex;flex-direction:column;gap:14px;">
               <div class="card">
-                <div class="card-head"><h3 style="font-size:13px;font-weight:700;">คีย์ลัดใน Virtual Tour</h3></div>
-                <div style="display:flex;flex-direction:column;gap:10px;font-size:12px;">
-                  <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-2);">เปิด/ปิดไมค์</span><b style="font-family:monospace;">V</b></div>
-                  <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-2);">พิมพ์แชท</span><b style="font-family:monospace;">/</b></div>
-                  <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-2);">เดิน</span><b style="font-family:monospace;">W A S D / ลูกศร</b></div>
-                  <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-2);">กระโดด</span><b style="font-family:monospace;">Space</b></div>
-                  <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-2);">Free Look</span><b style="font-family:monospace;">F</b></div>
-                  <div class="hr" style="margin:4px 0;"></div>
-                  <div style="color:var(--text-2);font-size:11px;line-height:1.6;">เสียงพูดวิ่งตรงระหว่างผู้ใช้ (P2P) ไม่ผ่านเซิร์ฟเวอร์ และเปิดไมค์ได้เฉพาะตอนที่คุณกด V เท่านั้น</div>
-                </div>
+                <div class="card-head"><h3 style="font-size:13px;font-weight:700;">🎙️ เลือกไมโครโฟน</h3></div>
+                <div id="wp-mic-mount"></div>
+              </div>
+
+              <div class="card">
+                <div class="card-head"><h3 style="font-size:13px;font-weight:700;">⌨️ ปุ่มควบคุมใน Virtual Tour</h3></div>
+                <div id="wp-keybind-mount"></div>
+                <div class="hr" style="margin:10px 0 6px;"></div>
+                <div style="color:var(--text-2);font-size:11px;line-height:1.6;">เสียงพูดวิ่งตรงระหว่างผู้ใช้ (P2P) ไม่ผ่านเซิร์ฟเวอร์ และเปิดไมค์ได้เฉพาะตอนที่คุณกดปุ่มไมค์เท่านั้น</div>
               </div>
               <div class="card">
                 <div class="card-head"><h3 style="font-size:13px;font-weight:700;">บัญชีของฉัน</h3></div>
@@ -90,6 +90,10 @@ renderPortalTopbar('Settings', '(ตั้งค่า)');
 initUserChip();
 initPortalLiveFeed();
 markTaskDone('settingsVisited');
+
+// เลือกไมโครโฟน + เปลี่ยนปุ่มควบคุม (เก็บใน localStorage — โลก 3D อ่านค่าไปใช้)
+AecWorldPrefs.mountMic(document.getElementById('wp-mic-mount'));
+AecWorldPrefs.mountKeybinds(document.getElementById('wp-keybind-mount'));
 
 supabaseClient.auth.getSession().then(({ data: { session } }) => {
   if (!session) return;

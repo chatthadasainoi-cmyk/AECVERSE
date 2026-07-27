@@ -803,14 +803,21 @@ io.on('connection', socket => {
     });
 
     // ---------- MARKER (จุดที่ผู้ใช้ปักเอง) — sync ให้ทุกคนเห็น + เก็บถาวรเหมือน workflow ----------
+    // สีรับได้ทั้งชื่อชุดเดิม (marker เก่าที่บันทึกไว้แล้ว) และ #rrggbb จากจานสีแบบเลือกเองอิสระ
     const MARKER_COLORS = ['red', 'orange', 'yellow', 'green', 'blue', 'purple'];
+    const sanitizeMarkerColor = c => {
+        const s = String(c || '').trim();
+        if (MARKER_COLORS.includes(s)) return s;
+        if (/^#[0-9a-f]{6}$/i.test(s)) return s.toLowerCase();
+        return '#38bdf8';
+    };
     socket.on('marker_set', data => {
         if (!data || !data.id) return;
         const num = v => (Number.isFinite(Number(v)) ? Number(v) : 0);
         const marker = {
             id: String(data.id).slice(0, 64),
             name: String(data.name || 'จุดที่ทำเครื่องหมาย').slice(0, 80),
-            color: MARKER_COLORS.includes(data.color) ? data.color : 'blue',
+            color: sanitizeMarkerColor(data.color),
             x: num(data.x), y: num(data.y), z: num(data.z)
         };
         markers[marker.id] = marker;

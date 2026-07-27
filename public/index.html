@@ -33,6 +33,23 @@
 <body>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
 
+<!-- ล็อบบี้ก่อนเข้าโลก — โลโก้ + ตั้งชื่อเล่น + ปุ่ม Start
+     ระหว่างอยู่หน้านี้กล้องจะหมุนชมแผนที่ไปเรื่อยๆ (เบลอเป็นฉากหลัง) -->
+<div id="world-lobby">
+  <div class="lobby-blur"></div>
+  <div class="lobby-inner">
+    <img src="Logo.png" alt="" class="lobby-logo">
+    <div class="lobby-title">AEC <span>VERSE</span></div>
+    <div class="lobby-sub">SMART BIOGAS DIGITAL TWIN</div>
+
+    <label class="lobby-label" for="lobby-nickname">ชื่อเล่นของคุณในโลกนี้</label>
+    <input id="lobby-nickname" class="lobby-input" type="text" maxlength="20" placeholder="ตั้งชื่อเล่น..." autocomplete="off">
+
+    <button id="lobby-start" class="lobby-start">▶ เริ่มสำรวจ</button>
+    <div id="lobby-status" class="lobby-status">กำลังโหลดโลก...</div>
+  </div>
+</div>
+
 <div id="viewer-shell">
 
   <!-- LEFT COLUMN: model upload + transform tools -->
@@ -460,8 +477,9 @@
         <p id="marker-editor-target"></p>
         <label class="marker-field-label">ชื่อจุด (เดินเข้าใกล้แล้วจะเห็นชื่อนี้)</label>
         <input id="marker-name-input" type="text" maxlength="80" placeholder="เช่น จุดรวมพล, ถังหมักที่ 1" class="marker-input">
-        <label class="marker-field-label">สีของจุด</label>
-        <div id="marker-color-row" class="marker-color-row"></div>
+        <label class="marker-field-label">สีของจุด — กดสีด่วน หรือลากเลือกเองในจานสี</label>
+        <div id="marker-color-row" class="marker-color-row" style="margin-bottom:12px;"></div>
+        <div id="marker-color-wheel"></div>
         <div class="type-modal-footer" style="display:flex;gap:8px;">
             <button class="panel-action-btn btn-danger-outline" style="flex:1;" onclick="removeActiveMarker()">ลบจุดนี้</button>
             <button class="panel-action-btn btn-save" style="flex:1;" onclick="saveActiveMarker()">บันทึกจุด</button>
@@ -470,6 +488,8 @@
 </div>
 
 
+<script src="color-wheel.js"></script>
+<script src="world-prefs.js"></script>
 <script src="app.js"></script>
 
     <!--

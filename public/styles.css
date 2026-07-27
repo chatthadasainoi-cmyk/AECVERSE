@@ -618,6 +618,20 @@ h3, h4 { margin: 0 0 10px 0; font-size: 13px; font-weight: 700; color: var(--tex
 .marker-color-dot:hover { transform: scale(1.1); }
 .marker-color-dot.sel { border-color: #ffffff; box-shadow: 0 0 10px currentColor; }
 
+/* ---------- จานสีแบบลากเลือกเอง (color-wheel.js) ---------- */
+.acw { display: flex; flex-direction: column; gap: 9px; }
+.acw-sv { width: 100%; height: 132px; border-radius: 9px; cursor: crosshair; display: block; touch-action: none; }
+.acw-hue { width: 100%; height: 14px; border-radius: 7px; cursor: pointer; display: block; touch-action: none; }
+.acw-foot { display: flex; align-items: center; gap: 9px; }
+.acw-preview { width: 30px; height: 30px; border-radius: 8px; flex-shrink: 0; box-shadow: 0 0 0 1px rgba(255,255,255,0.18) inset; }
+.acw-hexinput {
+    flex: 1; background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 7px 10px; color: var(--text-0);
+    font-size: 12.5px; font-family: ui-monospace, "Cascadia Mono", monospace;
+    outline: none; text-transform: lowercase;
+}
+.acw-hexinput:focus { border-color: var(--cyan, #22d3ee); }
+
 /* ---------- scrollbar ---------- */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -759,3 +773,55 @@ h3, h4 { margin: 0 0 10px 0; font-size: 13px; font-weight: 700; color: var(--tex
         display: flex;
     }
 }
+
+/* ============================================================
+   WORLD LOBBY — หน้าจอก่อนเข้าโลก 3D (โลโก้ + ตั้งชื่อเล่น + ปุ่ม Start)
+   ฉากหลังคือกล้องหมุนชมแผนที่จริง เบลอไว้ให้อ่านตัวหนังสือได้สบายตา
+   ============================================================ */
+#world-lobby {
+    position: absolute; inset: 0; z-index: 500;
+    display: flex; align-items: center; justify-content: center;
+    transition: opacity .55s ease;
+}
+#world-lobby.lobby-hidden { opacity: 0; pointer-events: none; }
+#world-lobby .lobby-blur {
+    position: absolute; inset: 0;
+    backdrop-filter: blur(7px) saturate(1.1);
+    -webkit-backdrop-filter: blur(7px) saturate(1.1);
+    background: radial-gradient(900px 620px at 50% 45%, rgba(5,11,20,0.55), rgba(4,8,14,0.88));
+}
+.lobby-inner {
+    position: relative;
+    display: flex; flex-direction: column; align-items: center;
+    padding: 34px 40px 30px;
+    border-radius: 18px;
+    background: rgba(9, 15, 24, 0.72);
+    border: 1px solid rgba(120, 160, 200, 0.16);
+    box-shadow: 0 26px 70px rgba(0, 0, 0, 0.55);
+    width: 330px; max-width: calc(100vw - 36px);
+}
+.lobby-logo { width: 76px; height: 76px; object-fit: contain; }
+.lobby-title {
+    margin-top: 12px; font-family: "Sora", system-ui, sans-serif;
+    font-size: 27px; font-weight: 800; letter-spacing: 1.6px; color: #eef2f7; line-height: 1;
+}
+.lobby-title span { background: linear-gradient(90deg, #4ade80, #22d3ee); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.lobby-sub { margin-top: 7px; font-size: 9.5px; letter-spacing: 3px; color: #657182; font-weight: 700; }
+.lobby-label { align-self: flex-start; margin: 24px 0 7px; font-size: 11px; color: #9aa7b8; font-weight: 600; }
+.lobby-input {
+    width: 100%; background: rgba(14, 24, 38, 0.9); border: 1px solid #243347;
+    border-radius: 9px; padding: 11px 13px; color: #eef2f7;
+    font-size: 13.5px; font-family: inherit; outline: none;
+}
+.lobby-input:focus { border-color: #22d3ee; box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.13); }
+.lobby-start {
+    width: 100%; margin-top: 16px; padding: 13px;
+    border: none; border-radius: 10px; cursor: pointer;
+    font-family: inherit; font-size: 14.5px; font-weight: 800; color: #04150b;
+    background: linear-gradient(90deg, #3b82f6, #22c55e);
+    transition: filter .15s ease, transform .12s ease;
+}
+.lobby-start:hover { filter: brightness(1.09); }
+.lobby-start:active { transform: translateY(1px); }
+.lobby-start:disabled { opacity: .55; cursor: not-allowed; }
+.lobby-status { margin-top: 11px; font-size: 11px; color: #657182; min-height: 14px; text-align: center; }
