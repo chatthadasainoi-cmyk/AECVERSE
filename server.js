@@ -802,6 +802,21 @@ io.on('connection', socket => {
         console.log(`[WORKFLOW] cleared key:${data.key}`);
     });
 
+    // ---------- ตั้งชื่อเล่น — เปลี่ยนชื่อตัวละครทันทีโดยไม่ต้องต่อใหม่ ----------
+    // เดิมชื่อมาจาก user_metadata.display_name ซึ่งอ่านตอนเชื่อมต่อครั้งแรกเท่านั้น
+    // ผู้ใช้ตั้งชื่อที่หน้าล็อบบี้แล้วต้องรอ token/metadata ตามมาให้ทัน ทำให้บางครั้งชื่อไม่เปลี่ยน
+    // ตอนนี้ส่งตรงผ่าน socket แล้ว broadcast ให้ทุกคนเปลี่ยนป้ายชื่อทันที
+    // (ตัวตนจริงยังผูกกับบัญชีผ่าน userId เหมือนเดิม ชื่อเล่นเป็นแค่ชื่อที่แสดง)
+    socket.on('set_nickname', raw => {
+        const p = players[socket.id];
+        if (!p) return;
+        const clean = String(raw || '').replace(/[<>]/g, '').trim().slice(0, 20);
+        if (!clean || clean === p.name) return;
+        p.name = clean;
+        io.emit('player_renamed', { id: socket.id, name: clean });
+        console.log(`[NICKNAME] ${socket.id} -> ${clean}`);
+    });
+
     // ---------- MARKER (จุดที่ผู้ใช้ปักเอง) — sync ให้ทุกคนเห็น + เก็บถาวรเหมือน workflow ----------
     // สีรับได้ทั้งชื่อชุดเดิม (marker เก่าที่บันทึกไว้แล้ว) และ #rrggbb จากจานสีแบบเลือกเองอิสระ
     const MARKER_COLORS = ['red', 'orange', 'yellow', 'green', 'blue', 'purple'];

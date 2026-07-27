@@ -10,8 +10,16 @@
    ถ้า JS พลาดจะเหลือจอเปล่า — ที่นี่จึงซ่อนด้วย JS เท่านั้น และมี timeout คืนค่าเสมอ
    ============================================================ */
 (function () {
-  var SESSION_KEY = 'aec_brand_intro_played';
-  try { if (sessionStorage.getItem(SESSION_KEY)) return; } catch (e) { /* โหมดส่วนตัว: เล่นได้ตามปกติ */ }
+  // เล่นเมื่อ "เพิ่งล็อกอินเข้ามา" เท่านั้น — RoleRedirect.html เป็นคนติดธงนี้ให้ก่อนพามาหน้านี้
+  // (เดิมใช้ "เล่นครั้งเดียวต่อ session" ซึ่งแปลว่าเปิดเว็บทิ้งไว้ทั้งวันก็ได้เห็นแค่รอบเดียว
+  //  พอเดินเมนูไปมาแล้วกลับมาหน้าแรกก็ไม่เล่นอีก จนดูเหมือนว่าไม่ทำงาน)
+  var ENTRY_KEY = 'aec_show_brand_intro';
+  try {
+    if (sessionStorage.getItem(ENTRY_KEY) !== '1') return;
+    sessionStorage.removeItem(ENTRY_KEY); // ใช้ครั้งเดียวต่อการล็อกอินหนึ่งครั้ง
+  } catch (e) {
+    return; // อ่าน sessionStorage ไม่ได้ -> ไม่เล่น ดีกว่าเล่นซ้ำทุกครั้งที่เปลี่ยนหน้า
+  }
 
   var reduceMotion = false;
   try { reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
@@ -20,8 +28,6 @@
   var FLY_MS = reduceMotion ? 0 : 700;      // เวลาบินไปเกาะ sidebar
 
   function start() {
-    try { sessionStorage.setItem(SESSION_KEY, '1'); } catch (e) {}
-
     var style = document.createElement('style');
     style.textContent = [
       '#aec-intro{position:fixed;top:0;left:0;right:0;bottom:0;z-index:2147483646;',
