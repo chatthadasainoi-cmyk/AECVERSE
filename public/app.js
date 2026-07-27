@@ -2509,6 +2509,17 @@ async function initMultiplayer() {
         removeMarkerVisual(id);
     });
 
+    // มีคนเปลี่ยนชื่อเล่น (รวมถึงตัวเราเอง) — เปลี่ยนป้ายชื่อเหนือหัวให้ตรงกันทันที
+    mpSocket.on('player_renamed', ({ id, name }) => {
+        if (!id || !name) return;
+        mpPlayerNames[id] = name;
+        const isMe = id === mpMyId;
+        const target = isMe ? avatarModel : remoteAvatars[id];
+        if (target) setAvatarLabel(target, name, isMe ? mpMyColor : (mpPlayerColors[id] || '#fff'));
+        if (isMe) mpAppendChat({ name: 'ระบบ', color: '#22c55e', text: `เปลี่ยนชื่อเล่นเป็น "${name}" แล้ว` });
+        updateMpUI();
+    });
+
     mpSocket.on('player_joined', data => {
         if (!VIEWER_MODE) addRemote(data);
         if (micOn) connectVoiceTo(data.id); // ไมค์เราเปิดค้างอยู่ -> ต่อสายหาคนที่เพิ่งเข้ามาด้วย
@@ -3187,17 +3198,17 @@ async function startWorld() {
     if (btn) btn.disabled = true;
     const nick = ($('lobby-nickname')?.value || '').trim().slice(0, 20);
 
-    try {
-        // ชื่อเล่นเก็บใน display_name ของบัญชี (server อ่านค่านี้ตอนเชื่อมต่อเพื่อตั้งชื่อตัวละคร)
-        // จึงต้องต่อ socket ใหม่หลังบันทึก ไม่งั้นชื่อจะยังเป็นของเดิมจนกว่าจะรีเฟรช
-        if (nick && typeof supabaseClient !== 'undefined') {
-            setLobbyStatus('กำลังบันทึกชื่อเล่น...');
-            await supabaseClient.auth.updateUser({ data: { display_name: nick } });
-            if (mpSocket) { mpSocket.disconnect(); mpSocket.connect(); }
+    if (nick) {
+        // 1) เปลี่ยนชื่อในโลกทันทีผ่าน socket — ไม่ต้องรอ Supabase และไม่ต้องต่อใหม่
+        if (mpSocket && mpSocket.connected) mpSocket.emit('set_nickname', nick);
+        // 2) เก็บลงบัญชีไว้ให้ครั้งหน้าเข้ามาก็ยังเป็นชื่อนี้ (ล้มเหลวก็ไม่เป็นไร ชื่อในโลกเปลี่ยนไปแล้ว)
+        try {
+            if (typeof supabaseClient !== 'undefined') {
+                await supabaseClient.auth.updateUser({ data: { display_name: nick } });
+            }
+        } catch (err) {
+            console.warn('[LOBBY] จำชื่อเล่นไว้ในบัญชีไม่สำเร็จ:', err);
         }
-    } catch (err) {
-        console.warn('[LOBBY] บันทึกชื่อเล่นไม่สำเร็จ:', err);
-        // ตั้งชื่อไม่สำเร็จไม่ควรกันไม่ให้เข้าเล่น — เข้าไปด้วยชื่อเดิมได้เลย
     }
 
     lobbyActive = false;
