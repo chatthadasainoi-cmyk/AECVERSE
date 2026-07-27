@@ -357,6 +357,7 @@
                 </div>
                 <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
                     <button id="btn-walk-to" class="panel-action-btn" onclick="walkToSelected()" style="display:none;background:var(--green-soft);border-color:rgba(34,197,94,0.35);color:var(--green); font-size:11.5px; padding:6px 10px;">🚶 เดินไปที่นี่</button>
+                    <button id="btn-set-marker" class="panel-action-btn" onclick="openMarkerEditorForActive()" style="background:rgba(34,211,238,0.14);border-color:rgba(34,211,238,0.35);color:#22d3ee; font-size:11.5px; padding:6px 10px;">📍 กำหนดจุด</button>
                     <button id="btn-assign-type" class="panel-action-btn" onclick="openTypeSelectorForActive()" style="background:var(--purple-soft);border-color:rgba(168,85,247,0.35);color:var(--purple); font-size:11.5px; padding:6px 10px;">กำหนด Type</button>
                     <button id="btn-edit-mode" class="panel-action-btn btn-edit-trigger" onclick="enableLiveEdit()" style="font-size:11.5px; padding:6px 10px;">แก้ไขข้อมูล</button>
                     <div id="edit-actions-group" style="display: none; gap: 6px;">
@@ -445,6 +446,25 @@
         <div id="type-selector-grid"></div>
         <div class="type-modal-footer">
             <button class="panel-action-btn btn-danger-outline action-block" onclick="clearMeshType()">ล้างการกำหนดประเภท</button>
+        </div>
+    </div>
+</div>
+
+<!-- กำหนดจุด (marker) — ตั้งชื่อ + เลือกสีได้อิสระ ไม่ต้องผูกกับประเภทอุปกรณ์ -->
+<div id="marker-editor-overlay" style="display:none;">
+    <div class="type-modal">
+        <div class="type-modal-head">
+            <h3>📍 กำหนดจุด</h3>
+            <button class="type-modal-close" onclick="closeMarkerEditor()">✕</button>
+        </div>
+        <p id="marker-editor-target"></p>
+        <label class="marker-field-label">ชื่อจุด (เดินเข้าใกล้แล้วจะเห็นชื่อนี้)</label>
+        <input id="marker-name-input" type="text" maxlength="80" placeholder="เช่น จุดรวมพล, ถังหมักที่ 1" class="marker-input">
+        <label class="marker-field-label">สีของจุด</label>
+        <div id="marker-color-row" class="marker-color-row"></div>
+        <div class="type-modal-footer" style="display:flex;gap:8px;">
+            <button class="panel-action-btn btn-danger-outline" style="flex:1;" onclick="removeActiveMarker()">ลบจุดนี้</button>
+            <button class="panel-action-btn btn-save" style="flex:1;" onclick="saveActiveMarker()">บันทึกจุด</button>
         </div>
     </div>
 </div>
