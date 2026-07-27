@@ -5,6 +5,7 @@
         <title>AEC VERSE — Settings</title>
         <link rel="icon" type="image/png" href="Logo.png">
         <script src="page-transitions.js"></script>
+        <script src="world-prefs.js"></script>
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <link rel="preconnect" href="https://fonts.googleapis.com">
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
@@ -613,19 +614,18 @@
                             <div id="cv-save-status" style="color:var(--green);font-size:11px;min-height:14px;"></div>
                         </div>
                     </div>
-                    <div class="card">
-                        <div class="card-head"><h3>คีย์ลัดในโลก Metaverse</h3></div>
-                        <div style="display:flex;flex-direction:column;gap:10px;font-size:12px;">
-                            <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-2);">เปิด/ปิดไมค์</span><span style="font-weight:700;font-family:monospace;">V (อ)</span></div>
-                            <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-2);">พิมพ์แชท</span><span style="font-weight:700;font-family:monospace;">/ (ฝ)</span></div>
-                            <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-2);">เปิด/ปิดหน้าต่างแชท</span><span style="font-weight:700;">ปุ่มไอคอนแชทใน HUD</span></div>
-                            <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-2);">เดิน</span><span style="font-weight:700;font-family:monospace;">W A S D / ลูกศร</span></div>
-                            <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-2);">กระโดด</span><span style="font-weight:700;font-family:monospace;">Space</span></div>
-                            <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-2);">Free Look</span><span style="font-weight:700;font-family:monospace;">F</span></div>
-                            <div class="hr" style="margin:4px 0;"></div>
+                    <div style="display:flex;flex-direction:column;gap:14px;">
+                        <div class="card">
+                            <div class="card-head"><h3>🎙️ เลือกไมโครโฟน</h3></div>
+                            <div id="wp-mic-mount"></div>
+                        </div>
+                        <div class="card">
+                            <div class="card-head"><h3>⌨️ ปุ่มควบคุมในโลก Metaverse</h3></div>
+                            <div id="wp-keybind-mount"></div>
+                            <div class="hr" style="margin:10px 0 6px;"></div>
                             <div style="color:var(--text-2);font-size:11px;line-height:1.6;">
                                 การตั้งค่ามีผลทันทีกับแท็บ Metaverse ที่เปิดอยู่ — เสียงพูดวิ่งตรงระหว่างผู้เล่น (P2P)
-                                ไม่ผ่านเซิร์ฟเวอร์ และเปิดไมค์ได้เฉพาะตอนที่คุณกด V เท่านั้น
+                                ไม่ผ่านเซิร์ฟเวอร์ และเปิดไมค์ได้เฉพาะตอนที่คุณกดปุ่มไมค์เท่านั้น
                             </div>
                         </div>
                     </div>
@@ -786,6 +786,10 @@
         }
         initUserChip();
   guardAdminOnly();
+
+        // เลือกไมโครโฟน + เปลี่ยนปุ่มควบคุม (เก็บใน localStorage — โลก 3D อ่านค่าไปใช้)
+        AecWorldPrefs.mountMic(document.getElementById('wp-mic-mount'));
+        AecWorldPrefs.mountKeybinds(document.getElementById('wp-keybind-mount'));
 
         document.getElementById('settings-tabs').addEventListener('click', e => {
             const tabEl = e.target.closest('.tab');
