@@ -1737,6 +1737,170 @@ function checkPPEZones() {
 }
 
 // ============================================================
+// 9.2 MARKER SYSTEM — "กำหนดจุด" ที่ผู้ใช้ปักเอง ตั้งชื่อ+เลือกสีได้อิสระ
+// ต่างจากการ "กำหนด Type" ตรงที่ไม่ต้องผูกกับประเภทอุปกรณ์ที่มีอยู่ — ใช้ทำจุดรวมพล
+// ทางหนีไฟ จุดที่ต้องระวัง ฯลฯ วงกลมเรืองแสงบนพื้น + ชื่อจะโผล่เมื่อเดินเข้าใกล้
+// ตำแหน่งเก็บเป็นพิกัดโลกจริง (ไม่ผูกกับ mesh) จึงยังอยู่ที่เดิมแม้เปลี่ยนโมเดล
+// ============================================================
+const MARKER_COLOR_HEX = {
+    red: 0xef4444, orange: 0xf97316, yellow: 0xfacc15,
+    green: 0x22c55e, blue: 0x38bdf8, purple: 0xa78bfa
+};
+const MARKER_LABEL_RANGE = 8;   // ระยะที่เริ่มเห็นชื่อจุด
+const markerStore = {};         // id -> { id, name, color, x, y, z } (ตรงกับฝั่ง server)
+const markerObjects = new Map();// id -> { ring, disc, label, x, y, z }
+
+function markerLabelSprite(name, colorHex) {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    ctx.font = 'bold 30px "Segoe UI", Arial, sans-serif';
+    const textW = Math.min(ctx.measureText(name).width, 560);
+    canvas.width = Math.max(textW + 56, 160); canvas.height = 84;
+    const c2 = canvas.getContext('2d');
+    const css = '#' + colorHex.toString(16).padStart(6, '0');
+    c2.fillStyle = 'rgba(8,12,20,0.86)';
+    if (c2.roundRect) { c2.beginPath(); c2.roundRect(2, 2, canvas.width - 4, canvas.height - 4, 16); c2.fill(); }
+    else c2.fillRect(0, 0, canvas.width, canvas.height);
+    c2.lineWidth = 4; c2.strokeStyle = css; c2.stroke();
+    c2.font = 'bold 30px "Segoe UI", Arial, sans-serif';
+    c2.fillStyle = '#ffffff'; c2.textAlign = 'center'; c2.textBaseline = 'middle';
+    c2.fillText(name, canvas.width / 2, canvas.height / 2 + 1);
+
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), depthTest: false, transparent: true }));
+    sprite.scale.set((canvas.width / canvas.height) * 1.5, 1.5, 1);
+    sprite.renderOrder = 1000;
+    return sprite;
+}
+
+function addMarkerVisual(m) {
+    const colorHex = MARKER_COLOR_HEX[m.color] || MARKER_COLOR_HEX.blue;
+    const sf = currentModelScaleFactor();
+    const r = 1.6 * sf;
+
+    const ring = new THREE.Mesh(
+        new THREE.RingGeometry(r * 0.72, r, 48),
+        new THREE.MeshBasicMaterial({ color: colorHex, side: THREE.DoubleSide, transparent: true, opacity: 0.95, depthTest: false })
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.set(m.x, m.y + 0.06, m.z);
+    ring.renderOrder = 998;
+    scene.add(ring);
+
+    const disc = new THREE.Mesh(
+        new THREE.CircleGeometry(r * 0.72, 48),
+        new THREE.MeshBasicMaterial({ color: colorHex, side: THREE.DoubleSide, transparent: true, opacity: 0.2, depthTest: false })
+    );
+    disc.rotation.x = -Math.PI / 2;
+    disc.position.set(m.x, m.y + 0.05, m.z);
+    disc.renderOrder = 997;
+    scene.add(disc);
+
+    const label = markerLabelSprite(m.name, colorHex);
+    label.position.set(m.x, m.y + 2.2 * sf, m.z);
+    label.visible = false; // โผล่เมื่อเดินเข้าใกล้เท่านั้น
+    scene.add(label);
+
+    markerObjects.set(m.id, { ring, disc, label, x: m.x, y: m.y, z: m.z });
+}
+
+function removeMarkerVisual(id) {
+    const o = markerObjects.get(id);
+    if (!o) return;
+    [o.ring, o.disc].forEach(mesh => { scene.remove(mesh); mesh.geometry.dispose(); mesh.material.dispose(); });
+    scene.remove(o.label);
+    o.label.material.map?.dispose();
+    o.label.material.dispose();
+    markerObjects.delete(id);
+}
+
+function rebuildMarkers() {
+    [...markerObjects.keys()].forEach(removeMarkerVisual);
+    Object.values(markerStore).forEach(addMarkerVisual);
+}
+
+// เรียกทุกเฟรม — โชว์ชื่อเมื่อเดินเข้าใกล้ + วงกลมเต้นเบาๆ ให้สังเกตเห็นง่าย
+function updateMarkers() {
+    if (markerObjects.size === 0) return;
+    const pulse = 1 + Math.sin(Date.now() * 0.003) * 0.08;
+    const pos = avatarModel ? avatarModel.position : camera.position;
+    markerObjects.forEach(o => {
+        o.ring.scale.set(pulse, pulse, 1);
+        const d = Math.hypot(pos.x - o.x, pos.z - o.z);
+        o.label.visible = d <= MARKER_LABEL_RANGE * currentModelScaleFactor();
+    });
+}
+
+// ---------- ตัวแก้ไขจุด (modal) ----------
+let markerEditorTarget = null; // { id, x, y, z, label }
+let markerEditorColor = 'blue';
+
+window.openMarkerEditorForActive = function () {
+    if (!selection.uuid || !factoryModel) {
+        mpAppendChat({ name: 'ระบบ', color: '#ef4444', text: 'กรุณาเลือกชิ้นส่วนก่อนกำหนดจุด' });
+        return;
+    }
+    let mesh = null;
+    factoryModel.traverse(c => { if (c.isMesh && c.uuid === selection.uuid) mesh = c; });
+    if (!mesh) return;
+
+    // ปักที่ "ฐานของชิ้นส่วน" (กึ่งกลางแกน X/Z, ต่ำสุดแกน Y) เพื่อให้วงกลมวางบนพื้นพอดี
+    const box = new THREE.Box3().setFromObject(mesh);
+    const center = box.getCenter(new THREE.Vector3());
+    const id = 'm_' + (mesh._original3DName || mesh.name || mesh.uuid);
+    const existing = markerStore[id];
+
+    markerEditorTarget = { id, x: center.x, y: box.min.y, z: center.z, label: mesh.name || id };
+    markerEditorColor = existing ? existing.color : 'blue';
+
+    $('marker-editor-target').innerText = `📦 ${mesh.name || mesh.uuid.slice(0, 8)}`;
+    $('marker-name-input').value = existing ? existing.name : (mesh.name || '');
+    renderMarkerColorRow();
+    $('marker-editor-overlay').style.display = 'flex';
+};
+
+function renderMarkerColorRow() {
+    const row = $('marker-color-row');
+    if (!row) return;
+    row.innerHTML = Object.keys(MARKER_COLOR_HEX).map(key => {
+        const css = '#' + MARKER_COLOR_HEX[key].toString(16).padStart(6, '0');
+        return `<button class="marker-color-dot${key === markerEditorColor ? ' sel' : ''}" style="background:${css};color:${css};" onclick="pickMarkerColor('${key}')" title="${key}"></button>`;
+    }).join('');
+}
+window.pickMarkerColor = function (key) { markerEditorColor = key; renderMarkerColorRow(); };
+
+window.closeMarkerEditor = function () {
+    const o = $('marker-editor-overlay');
+    if (o) o.style.display = 'none';
+    markerEditorTarget = null;
+};
+
+window.saveActiveMarker = function () {
+    if (!markerEditorTarget) return;
+    const name = ($('marker-name-input').value || '').trim() || 'จุดที่ทำเครื่องหมาย';
+    const m = { id: markerEditorTarget.id, name, color: markerEditorColor, x: markerEditorTarget.x, y: markerEditorTarget.y, z: markerEditorTarget.z };
+    // วาดให้เห็นทันทีโดยไม่รอ server ตอบ (ถ้าเน็ตช้าจะได้ไม่รู้สึกว่ากดแล้วไม่มีอะไรเกิดขึ้น)
+    markerStore[m.id] = m;
+    removeMarkerVisual(m.id);
+    addMarkerVisual(m);
+    if (mpSocket && mpSocket.connected) mpSocket.emit('marker_set', m);
+    mpAppendChat({ name: '📍 ระบบ', color: '#22d3ee', text: `ปักจุด "${name}" แล้ว` });
+    closeMarkerEditor();
+};
+
+window.removeActiveMarker = function () {
+    if (!markerEditorTarget) return;
+    const id = markerEditorTarget.id;
+    if (!markerStore[id]) { closeMarkerEditor(); return; }
+    delete markerStore[id];
+    removeMarkerVisual(id);
+    if (mpSocket && mpSocket.connected) mpSocket.emit('marker_remove', { id });
+    mpAppendChat({ name: '📍 ระบบ', color: '#94a3b8', text: 'ลบจุดแล้ว' });
+    closeMarkerEditor();
+};
+
+$('marker-editor-overlay')?.addEventListener('click', function (e) { if (e.target === this) closeMarkerEditor(); });
+
+// ============================================================
 // 9.5 SAFETY VISUALIZATION LAYERS — ชั้นแสดงผลตามแบบประเมิน IOC
 // Ex-Zone 0/1/2 (ข้อ 4), ระยะปลอดภัย/ระยะร่น (ข้อ 1), รัศมีป้องกันฟ้าผ่า
 // แบบ Rolling Sphere (ข้อ 5) — เปิด/ปิดแยกชั้นได้จากแท็บ "เลเยอร์"
@@ -2226,6 +2390,7 @@ async function initMultiplayer() {
         // ส่วนที่ทุก connection ได้รับ (ทั้ง player และ watcher): state กลางของห้อง
         if (data.workflowDb) Object.assign(workflowDatabase, data.workflowDb);
         if (data.typeAssignments) Object.assign(userDefinedTypes, data.typeAssignments);
+        if (data.markers) { Object.assign(markerStore, data.markers); rebuildMarkers(); }
         modelLocked = data.modelLocked !== undefined ? data.modelLocked : true;
         isAdmin = !!data.isAdmin; // สิทธิ์ admin ตรวจจากบัญชีโดย server — ไม่มีรหัสผ่านแยกแล้ว
         refreshTransformUiPermissions();
@@ -2248,6 +2413,19 @@ async function initMultiplayer() {
 
         if (data.modelUrl) loadModelFromUrl(data.modelUrl, data.modelName, data.modelTransform);
         updateMpUI();
+    });
+
+    // จุดที่คนอื่นปัก/ลบ — เห็นตรงกันทุกคนแบบเรียลไทม์
+    mpSocket.on('marker_updated', m => {
+        if (!m || !m.id) return;
+        markerStore[m.id] = m;
+        removeMarkerVisual(m.id);
+        addMarkerVisual(m);
+    });
+    mpSocket.on('marker_removed', ({ id }) => {
+        if (!id) return;
+        delete markerStore[id];
+        removeMarkerVisual(id);
     });
 
     mpSocket.on('player_joined', data => {
@@ -2958,6 +3136,7 @@ function animate() {
     safeCall(updateAvatarPhysics, 'updateAvatarPhysics');
     safeCall(updateRemoteAvatars, 'updateRemoteAvatars');
     safeCall(updateProximityTags, 'updateProximityTags');
+    safeCall(updateMarkers, 'updateMarkers');
     safeCall(checkPPEZones, 'checkPPEZones');
     safeCall(checkAutoDeselect, 'checkAutoDeselect');
     safeCall(emitOwnPosition, 'emitOwnPosition');

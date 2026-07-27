@@ -155,6 +155,9 @@ let currentModelUrl = null;
 let currentModelName = null;
 const workflowDb = {};        // key -> { name, desc, steps, colorClass, requiresPPE }
 const typeAssignments = {};   // key -> typeKey ที่ admin กำหนดเอง
+// จุดที่ผู้ใช้ปักเอง (marker) — id -> { id, name, color, x, y, z }
+// ต่างจาก typeAssignments ตรงที่ตั้งชื่อ/สีได้อิสระ ไม่ต้องผูกกับประเภทอุปกรณ์ที่มีอยู่
+const markers = {};
 
 // REQ 1 & 2: ตำแหน่ง/ขนาด/หมุนของโมเดลโรงงาน — sync ให้ทุกคนเห็นตรงกัน
 let modelTransform = { posX: 0, posY: 0, posZ: 0, rotY: 0, scale: 1 };
@@ -183,7 +186,7 @@ async function persistSceneState() {
         const body = JSON.stringify({
             savedAt: new Date().toISOString(),
             currentModelUrl, currentModelName,
-            workflowDb, typeAssignments, modelTransform, modelLocked
+            workflowDb, typeAssignments, markers, modelTransform, modelLocked
         });
         const res = await fetch(`${SUPABASE_URL}/storage/v1/object/models/${SCENE_STATE_FILE}`, {
             method: 'POST',
@@ -442,6 +445,7 @@ async function loadSceneState() {
         currentModelName = s.currentModelName || null;
         Object.assign(workflowDb, s.workflowDb || {});
         Object.assign(typeAssignments, s.typeAssignments || {});
+        Object.assign(markers, s.markers || {});
         if (s.modelTransform) modelTransform = s.modelTransform;
         modelLocked = s.modelLocked !== undefined ? !!s.modelLocked : true;
         console.log(`[PERSIST] กู้คืน state สำเร็จ (model: ${currentModelName || '—'}, ข้อมูลชิ้นส่วน ${Object.keys(workflowDb).length} รายการ)`);
@@ -460,6 +464,7 @@ function publicState() {
         modelName: currentModelName,
         workflowDb,
         typeAssignments,
+        markers,
         modelTransform,
         modelLocked,
         adminCount: admins.size
@@ -795,6 +800,30 @@ io.on('connection', socket => {
         socket.broadcast.emit('type_cleared', { key: data.key });
         schedulePersistSceneState();
         console.log(`[WORKFLOW] cleared key:${data.key}`);
+    });
+
+    // ---------- MARKER (จุดที่ผู้ใช้ปักเอง) — sync ให้ทุกคนเห็น + เก็บถาวรเหมือน workflow ----------
+    const MARKER_COLORS = ['red', 'orange', 'yellow', 'green', 'blue', 'purple'];
+    socket.on('marker_set', data => {
+        if (!data || !data.id) return;
+        const num = v => (Number.isFinite(Number(v)) ? Number(v) : 0);
+        const marker = {
+            id: String(data.id).slice(0, 64),
+            name: String(data.name || 'จุดที่ทำเครื่องหมาย').slice(0, 80),
+            color: MARKER_COLORS.includes(data.color) ? data.color : 'blue',
+            x: num(data.x), y: num(data.y), z: num(data.z)
+        };
+        markers[marker.id] = marker;
+        io.emit('marker_updated', marker); // io ไม่ใช่ broadcast — คนปักเองต้องได้ id ที่ผ่านการ sanitize กลับไปด้วย
+        schedulePersistSceneState();
+        console.log(`[MARKER] set ${marker.id} "${marker.name}" (${marker.color})`);
+    });
+    socket.on('marker_remove', data => {
+        if (!data || !data.id || !markers[data.id]) return;
+        delete markers[data.id];
+        io.emit('marker_removed', { id: data.id });
+        schedulePersistSceneState();
+        console.log(`[MARKER] removed ${data.id}`);
     });
 
     // ---------- เส้นวัดระยะ — แชร์ให้ทุกคนเห็นเหมือนกัน (ชั่วคราว ไม่ persist) ----------

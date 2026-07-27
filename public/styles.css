@@ -592,6 +592,32 @@ h3, h4 { margin: 0 0 10px 0; font-size: 13px; font-weight: 700; color: var(--tex
 #type-selector-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
 .type-modal-footer { margin-top: 15px; border-top: 1px solid var(--border-soft); padding-top: 13px; }
 
+/* ---------- marker editor (กำหนดจุด) ---------- */
+#marker-editor-overlay {
+    position: fixed; inset: 0;
+    background: rgba(4, 6, 10, 0.72);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    z-index: 9999;
+    align-items: center; justify-content: center;
+}
+#marker-editor-target { margin: 0 0 13px; font-size: 11px; color: var(--text-2); font-family: ui-monospace, "Cascadia Mono", monospace; }
+.marker-field-label { display: block; font-size: 11px; color: var(--text-2); font-weight: 600; margin: 0 0 6px; }
+.marker-input {
+    width: 100%; background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 9px 11px; color: var(--text-0);
+    font-size: 12.5px; font-family: inherit; outline: none; margin-bottom: 14px;
+}
+.marker-input:focus { border-color: var(--cyan, #22d3ee); }
+.marker-color-row { display: flex; gap: 9px; flex-wrap: wrap; }
+.marker-color-dot {
+    width: 32px; height: 32px; border-radius: 50%; cursor: pointer;
+    border: 2px solid transparent; box-shadow: 0 0 0 1px rgba(255,255,255,0.12) inset;
+    padding: 0; transition: transform .12s ease;
+}
+.marker-color-dot:hover { transform: scale(1.1); }
+.marker-color-dot.sel { border-color: #ffffff; box-shadow: 0 0 10px currentColor; }
+
 /* ---------- scrollbar ---------- */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
