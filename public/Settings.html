@@ -429,7 +429,7 @@
                 <div class="tab" data-tab="usermgmt">User Management</div>
                 <div class="tab" data-tab="chatvoice">Chat & Voice</div>
                 <div class="tab" data-tab="userfunc">User Function Management</div>
-                <div class="tab" data-tab="sysconfig">System Configuration</div>
+                <div class="tab" data-tab="sysconfig">AR &amp; QR Code</div>
                 <div class="tab" data-tab="psm">PSM Settings</div>
                 <div class="tab" data-tab="notifications">Notifications</div>
                 <div class="tab" data-tab="backup">Backup</div>
@@ -734,6 +734,53 @@
             </div>
 
             <div id="settings-panel-sysconfig" class="settings-panel" style="display:none;">
+                <!-- ============ AR: เลือกโมเดลจากคลัง -> สร้าง QR -> สแกนแล้วเห็นโมเดลลอยในที่จริง ============ -->
+                <div class="grid g8-4" style="margin-bottom:14px;">
+                    <div class="card">
+                        <div class="card-head"><h3>🥽 AR — QR Code ดูโมเดลลอยในโลกจริง</h3></div>
+                        <p style="color:var(--text-2);font-size:12px;line-height:1.7;margin:0 0 16px 0;">
+                            เลือกโมเดลที่อัปโหลดไว้ในคลัง แล้วพิมพ์ QR ไปติดที่ป้าย/บอร์ดนิทรรศการ —
+                            ผู้ชมสแกนด้วยมือถือแล้วจะเห็นโมเดลนั้นลอยอยู่ในที่จริง <b>แตะที่ชิ้นส่วนเพื่อดูข้อมูลความปลอดภัยได้เลย</b>
+                            โดยไม่ต้องล็อกอิน
+                        </p>
+
+                        <label class="qr-field-label">เลือกโมเดลจากคลัง</label>
+                        <select id="arModelSelect" class="qr-select" style="margin-bottom:14px;" onchange="renderArQr()">
+                            <option value="">กำลังโหลดรายการโมเดล...</option>
+                        </select>
+
+                        <div class="qr-preview-box" id="arQrPreviewBox">
+                            <div class="qr-empty-hint">เลือกโมเดลด้านบนเพื่อสร้าง QR Code</div>
+                        </div>
+
+                        <div id="arQrLink" style="display:none;font-size:10.5px;color:var(--text-2);
+                            font-family:ui-monospace,'Cascadia Mono',monospace;word-break:break-all;margin-top:10px;"></div>
+
+                        <div style="display:flex;gap:10px;margin-top:14px;">
+                            <button class="btn btn-sm" style="flex:1;" onclick="downloadArQrPng()">⬇️ ดาวน์โหลด PNG</button>
+                            <button class="btn btn-sm primary" style="flex:1;" onclick="printArQr()">🖨️ พิมพ์</button>
+                            <button class="btn btn-sm" style="flex:1;" onclick="openArPreview()">👁️ ลองเปิดดู</button>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-head"><h3>วิธีใช้งาน AR</h3></div>
+                        <div style="display:flex;flex-direction:column;gap:12px;font-size:12px;color:var(--text-1);line-height:1.7;">
+                            <div>1. อัปโหลดโมเดลที่หน้า Metaverse ก่อน (โมเดลจะเข้าคลังอัตโนมัติ)</div>
+                            <div>2. เลือกโมเดลจากรายการ แล้วดาวน์โหลด/พิมพ์ QR</div>
+                            <div>3. ผู้ชมสแกน QR ด้วยกล้องมือถือ → เปิดหน้า AR ทันที ไม่ต้องติดตั้งแอป</div>
+                            <div>4. กด "ดูแบบ AR" แล้วเล็งกล้องไปที่พื้น → แตะเพื่อวางโมเดลลงในที่จริง</div>
+                            <div>5. แตะที่ชิ้นส่วนใดก็ได้ เพื่อดูชื่อและข้อกำหนดความปลอดภัยของชิ้นนั้น</div>
+                            <div class="hr" style="margin:4px 0;"></div>
+                            <div style="color:var(--text-2);font-size:11px;line-height:1.65;">
+                                ⚠️ <b>AR แบบวางลงพื้นจริง</b> ใช้ได้บน Chrome บน Android ที่รองรับ WebXR —
+                                iPhone/เครื่องที่ไม่รองรับจะเปิดเป็น <b>โหมดพรีวิว 3 มิติ</b> (หมุน/ซูม/แตะดูข้อมูลได้ครบเหมือนกัน)
+                                ข้อมูลชิ้นส่วนใช้ชุดเดียวกับที่แก้ไว้ในโลก 3D
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ============ QR เดิม: สแกนแล้วเข้าไปดูจุดนั้นในแบบจำลอง 3D ============ -->
                 <div class="grid g8-4">
                     <div class="card">
                         <div class="card-head"><h3>QR Code สำหรับติดหน้าอุปกรณ์จริง</h3></div>
@@ -1227,6 +1274,90 @@
             const w = window.open('', '_blank', 'width=420,height=520');
             w.document.write('<html><head><title>Print QR — ' + label + '</title></head><body style="text-align:center;font-family:sans-serif;padding:24px;"><h3>' + label + '</h3><img src="' + src + '" style="width:280px;height:280px;"><script>window.onload=()=>{window.print();}<\/script></body></html>');
             w.document.close();
+        };
+
+        // ============================================================
+        // AR — เลือกโมเดลจากคลัง Supabase แล้วสร้าง QR ไปที่ ar.html
+        // ผู้ชมสแกนแล้วเห็นโมเดลลอยในที่จริง แตะชิ้นส่วนดูข้อมูลได้ (ไม่ต้องล็อกอิน)
+        // ============================================================
+        const AR_SUPABASE_URL = 'https://hzlokmixfkfrmkuucfhg.supabase.co';
+        const AR_SUPABASE_BUCKET = 'models';
+        const AR_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh6bG9rbWl4Zmtmcm1rdXVjZmhnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1NzA5NTUsImV4cCI6MjA5ODE0Njk1NX0.DSj0c7XN979948Iq5rGmWqI9ddcbg56OmfKFin--Luo';
+
+        (async function initArModelSelect() {
+            const sel = document.getElementById('arModelSelect');
+            if (!sel) return;
+            try {
+                const res = await fetch(`${AR_SUPABASE_URL}/storage/v1/object/list/${AR_SUPABASE_BUCKET}`, {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${AR_ANON_KEY}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prefix: '', limit: 100, sortBy: { column: 'created_at', order: 'desc' } })
+                });
+                const files = await res.json();
+                // AR รองรับเฉพาะ .glb/.gltf — .fbx โหลดในหน้า AR ไม่ได้ จึงไม่เอามาให้เลือกให้เข้าใจผิด
+                const models = (Array.isArray(files) ? files : []).filter(f => /\.(glb|gltf)$/i.test(f.name));
+                if (!models.length) {
+                    sel.innerHTML = '<option value="">— ยังไม่มีโมเดล .glb ในคลัง —</option>';
+                    return;
+                }
+                sel.innerHTML = '<option value="">— เลือกโมเดล —</option>' + models.map(f => {
+                    const mb = f.metadata && f.metadata.size ? ' (' + (f.metadata.size / 1048576).toFixed(1) + ' MB)' : '';
+                    const label = f.name.replace(/^model_\d+_/, '') + mb;
+                    return `<option value="${f.name.replace(/"/g, '&quot;')}">${label}</option>`;
+                }).join('');
+            } catch (err) {
+                console.error('[AR] โหลดรายการโมเดลไม่สำเร็จ:', err);
+                sel.innerHTML = '<option value="">— โหลดรายการไม่สำเร็จ —</option>';
+            }
+        })();
+
+        let arQrInstance = null;
+        function arQrUrl() {
+            const file = document.getElementById('arModelSelect').value;
+            return file ? (location.origin + '/ar.html?model=' + encodeURIComponent(file)) : null;
+        }
+        window.renderArQr = function () {
+            const box = document.getElementById('arQrPreviewBox');
+            const linkBox = document.getElementById('arQrLink');
+            const url = arQrUrl();
+            if (!url) {
+                box.innerHTML = '<div class="qr-empty-hint">เลือกโมเดลด้านบนเพื่อสร้าง QR Code</div>';
+                linkBox.style.display = 'none';
+                arQrInstance = null;
+                return;
+            }
+            box.innerHTML = '<div id="arQrCanvasWrap"></div>';
+            arQrInstance = new QRCode(document.getElementById('arQrCanvasWrap'), {
+                text: url, width: 200, height: 200, colorDark: '#000000', colorLight: '#ffffff'
+            });
+            linkBox.style.display = 'block';
+            linkBox.textContent = url;
+        };
+        function arQrSrc() {
+            const img = document.querySelector('#arQrCanvasWrap img');
+            const canvas = document.querySelector('#arQrCanvasWrap canvas');
+            return img ? img.src : (canvas ? canvas.toDataURL('image/png') : null);
+        }
+        window.downloadArQrPng = function () {
+            const src = arQrSrc();
+            if (!src) { alert('กรุณาเลือกโมเดลก่อนดาวน์โหลด'); return; }
+            const a = document.createElement('a');
+            a.href = src;
+            a.download = 'ar-qr-' + document.getElementById('arModelSelect').value.replace(/\.(glb|gltf)$/i, '') + '.png';
+            document.body.appendChild(a); a.click(); a.remove();
+        };
+        window.printArQr = function () {
+            const src = arQrSrc();
+            if (!src) { alert('กรุณาเลือกโมเดลก่อนพิมพ์'); return; }
+            const label = document.getElementById('arModelSelect').selectedOptions[0].textContent;
+            const w = window.open('', '_blank', 'width=420,height=560');
+            w.document.write('<html><head><title>Print AR QR — ' + label + '</title></head><body style="text-align:center;font-family:sans-serif;padding:24px;"><h3>🥽 สแกนเพื่อดูแบบ AR</h3><p style="font-size:13px;color:#555;">' + label + '</p><img src="' + src + '" style="width:280px;height:280px;"><p style="font-size:12px;color:#777;">เปิดกล้องมือถือแล้วสแกน — ไม่ต้องติดตั้งแอป</p><script>window.onload=()=>{window.print();}<\/script></body></html>');
+            w.document.close();
+        };
+        window.openArPreview = function () {
+            const url = arQrUrl();
+            if (!url) { alert('กรุณาเลือกโมเดลก่อน'); return; }
+            window.open(url, '_blank');
         };
         </script>
         </body>
