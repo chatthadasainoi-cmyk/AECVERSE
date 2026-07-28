@@ -454,6 +454,7 @@
         body{padding:14px;}
       }
     </style>
+  <link rel="stylesheet" href="ui-polish.css">
   </head>
 
 <body>
@@ -586,6 +587,13 @@
     // (Supabase auth บางกรณีคืน error.message เป็น "{}" ทั้งที่ error จริงมีรายละเอียดใน
     // .status/.name — โชว์รายละเอียดนั้นแทนข้อความ generic เปล่าๆ และ log raw error ไว้ใน
     // console ให้เช็คต่อได้)
+    function showSuccess(html){
+      const el = document.getElementById('signupError');
+      el.className = 'auth-success';
+      el.innerHTML = html;
+      el.style.display = 'block';
+    }
+
     function showError(msgOrErr){
       const el = document.getElementById('signupError');
       el.className = 'auth-error';
@@ -594,8 +602,24 @@
         text = msgOrErr;
       } else if (msgOrErr && typeof msgOrErr === 'object') {
         console.error('[Signup] auth error:', msgOrErr);
-        const detail = [msgOrErr.name, msgOrErr.status ? ('HTTP ' + msgOrErr.status) : null].filter(Boolean).join(' · ');
-        text = 'สมัครสมาชิกไม่สำเร็จ — ระบบ Supabase มีปัญหาฝั่งเซิร์ฟเวอร์' + (detail ? ' (' + detail + ')' : '') + ' กรุณาลองใหม่อีกครั้ง หรือแจ้งผู้ดูแลระบบ';
+        // เดิมทิ้ง .message ไปเลยแล้วโชว์ข้อความรวมๆ ว่า "Supabase มีปัญหา" ทุกกรณี
+        // ทำให้สาเหตุจริงที่ผู้ใช้แก้เองได้ (รหัสสั้นไป/อีเมลผิดรูปแบบ/สมัครถี่เกินไป) ถูกกลบหมด
+        const raw = typeof msgOrErr.message === 'string' ? msgOrErr.message.trim() : '';
+        const known = {
+          'User already registered': 'อีเมลนี้เคยสมัครไว้แล้ว — กรุณาเข้าสู่ระบบแทน',
+          'Signup requires a valid password': 'กรุณากรอกรหัสผ่าน',
+          'Unable to validate email address: invalid format': 'รูปแบบอีเมลไม่ถูกต้อง',
+          'Signups not allowed for this instance': 'ระบบปิดรับสมัครสมาชิกอยู่ — กรุณาติดต่อผู้ดูแลระบบ'
+        };
+        if (known[raw]) text = known[raw];
+        else if (/at least (\d+) characters/i.test(raw)) text = 'รหัสผ่านสั้นเกินไป — ' + raw;
+        else if (/rate limit|too many|for security purposes/i.test(raw)) {
+          text = 'สมัคร/ส่งอีเมลถี่เกินไป — Supabase จำกัดจำนวนอีเมลต่อชั่วโมง กรุณารอสักครู่แล้วลองใหม่';
+        } else if (raw && raw !== '{}') text = raw;
+        else {
+          const detail = [msgOrErr.name, msgOrErr.status ? ('HTTP ' + msgOrErr.status) : null].filter(Boolean).join(' · ');
+          text = 'สมัครสมาชิกไม่สำเร็จ — ระบบ Supabase มีปัญหาฝั่งเซิร์ฟเวอร์' + (detail ? ' (' + detail + ')' : '') + ' กรุณาลองใหม่อีกครั้ง หรือแจ้งผู้ดูแลระบบ';
+        }
       } else {
         text = 'เกิดข้อผิดพลาดจากระบบ กรุณาลองใหม่อีกครั้ง (Supabase อาจกำลังมีปัญหาชั่วคราว)';
       }
@@ -626,13 +650,42 @@
       btn.textContent = 'กำลังสร้างบัญชี...';
 
       try {
-        const { error } = await supabaseClient.auth.signUp({ email, password: pwd });
+        const { data, error } = await supabaseClient.auth.signUp({
+          email,
+          password: pwd,
+          // ลิงก์ยืนยันในอีเมลต้องพากลับมาที่โดเมนนี้ ไม่งั้นจะวิ่งไปที่ Site URL ที่ตั้งไว้ใน
+          // Supabase ซึ่งอาจยังชี้ไป localhost อยู่ กดยืนยันแล้วเปิดไม่ขึ้น
+          options: { emailRedirectTo: window.location.origin + '/RoleRedirect.html' }
+        });
 
         if (error) {
           showError(error);
           return;
         }
 
+        // อีเมลนี้เคยสมัครไว้แล้ว — Supabase ไม่แจ้งเป็น error (กันคนไล่เดาว่ามีบัญชีไหนอยู่บ้าง)
+        // แต่จะคืน user ที่ identities ว่าง ใช้จุดนี้แยกกรณีเพื่อบอกผู้ใช้ให้ถูกต้อง
+        if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+          showError('อีเมลนี้เคยสมัครไว้แล้ว — กรุณาเข้าสู่ระบบ หรือใช้ "ลืมรหัสผ่าน" หากจำรหัสไม่ได้');
+          return;
+        }
+
+        // โปรเจกต์นี้เปิด "ยืนยันอีเมลก่อนใช้งาน" ไว้ (mailer_autoconfirm = false)
+        // Supabase จึงยังไม่คืน session มาให้ตอนสมัคร ถ้าเด้งไปหน้าถัดไปเลยจะไม่มี session
+        // แล้วโดนตีกลับมาหน้า Login ทันที ดูเหมือนสมัครไม่สำเร็จทั้งที่บัญชีถูกสร้างแล้ว
+        if (!data.session) {
+          showSuccess(
+            '✅ สร้างบัญชีเรียบร้อยแล้ว<br>' +
+            'เราส่งลิงก์ยืนยันไปที่ <b>' + email.replace(/[<>]/g, '') + '</b> — ' +
+            'กรุณาเปิดอีเมลแล้วกดลิงก์ยืนยันก่อน จากนั้นจึงเข้าสู่ระบบได้<br>' +
+            '<span style="opacity:.85;">ไม่พบอีเมล? ลองดูในกล่องจดหมายขยะ (Junk/Spam)</span>'
+          );
+          document.getElementById('password').value = '';
+          document.getElementById('confirmPassword').value = '';
+          return;
+        }
+
+        // ถ้าโปรเจกต์ถูกตั้งให้ยืนยันอัตโนมัติ จะมี session มาเลย เข้าใช้งานได้ทันที
         window.location.href = 'RoleRedirect.html';
       } catch (err) {
         showError(err);

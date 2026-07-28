@@ -1,0 +1,85 @@
+/* ════════════════════════════════════════════════════════════════════════
+   AEC VERSE — เอฟเฟกต์ hover/กด ของปุ่มทั้งแอป
+   โหลดต่อท้าย CSS ของแต่ละหน้า จึงทับสไตล์เดิมได้โดยไม่ต้องไปแก้ทีละหน้า
+
+   หลักการ: "ยกขึ้นนิดเดียว + สว่างขึ้นนิดเดียว + เงาเพิ่มนิดเดียว"
+   ให้รู้สึกว่ากดได้จริง แต่ไม่กระโดดจนรบกวนสายตาระหว่างใช้งานจริงในโรงงาน
+   ⚠️ ไม่แตะ background/สี ของปุ่มเดิม เพราะแต่ละปุ่มมีสีประจำหน้าที่ของมันอยู่แล้ว
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* ---------- ปุ่มทั่วไป ---------- */
+.btn, .btn-sm, .panel-action-btn, .oauth-btn, .ud-btn, .lobby-start,
+.wp-btn, .icon-btn, .btn-signin, .top-tab, .chat-send-btn {
+    transition: transform .14s cubic-bezier(.2,.8,.25,1),
+                box-shadow .18s ease,
+                filter .18s ease,
+                border-color .18s ease,
+                background-color .18s ease;
+}
+.btn:hover, .btn-sm:hover, .panel-action-btn:hover, .oauth-btn:hover, .ud-btn:hover,
+.lobby-start:hover, .wp-btn:hover, .btn-signin:hover, .top-tab:hover, .chat-send-btn:hover {
+    filter: brightness(1.13);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.34);
+}
+.btn:active, .btn-sm:active, .panel-action-btn:active, .oauth-btn:active, .ud-btn:active,
+.lobby-start:active, .wp-btn:active, .btn-signin:active, .top-tab:active, .chat-send-btn:active {
+    box-shadow: 0 2px 7px rgba(0, 0, 0, 0.3);
+    filter: brightness(.97);
+}
+/* ปุ่มที่กดไม่ได้ต้องไม่ตอบสนอง ไม่งั้นผู้ใช้เข้าใจผิดว่ากดได้ */
+.btn:disabled, .btn-sm:disabled, .panel-action-btn:disabled,
+.lobby-start:disabled, .btn-signin:disabled, .wp-btn:disabled {
+    filter: none !important;
+    transform: none !important;
+    box-shadow: none !important;
+}
+
+/* ---------- ปุ่มไอคอนกลม/สี่เหลี่ยมเล็กบน topbar ---------- */
+.icon-btn:hover { border-color: #33475e; color: var(--text-0, #eef2f7); box-shadow: 0 5px 14px rgba(0,0,0,0.3); }
+.icon-btn:active { filter: brightness(.95); }
+
+/* ---------- เมนูด้านข้าง ---------- */
+.nav-item { transition: background-color .16s ease, color .16s ease, padding-left .16s ease, border-left-color .16s ease; }
+.nav-item:hover:not(.active) { padding-left: 14px; }
+
+/* ---------- แท็บ ---------- */
+.tab, .subtab, .side-tab, .qz-tab { transition: background-color .16s ease, color .16s ease, border-color .16s ease; }
+.tab:not(.active):hover, .subtab:not(.active):hover, .side-tab:not(.active):hover {
+    color: var(--text-0, #eef2f7);
+    background: rgba(255, 255, 255, 0.045);
+}
+
+/* ---------- การ์ด/แถวที่กดได้ ---------- */
+.thumb-card, .onboard-row, .qb-row, .list-item {
+    transition: transform .16s cubic-bezier(.2,.8,.25,1), border-color .18s ease, box-shadow .18s ease;
+}
+.thumb-card:hover { border-color: #33475e; box-shadow: 0 10px 26px rgba(0,0,0,0.36); }
+table tbody tr { transition: background-color .14s ease; }
+
+/* ---------- ช่องกรอก: ขอบเรืองตอนโฟกัส ---------- */
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea, select {
+    transition: border-color .16s ease, box-shadow .16s ease, background-color .16s ease;
+}
+
+/* ---------- สีด่วนของ marker + สวอตช์ ---------- */
+.marker-color-dot { transition: transform .13s cubic-bezier(.2,.8,.25,1), box-shadow .16s ease, border-color .16s ease; }
+
+/* ---------- ปุ่มเปลี่ยนคีย์ ---------- */
+.wp-bind-key { transition: border-color .16s ease, color .16s ease, background-color .16s ease; }
+
+/* ════════════════════════════════════════════════════════════════════════
+   ส่วน "ขยับตำแหน่ง" แยกไว้ใน media query — ผู้ใช้ที่ตั้งค่าลดการเคลื่อนไหว
+   จะได้เอฟเฟกต์สว่าง/เงาเหมือนเดิม แต่ไม่มีการเลื่อนขึ้นลง
+   (บทเรียนจากบั๊กเดิม: ห้ามเอา "ตัวเอฟเฟกต์ทั้งหมด" ไปซ่อนไว้หลัง media query)
+   ════════════════════════════════════════════════════════════════════════ */
+@media (prefers-reduced-motion: no-preference) {
+    .btn:hover, .btn-sm:hover, .panel-action-btn:hover, .oauth-btn:hover, .ud-btn:hover,
+    .lobby-start:hover, .wp-btn:hover, .btn-signin:hover, .icon-btn:hover, .chat-send-btn:hover {
+        transform: translateY(-2px);
+    }
+    .btn:active, .btn-sm:active, .panel-action-btn:active, .oauth-btn:active, .ud-btn:active,
+    .lobby-start:active, .wp-btn:active, .btn-signin:active, .icon-btn:active, .chat-send-btn:active {
+        transform: translateY(1px);
+    }
+    .thumb-card:hover, .list-item:hover { transform: translateY(-3px); }
+}
