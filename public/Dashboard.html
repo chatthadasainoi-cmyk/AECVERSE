@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-<script>window.RAILWAY_SERVER_URL = "https://aecmultiplayertest-production.up.railway.app";</script>
+<script>window.RAILWAY_SERVER_URL = window.AEC_SERVER_URL || location.origin;</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="supabaseClient.js"></script>
 <script src="brand-intro.js"></script>
@@ -355,16 +355,16 @@ tbody td.strong{color:var(--text-0);font-weight:600;}
       <div class="card" style="margin-bottom:14px;">
         <div class="card-head">
           <h3>3D Plant Overview</h3>
-          <div class="tabs">
-            <div class="tab active">3D View</div>
-            <div class="tab">Top View</div>
-            <div class="tab">First Person</div>
+          <div class="tabs" id="view-mode-tabs">
+            <div class="tab active" data-view="third">3D View</div>
+            <div class="tab" data-view="top">Top View</div>
+            <div class="tab" data-view="first">First Person</div>
           </div>
         </div>
         <!-- allow="microphone; autoplay" จำเป็นมาก: ไม่มีแล้วเบราว์เซอร์จะบล็อกทั้ง
              การเปิดไมค์ (getUserMedia) และการเล่นเสียงเพื่อน (autoplay) ภายใน iframe
              = สาเหตุที่ voice chat เงียบสนิททั้งที่เชื่อมต่อสำเร็จ -->
-        <iframe src="index.html" title="3D Plant Overview" loading="lazy"
+        <iframe id="world-frame" src="index.html" title="3D Plant Overview" loading="lazy"
           allow="microphone; autoplay; fullscreen" allowfullscreen
           style="width:100%;height:84vh;min-height:600px;border:0;border-radius:10px;background:#080b11;display:block;"></iframe>
         <div style="color:var(--text-2);font-size:10.5px;margin-top:6px;">
@@ -385,6 +385,22 @@ tbody td.strong{color:var(--text-0);font-weight:600;}
   }
   initUserChip();
   guardAdminOnly();
+
+  // ---------- สลับมุมกล้องของโลก 3D (3D View / Top View / First Person) ----------
+  // โลก 3D อยู่ใน iframe คนละ document จึงสั่งผ่าน postMessage แล้วให้ app.js จัดการกล้องเอง
+  (function () {
+    const tabs = document.getElementById('view-mode-tabs');
+    const frame = document.getElementById('world-frame');
+    if (!tabs || !frame) return;
+    tabs.addEventListener('click', e => {
+      const tab = e.target.closest('.tab');
+      if (!tab || !tab.dataset.view) return;
+      tabs.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      // targetOrigin = origin ตัวเอง เพราะ iframe เสิร์ฟจากโดเมนเดียวกัน (ไม่ใช้ '*' โดยไม่จำเป็น)
+      frame.contentWindow.postMessage({ type: 'aec_view_mode', mode: tab.dataset.view }, location.origin);
+    });
+  })();
   </script>
 </body>
 </html>

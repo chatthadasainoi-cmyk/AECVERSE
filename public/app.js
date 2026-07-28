@@ -3212,7 +3212,7 @@ async function startWorld() {
     }
 
     lobbyActive = false;
-    controls.enabled = true;
+    controls.enabled = (viewMode === 'third'); // เคารพมุมกล้องที่เลือกไว้ ไม่ใช่เปิดลากกล้องเสมอ
     resetCameraToAvatar();
 
     const lobby = $('world-lobby');
@@ -3295,10 +3295,64 @@ function updateAvatarPhysics() {
         checkWalkCollision(nextX, nextZ, currentY);
     }
 
+    applyCameraForViewMode();
+}
+
+// ============================================================
+// 13.95 VIEW MODES — 3D View / Top View / First Person
+// สลับจากแท็บบนหน้า Dashboard (ส่งเข้ามาทาง postMessage เพราะโลก 3D อยู่ใน iframe)
+// ============================================================
+let viewMode = 'third'; // third = กล้องตามหลังตัวละคร (ค่าเริ่มต้นเดิม)
+const FIRST_PERSON_EYE = 1.55; // ความสูงระดับสายตาของตัวละคร
+
+function applyCameraForViewMode() {
+    if (!avatarModel) return;
+    const sf = currentModelScaleFactor();
+
+    if (viewMode === 'first') {
+        // มุมมองบุคคลที่หนึ่ง — กล้องอยู่ที่หัวตัวละคร มองไปทางที่ตัวละครหันหน้า
+        const eye = new THREE.Vector3(0, FIRST_PERSON_EYE, 0).applyMatrix4(avatarModel.matrixWorld);
+        const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(avatarModel.quaternion);
+        camera.position.copy(eye);
+        controls.target.copy(eye.clone().addScaledVector(forward, 6));
+        return;
+    }
+
+    if (viewMode === 'top') {
+        // มุมมองจากด้านบน — มองลงตรงๆ ที่ตัวละคร (เยื้อง z นิดเดียวกันกล้องพลิกตอนมองดิ่ง 90°)
+        const h = 26 * sf;
+        camera.position.set(avatarModel.position.x, avatarModel.position.y + h, avatarModel.position.z + 0.01);
+        controls.target.set(avatarModel.position.x, avatarModel.position.y, avatarModel.position.z);
+        return;
+    }
+
     const targetCamOffset = defaultCameraOffset.clone().applyMatrix4(avatarModel.matrixWorld);
     camera.position.lerp(targetCamOffset, 0.08);
     controls.target.set(avatarModel.position.x, avatarModel.position.y + 0.3, avatarModel.position.z);
 }
+
+function setViewMode(mode) {
+    if (!['third', 'top', 'first'].includes(mode)) return;
+    viewMode = mode;
+    // มุมมองบุคคลที่หนึ่งต้องซ่อนร่างตัวเอง ไม่งั้นกล้องจะจมอยู่ในตัวโมเดลจนมองไม่เห็นอะไร
+    if (avatarModel) avatarModel.visible = (mode !== 'first');
+    // ปล่อยให้ลากหมุนกล้องเองได้เฉพาะโหมด 3D — อีกสองโหมดกล้องถูกล็อกตามตัวละคร
+    // ถ้าเปิดไว้ผู้ใช้จะลากแล้วภาพกระตุกเพราะโค้ดเราตั้งตำแหน่งทับทุกเฟรม
+    controls.enabled = (mode === 'third') && !lobbyActive;
+    if (isFreeLook && mode !== 'third') isFreeLook = false; // Free Look ใช้ร่วมกับสองโหมดนี้ไม่ได้
+    applyCameraForViewMode();
+    mpAppendChat({
+        name: '🎥 มุมกล้อง', color: '#22d3ee',
+        text: mode === 'first' ? 'มุมมองบุคคลที่หนึ่ง' : (mode === 'top' ? 'มุมมองจากด้านบน' : 'มุมมอง 3D ตามหลังตัวละคร')
+    });
+}
+window.setViewMode = setViewMode;
+
+// รับคำสั่งสลับมุมกล้องจากหน้าที่ฝัง iframe นี้ไว้ (Dashboard)
+window.addEventListener('message', e => {
+    if (!e.data || e.data.type !== 'aec_view_mode') return;
+    setViewMode(e.data.mode);
+});
 
 function animate() {
     requestAnimationFrame(animate);
