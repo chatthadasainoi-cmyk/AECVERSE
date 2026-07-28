@@ -97,9 +97,8 @@ async function markTaskDone(taskId) {
 window.portalSocket = null;
 async function initPortalLiveFeed() {
     if (typeof io === 'undefined') return null;
-    const SERVER = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
-        ? location.origin
-        : 'https://aecmultiplayertest-production.up.railway.app';
+    // เชื่อมกลับไปที่โดเมนเดียวกับที่เปิดหน้านี้อยู่เสมอ — ย้าย/เปลี่ยนโดเมนแล้วไม่ต้องแก้โค้ด
+    const SERVER = window.AEC_SERVER_URL || location.origin;
     let token = null;
     try {
         const { data: { session } } = await supabaseClient.auth.getSession();

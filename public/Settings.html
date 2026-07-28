@@ -1140,7 +1140,7 @@
         let umPresenceSocket = null;
         function subscribeAdminPresence(token) {
             if (umPresenceSocket) return; // subscribe ครั้งเดียวพอ ต่อเนื่องไปตลอดอายุหน้า
-            const SERVER = (location.hostname === 'localhost' || location.hostname === '127.0.0.1') ? location.origin : 'https://aecmultiplayertest-production.up.railway.app';
+            const SERVER = window.AEC_SERVER_URL || location.origin;
             umPresenceSocket = io(SERVER, { transports: ['websocket', 'polling'], auth: { token, role: 'watcher' } });
             umPresenceSocket.on('connect', () => umPresenceSocket.emit('subscribe_admin_presence'));
             umPresenceSocket.on('presence_snapshot', snap => {
