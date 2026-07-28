@@ -13,6 +13,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="supabaseClient.js"></script>
 <script src="brand-intro.js"></script>
+<script src="view-tabs.js"></script>
 <style>
 /* ==================== AEC VERSE — shared design system ==================== */
 :root{
@@ -386,21 +387,8 @@ tbody td.strong{color:var(--text-0);font-weight:600;}
   initUserChip();
   guardAdminOnly();
 
-  // ---------- สลับมุมกล้องของโลก 3D (3D View / Top View / First Person) ----------
-  // โลก 3D อยู่ใน iframe คนละ document จึงสั่งผ่าน postMessage แล้วให้ app.js จัดการกล้องเอง
-  (function () {
-    const tabs = document.getElementById('view-mode-tabs');
-    const frame = document.getElementById('world-frame');
-    if (!tabs || !frame) return;
-    tabs.addEventListener('click', e => {
-      const tab = e.target.closest('.tab');
-      if (!tab || !tab.dataset.view) return;
-      tabs.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-      tab.classList.add('active');
-      // targetOrigin = origin ตัวเอง เพราะ iframe เสิร์ฟจากโดเมนเดียวกัน (ไม่ใช้ '*' โดยไม่จำเป็น)
-      frame.contentWindow.postMessage({ type: 'aec_view_mode', mode: tab.dataset.view }, location.origin);
-    });
-  })();
+  // สลับมุมกล้องของโลก 3D — ใช้โมดูลเดียวกับหน้า Virtual Tour ฝั่งผู้ใช้ (view-tabs.js)
+  AecViewTabs.mount(document.getElementById('view-mode-tabs'), document.getElementById('world-frame'));
   </script>
 </body>
 </html>

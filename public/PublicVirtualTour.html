@@ -12,6 +12,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="supabaseClient.js"></script>
 <script src="public-portal.js"></script>
+<script src="view-tabs.js"></script>
 <link rel="stylesheet" href="ui-polish.css">
 </head>
 <body>
@@ -26,7 +27,17 @@
       <div class="sec">
         <div class="sec-head"><span class="sec-num">02</span><span class="sec-tag">VIRTUAL TOUR</span></div>
         <div class="sec-title">Virtual Factory Tour</div>
-        <div class="sec-sub" style="margin-bottom:16px;">เดินสำรวจโรงงานผลิตก๊าซชีวภาพแบบ 3 มิติด้วยตัวละครของคุณเอง — ร่วมโลกเดียวกับผู้ใช้คนอื่นแบบเรียลไทม์</div>
+        <div class="sec-sub" style="margin-bottom:14px;">เดินสำรวจโรงงานผลิตก๊าซชีวภาพแบบ 3 มิติด้วยตัวละครของคุณเอง — ร่วมโลกเดียวกับผู้ใช้คนอื่นแบบเรียลไทม์</div>
+
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
+          <div class="tabs" id="view-mode-tabs">
+            <div class="tab active" data-view="third">3D View</div>
+            <div class="tab" data-view="top">Top View</div>
+            <div class="tab" data-view="first">First Person</div>
+          </div>
+          <span style="color:var(--text-2);font-size:11.5px;">เลือกมุมกล้อง — First Person คือมองผ่านสายตาตัวละคร</span>
+        </div>
+
         <div class="card" style="padding:0;">
           <!-- allow="microphone; autoplay; fullscreen" จำเป็น: ไม่มีแล้วเบราว์เซอร์จะบล็อกทั้ง
                การเปิดไมค์และการเล่นเสียงเพื่อนภายใน iframe (voice chat จะเงียบสนิท) -->
@@ -52,6 +63,8 @@ markTaskDone('virtualTourVisited');
 (function () {
   const focus = new URLSearchParams(location.search).get('focus');
   const frame = document.getElementById('tourFrame');
+  // ผูกแท็บมุมกล้องก่อนตั้ง src เพื่อให้ทัน event 'load' ของเฟรม (ใช้ส่งโหมดที่ค้างไว้ซ้ำ)
+  AecViewTabs.mount(document.getElementById('view-mode-tabs'), frame);
   frame.src = 'index.html' + (focus ? ('?focus=' + encodeURIComponent(focus)) : '');
 })();
 </script>
