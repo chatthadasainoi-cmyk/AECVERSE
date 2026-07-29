@@ -91,6 +91,28 @@ function resetView() {
     controls.update();
 }
 
+// วางกล้องให้ "เห็นทั้งโมเดลเต็มจอ" โดยคำนวณจากกล่องขอบเขตจริง + มุมมองของกล้อง
+// เดิมใช้ระยะคงที่ (z=2.1) ซึ่งใช้ไม่ได้กับโมเดลที่สัดส่วนต่างกันมาก:
+// ผังโรงงานที่แบนมาก (สูงแค่ 2% ของความกว้าง) จะถูกมองแบบ "เกือบขนานกับแผ่น"
+// จนแทบไม่เห็นอะไรและแตะไม่โดนอะไรเลย จึงต้องมองจากมุมเฉียงด้านบนแทน
+function frameCameraToModel() {
+    const box = new THREE.Box3().setFromObject(modelRoot);
+    if (box.isEmpty()) return;
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+    const vFov = THREE.MathUtils.degToRad(camera.fov);
+
+    // ระยะที่ทำให้โมเดลพอดีจอทั้งแนวตั้งและแนวนอน (จอมือถือเป็นแนวตั้ง aspect < 1 ต้องเผื่อด้วย)
+    const fitV = (size.y / 2) / Math.tan(vFov / 2);
+    const fitH = (Math.max(size.x, size.z) / 2) / (Math.tan(vFov / 2) * Math.max(camera.aspect, 0.0001));
+    const dist = Math.max(fitV, fitH, 0.05) * 1.5;   // เผื่อขอบรอบๆ ไม่ให้ชิดจอ
+
+    // มองจากมุมเฉียงบน ~35 องศา เห็นทั้งด้านบนและด้านข้าง ใช้ได้ทั้งโมเดลสูงและโมเดลแบน
+    const dir = new THREE.Vector3(0.35, 0.62, 1).normalize();
+    homeTarget.copy(center);
+    homeCamera.copy(center).addScaledVector(dir, dist);
+}
+
 // modelRoot = ตัวที่ย้าย/ย่อขยายตอนวางใน AR, modelInner = โมเดลจริง (ปรับให้กึ่งกลางอยู่ที่ 0,0,0)
 const modelRoot = new THREE.Group();
 scene.add(modelRoot);
@@ -149,11 +171,7 @@ function loadModel(url) {
 
         modelRoot.add(modelInner);
 
-        // จัดกล้องให้พอดีกับโมเดล "ตามสัดส่วนจริงของมัน" — ตั้งค่าคงที่ไว้ไม่ได้ เพราะโมเดลที่
-        // เตี้ยแต่ยาว (เช่น ผังโรงงาน) พอย่อด้วยด้านที่ยาวสุดแล้วจะเตี้ยมาก กล้องจะเล็งเลยหัวไป
-        // จนกลางจอไม่โดนตัวโมเดล (แตะกลางจอแล้วไม่โดนอะไรเลย)
-        homeTarget.set(0, (size.y * scale) / 2, 0);
-        homeCamera.set(0, Math.max(size.y * scale, 0.35) * 0.9, 2.1);
+        frameCameraToModel();
         resetView();
 
         setStatus('');
@@ -192,7 +210,7 @@ function updateHint() {
     const h = $('ar-hint');
     if (!modelInner) { h.textContent = ''; return; }
     if (!inAR) { h.textContent = 'ลากเพื่อหมุน · หนีบนิ้วเพื่อซูม · แตะชิ้นส่วนเพื่อดูข้อมูล'; return; }
-    if (placed) { h.textContent = 'แตะที่ชิ้นส่วนเพื่อดูข้อมูล'; return; }
+    if (placed) { h.textContent = 'แตะชิ้นส่วนเพื่อดูข้อมูล · ลากซ้าย-ขวาเพื่อหมุนโมเดล'; return; }
     if (reticle.visible) h.textContent = '✅ เจอพื้นแล้ว — แตะเพื่อวางโมเดล';
     else if (canPlaceAnyway()) h.textContent = 'ยังหาพื้นไม่เจอ — แตะหน้าจอเพื่อวางโมเดลตรงหน้าคุณเลย';
     else h.textContent = 'ส่ายมือถือช้าๆ ให้เห็นพื้น (ที่มีแสงพอและมีลวดลาย) เพื่อให้ระบบจับพื้นได้';
@@ -245,10 +263,12 @@ renderer.xr.addEventListener('sessionend', () => {
     reticle.visible = false;
     modelRoot.visible = true;
     modelRoot.position.set(0, 0, 0);
-    modelRoot.quaternion.identity();
+    modelRoot.rotation.set(0, 0, 0);
     modelRoot.scale.setScalar(1);
     controls.enabled = true;
     $('ar-actions').style.display = 'flex';
+    clearHighlight();
+    hitMarker.visible = false;
     closeInfo();
     resetView();
     updateHint();
@@ -273,38 +293,70 @@ function placeInFrontOfCamera() {
     modelRoot.position.y = pos.y - 0.6;
 }
 
+function placeModelNow() {
+    if (reticle.visible) modelRoot.position.setFromMatrixPosition(reticle.matrix);
+    else if (canPlaceAnyway()) placeInFrontOfCamera();
+    else return false;                 // ยังหาพื้นอยู่ ยังไม่ถึงเวลาให้วางมั่ว
+    modelRoot.visible = true;
+    placed = true;
+    reticle.visible = false;
+    updateHint();
+    return true;
+}
+
+// เมื่อขอ dom-overlay ผ่าน เบราว์เซอร์จะส่ง pointer event ของ DOM มาให้ระหว่างอยู่ใน AR ด้วย
+// ทำให้รู้ "พิกัดนิ้วจริง" ได้ ถ้าไม่ผ่าน (บางเครื่อง) จะไม่มี event เลย จึงต้องมีทางสำรอง
+// เป็นการยิงเรย์จากกลางจอผ่าน controller select แทน
+let domPointerWorks = false;
+
 const arController = renderer.xr.getController(0);
 arController.addEventListener('select', () => {
     if (!inAR) return;
-    if (!placed) {
-        if (reticle.visible) {
-            modelRoot.position.setFromMatrixPosition(reticle.matrix);
-        } else if (canPlaceAnyway()) {
-            placeInFrontOfCamera();
-        } else {
-            return; // ยังหาพื้นอยู่ ยังไม่ถึงเวลาให้วางมั่ว
-        }
-        modelRoot.visible = true;
-        placed = true;
-        reticle.visible = false;
-        updateHint();
-        return;
-    }
-    // วางแล้ว -> ยิงเรย์จากกลางจอ (ทิศที่ผู้ใช้เล็งอยู่) เพื่อเลือกชิ้นส่วน
-    pointer.set(0, 0);
+    if (!placed) { placeModelNow(); return; }
+    // มี DOM event ใช้ได้แล้ว -> ปล่อยให้ handler ฝั่ง DOM จัดการ (มันรู้พิกัดนิ้วจริง)
+    // ไม่งั้นจะเลือกซ้ำสองครั้งต่อการแตะหนึ่งครั้ง
+    if (domPointerWorks) return;
+    pointer.set(0, 0);               // ทางสำรอง: เล็งกลางจอ
     pickAt(pointer);
 });
 scene.add(arController);
 
-// โหมดพรีวิว 3 มิติ: แตะ/คลิกที่ชิ้นส่วน (แยกจากการลากหมุนกล้อง)
-let downPos = null, downTime = 0;
-renderer.domElement.addEventListener('pointerdown', e => { downPos = { x: e.clientX, y: e.clientY }; downTime = Date.now(); });
-renderer.domElement.addEventListener('pointerup', e => {
-    if (inAR || !downPos) return;
+// ---------- แตะ / ลากหมุน ----------
+// ฟังที่ window เพราะตอนอยู่ใน AR event จะมาที่ DOM overlay ไม่ใช่ canvas
+let downPos = null, downTime = 0, rotatingAR = false, lastRotX = 0;
+const TAP_MOVE_PX = 10;
+
+addEventListener('pointerdown', e => {
+    if (e.target.closest && e.target.closest('#ar-info, #ar-actions, button')) return; // แตะ UI ไม่ใช่แตะโมเดล
+    if (inAR) domPointerWorks = true;
+    downPos = { x: e.clientX, y: e.clientY };
+    downTime = Date.now();
+    lastRotX = e.clientX;
+    rotatingAR = false;
+});
+
+addEventListener('pointermove', e => {
+    if (!downPos || !inAR || !placed) return;
+    if (!rotatingAR && Math.hypot(e.clientX - downPos.x, e.clientY - downPos.y) > TAP_MOVE_PX) rotatingAR = true;
+    if (!rotatingAR) return;
+    // ลากซ้าย-ขวา = หมุนโมเดลรอบแกนตั้ง (ผู้ใช้ขอ "AR หมุนได้มั้ย")
+    modelRoot.rotation.y += (e.clientX - lastRotX) * 0.008;
+    lastRotX = e.clientX;
+});
+
+addEventListener('pointerup', e => {
+    if (!downPos) return;
     const moved = Math.hypot(e.clientX - downPos.x, e.clientY - downPos.y);
     const held = Date.now() - downTime;
+    const wasRotating = rotatingAR;
     downPos = null;
-    if (moved > 8 || held > 600) return; // ถือว่าลากหมุนกล้อง ไม่ใช่การเลือก
+    rotatingAR = false;
+    if (wasRotating) return;                       // เพิ่งหมุนอยู่ ไม่ใช่การแตะเลือก
+    if (moved > TAP_MOVE_PX || held > 600) return; // ลากหมุนกล้อง/กดค้าง ไม่ใช่การเลือก
+
+    if (inAR && !placed) { placeModelNow(); return; }
+    // แตะที่ "พิกัดนิ้วจริง" ทั้งในโหมด AR และโหมดพรีวิว 3 มิติ
+    // เดิมตอน AR ยิงเรย์จากกลางจอเสมอ จึงได้ชิ้นเดิมซ้ำๆ ไม่ว่าจะแตะตรงไหน
     pointer.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
     pickAt(pointer);
 });
@@ -313,14 +365,74 @@ function pickAt(ndc) {
     if (!modelInner) return;
     raycaster.setFromCamera(ndc, inAR ? renderer.xr.getCamera() : camera);
     const hits = raycaster.intersectObject(modelRoot, true);
-    if (hits.length) showInfo(hits[0].object);
-    else closeInfo();
+    if (hits.length) {
+        highlightMesh(hits[0].object);
+        showHitMarker(hits[0].point);
+        showInfo(hits[0].object);
+    } else {
+        closeInfo(); // เคลียร์ไฮไลท์+จุดให้ด้วยอยู่แล้ว
+    }
+}
+
+// ---------- ไฮไลท์ชิ้นที่แตะ ----------
+// เปลี่ยนวัสดุของชิ้นที่เลือกให้เรืองแสง + ปักจุดตรงตำแหน่งที่นิ้วแตะโดน
+// เพื่อให้เห็นชัดว่า "ข้อมูลที่ขึ้นอยู่นี้เป็นของชิ้นไหน" โดยเฉพาะโมเดลที่มีหลายพันชิ้น
+const HIGHLIGHT_COLOR = 0x22d3ee;
+let highlighted = null, highlightPrevMat = null, highlightTmpMat = null;
+
+function clearHighlight() {
+    if (highlighted && highlightPrevMat) highlighted.material = highlightPrevMat;
+    if (highlightTmpMat) { highlightTmpMat.dispose(); highlightTmpMat = null; }
+    highlighted = null;
+    highlightPrevMat = null;
+}
+
+function highlightMesh(mesh) {
+    if (highlighted === mesh) return;
+    clearHighlight();
+    highlightPrevMat = mesh.material;
+    // clone วัสดุเดิมเพื่อไม่ให้ไปกระทบชิ้นอื่นที่ใช้วัสดุร่วมกันอยู่
+    const base = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+    const mat = base && base.clone ? base.clone() : new THREE.MeshStandardMaterial();
+    if ('emissive' in mat) {
+        mat.emissive = new THREE.Color(HIGHLIGHT_COLOR);
+        mat.emissiveIntensity = 1.1;
+    } else if (mat.color) {
+        mat.color = new THREE.Color(HIGHLIGHT_COLOR); // วัสดุแบบ Basic ไม่มี emissive
+    }
+    mesh.material = mat;
+    highlightTmpMat = mat;
+    highlighted = mesh;
+}
+
+// จุดวงกลมเล็กๆ ตรงตำแหน่งที่แตะโดน — depthTest ปิดไว้ให้เห็นแม้จุดจะอยู่หลังผิวชิ้นอื่น
+const hitMarker = new THREE.Mesh(
+    new THREE.SphereGeometry(1, 16, 12),
+    new THREE.MeshBasicMaterial({ color: HIGHLIGHT_COLOR, depthTest: false, transparent: true, opacity: 0.95 })
+);
+hitMarker.renderOrder = 999;
+hitMarker.visible = false;
+scene.add(hitMarker);
+
+function showHitMarker(point) {
+    hitMarker.position.copy(point);
+    // ขนาดจุดต้องคงที่เมื่อมองจากผู้ใช้ ไม่ว่าจะยืนใกล้หรือไกลโมเดล
+    const camPos = new THREE.Vector3();
+    (inAR ? renderer.xr.getCamera() : camera).getWorldPosition(camPos);
+    hitMarker.scale.setScalar(Math.max(camPos.distanceTo(point) * 0.012, 0.004));
+    hitMarker.visible = true;
 }
 
 // ---------- การ์ดข้อมูล ----------
 function showInfo(mesh) {
     const info = infoForMesh(mesh);
-    $('ar-info-name').textContent = info.name || mesh.name || 'ชิ้นส่วน';
+    // โมเดลที่ export จาก CAD มักตั้งชื่อชิ้นส่วนซ้ำกันหมด (เช่น "Cube" หรือ "เมช6003")
+    // และส่วนใหญ่ยังไม่ได้กำหนดข้อมูลเฉพาะไว้ ถ้าโชว์แค่ชื่อ ผู้ใช้จะรู้สึกว่า
+    // "แตะกี่ครั้งก็ขึ้นอันเดิม" ทั้งที่คนละชิ้นกัน จึงต่อรหัสสั้นๆ ต่อท้ายให้แยกออก
+    // และบอกตรงๆ ว่าชิ้นนี้ยังไม่มีข้อมูลเฉพาะ กำลังแสดงข้อมูลมาตรฐานทั่วไปอยู่
+    const isGeneric = (info === DEFAULT_INFO);
+    const shortId = mesh.uuid.slice(0, 4).toUpperCase();
+    $('ar-info-name').textContent = (info.name || mesh.name || 'ชิ้นส่วน') + (isGeneric ? ` · #${shortId}` : '');
     $('ar-info-desc').textContent = info.desc || '';
     const tag = $('ar-info-tag');
     tag.className = 'tag ' + (info.colorClass || 'tag-blue');
@@ -333,12 +445,28 @@ function showInfo(mesh) {
         d.textContent = s;
         steps.appendChild(d);
     });
+    if (isGeneric) {
+        const note = document.createElement('div');
+        note.style.cssText = 'margin-top:10px;font-size:11px;color:#657182;line-height:1.6;';
+        note.textContent = 'ℹ️ ชิ้นส่วนนี้ยังไม่ได้กำหนดข้อมูลเฉพาะไว้ — กำลังแสดงข้อมูลมาตรฐานทั่วไป กำหนดข้อมูลรายชิ้นได้ที่หน้า Metaverse';
+        steps.appendChild(note);
+    }
     $('ar-info').classList.add('open');
 }
-function closeInfo() { $('ar-info').classList.remove('open'); }
+// ปิดการ์ด = เลิกเลือกชิ้นนั้น จึงต้องเอาไฮไลท์กับจุดที่ปักไว้ออกด้วย ไม่งั้นจะค้างเรืองแสงทั้งที่ไม่มีข้อมูลแสดงแล้ว
+function closeInfo() {
+    $('ar-info').classList.remove('open');
+    clearHighlight();
+    hitMarker.visible = false;
+}
 $('ar-info-close').addEventListener('click', closeInfo);
 
-$('ar-reset').addEventListener('click', () => { resetView(); closeInfo(); });
+$('ar-reset').addEventListener('click', () => {
+    resetView();
+    clearHighlight();
+    hitMarker.visible = false;
+    closeInfo();
+});
 
 // ---------- ลูปเรนเดอร์ ----------
 let lastHintAt = 0;
