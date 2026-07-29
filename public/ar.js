@@ -180,19 +180,36 @@ reticle.visible = false;
 scene.add(reticle);
 
 let hitTestSource = null, hitTestRequested = false;
+let surfaceEverFound = false;   // เคยตรวจเจอพื้นในรอบนี้ไหม
+let arStartedAt = 0;
+// หาพื้นไม่เจอภายในเวลานี้ -> ยอมให้แตะวางโมเดล "ตรงหน้ากล้อง" ไปเลย
+// บางเครื่อง/บางห้อง (แสงน้อย พื้นเรียบไม่มีลวดลาย) ตรวจจับพื้นไม่ติดสักที
+// ถ้าไม่มีทางออกให้ ผู้ใช้จะเจอแค่จอกล้องเปล่าๆ แล้วไม่รู้ว่าต้องทำอะไร
+const PLACE_ANYWAY_MS = 6000;
+const canPlaceAnyway = () => !surfaceEverFound && (Date.now() - arStartedAt > PLACE_ANYWAY_MS);
 
 function updateHint() {
     const h = $('ar-hint');
     if (!modelInner) { h.textContent = ''; return; }
-    if (inAR) h.textContent = placed ? 'แตะที่ชิ้นส่วนเพื่อดูข้อมูล' : 'เล็งกล้องไปที่พื้น แล้วแตะเพื่อวางโมเดล';
-    else h.textContent = 'ลากเพื่อหมุน · หนีบนิ้วเพื่อซูม · แตะชิ้นส่วนเพื่อดูข้อมูล';
+    if (!inAR) { h.textContent = 'ลากเพื่อหมุน · หนีบนิ้วเพื่อซูม · แตะชิ้นส่วนเพื่อดูข้อมูล'; return; }
+    if (placed) { h.textContent = 'แตะที่ชิ้นส่วนเพื่อดูข้อมูล'; return; }
+    if (reticle.visible) h.textContent = '✅ เจอพื้นแล้ว — แตะเพื่อวางโมเดล';
+    else if (canPlaceAnyway()) h.textContent = 'ยังหาพื้นไม่เจอ — แตะหน้าจอเพื่อวางโมเดลตรงหน้าคุณเลย';
+    else h.textContent = 'ส่ายมือถือช้าๆ ให้เห็นพื้น (ที่มีแสงพอและมีลวดลาย) เพื่อให้ระบบจับพื้นได้';
 }
 
 // เครื่องที่ไม่รองรับ WebXR AR (เช่น iPhone) ให้ซ่อนปุ่ม AR แล้วบอกตรงๆ ว่าดูได้แบบ 3 มิติ
 if (navigator.xr && navigator.xr.isSessionSupported) {
     navigator.xr.isSessionSupported('immersive-ar').then(ok => {
         if (ok) {
-            const btn = ARButton.createButton(renderer, { requiredFeatures: ['hit-test'] });
+            // dom-overlay สำคัญมาก: ถ้าไม่ขอ feature นี้ HTML ทั้งหน้าจะ "หายไป" ระหว่างอยู่ใน AR
+            // (เห็นแต่ภาพกล้อง + ของที่วาดด้วย three.js) แปลว่าทั้งคำแนะนำและการ์ดข้อมูลตอนแตะ
+            // ชิ้นส่วนจะไม่มีวันโผล่เลย — ซึ่งคือหัวใจของฟีเจอร์นี้
+            const btn = ARButton.createButton(renderer, {
+                requiredFeatures: ['hit-test'],
+                optionalFeatures: ['dom-overlay'],
+                domOverlay: { root: document.body }
+            });
             btn.style.display = 'none'; // ใช้ปุ่มดีไซน์ของเราเองแทนปุ่มมาตรฐาน
             document.body.appendChild(btn);
             $('ar-enter').addEventListener('click', () => btn.click());
@@ -214,6 +231,8 @@ function showArUnsupported() {
 renderer.xr.addEventListener('sessionstart', () => {
     inAR = true;
     placed = false;
+    surfaceEverFound = false;
+    arStartedAt = Date.now();
     modelRoot.visible = false;   // ยังไม่วาง — ซ่อนไว้ก่อนจนกว่าจะแตะพื้น
     controls.enabled = false;
     $('ar-actions').style.display = 'none';
@@ -226,10 +245,12 @@ renderer.xr.addEventListener('sessionend', () => {
     reticle.visible = false;
     modelRoot.visible = true;
     modelRoot.position.set(0, 0, 0);
+    modelRoot.quaternion.identity();
     modelRoot.scale.setScalar(1);
     controls.enabled = true;
     $('ar-actions').style.display = 'flex';
     closeInfo();
+    resetView();
     updateHint();
 });
 
@@ -237,12 +258,32 @@ renderer.xr.addEventListener('sessionend', () => {
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
 
+// วางโมเดลลอยตรงหน้ากล้อง ~1.2 เมตร (ใช้ตอนตรวจจับพื้นไม่ติด) แล้วดึงลงระดับต่ำกว่าสายตานิดหน่อย
+// ให้รู้สึกเหมือนวางอยู่บนโต๊ะ/พื้นตรงหน้า แทนที่จะลอยอยู่กลางอากาศระดับตา
+function placeInFrontOfCamera() {
+    const cam = renderer.xr.getCamera();
+    const pos = new THREE.Vector3();
+    const dir = new THREE.Vector3();
+    cam.getWorldPosition(pos);
+    cam.getWorldDirection(dir);
+    dir.y = 0;                       // เอาเฉพาะทิศแนวราบ ไม่งั้นเงยกล้องแล้วโมเดลลอยขึ้นฟ้า
+    if (dir.lengthSq() < 1e-6) dir.set(0, 0, -1);
+    dir.normalize();
+    modelRoot.position.copy(pos).addScaledVector(dir, 1.2);
+    modelRoot.position.y = pos.y - 0.6;
+}
+
 const arController = renderer.xr.getController(0);
 arController.addEventListener('select', () => {
     if (!inAR) return;
     if (!placed) {
-        if (!reticle.visible) return;
-        modelRoot.position.setFromMatrixPosition(reticle.matrix);
+        if (reticle.visible) {
+            modelRoot.position.setFromMatrixPosition(reticle.matrix);
+        } else if (canPlaceAnyway()) {
+            placeInFrontOfCamera();
+        } else {
+            return; // ยังหาพื้นอยู่ ยังไม่ถึงเวลาให้วางมั่ว
+        }
         modelRoot.visible = true;
         placed = true;
         reticle.visible = false;
@@ -300,6 +341,7 @@ $('ar-info-close').addEventListener('click', closeInfo);
 $('ar-reset').addEventListener('click', () => { resetView(); closeInfo(); });
 
 // ---------- ลูปเรนเดอร์ ----------
+let lastHintAt = 0;
 renderer.setAnimationLoop((timestamp, frame) => {
     if (inAR && frame && !placed) {
         const session = renderer.xr.getSession();
@@ -316,10 +358,13 @@ renderer.setAnimationLoop((timestamp, frame) => {
                 const pose = results[0].getPose(renderer.xr.getReferenceSpace());
                 reticle.visible = true;
                 reticle.matrix.fromArray(pose.transform.matrix);
+                surfaceEverFound = true;
             } else {
                 reticle.visible = false;
             }
         }
+        // อัปเดตคำแนะนำเป็นระยะ (ไม่ทุกเฟรม) ให้ผู้ใช้รู้ว่าตอนนี้ระบบอยู่ขั้นไหน
+        if (timestamp - lastHintAt > 500) { lastHintAt = timestamp; updateHint(); }
     }
     if (!inAR) controls.update();
     renderer.render(scene, camera);
