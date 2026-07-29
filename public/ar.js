@@ -197,6 +197,11 @@ reticle.matrixAutoUpdate = false;
 reticle.visible = false;
 scene.add(reticle);
 
+// iPhone/iPad ไม่รองรับ WebXR แต่มี "AR Quick Look" ของ Apple ซึ่งใช้ไฟล์ USDZ
+// (iPadOS รายงานตัวเองเป็น Mac จึงต้องเช็ค maxTouchPoints ประกอบ)
+const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
 let hitTestSource = null, hitTestRequested = false;
 let surfaceEverFound = false;   // เคยตรวจเจอพื้นในรอบนี้ไหม
 let arStartedAt = 0;
@@ -209,14 +214,19 @@ const canPlaceAnyway = () => !surfaceEverFound && (Date.now() - arStartedAt > PL
 function updateHint() {
     const h = $('ar-hint');
     if (!modelInner) { h.textContent = ''; return; }
-    if (!inAR) { h.textContent = 'ลากเพื่อหมุน · หนีบนิ้วเพื่อซูม · แตะชิ้นส่วนเพื่อดูข้อมูล'; return; }
+    if (!inAR) {
+        h.textContent = 'ลากเพื่อหมุน · หนีบนิ้วเพื่อซูม · แตะชิ้นส่วนเพื่อดูข้อมูล'
+            // ตัวดู AR ของ Apple เป็นแอปของระบบ เราแทรกการแตะดูข้อมูลเข้าไปไม่ได้
+            // จึงต้องบอกไว้ว่าถ้าจะดูรายละเอียดรายชิ้น ให้ดูในหน้านี้
+            + (IS_IOS ? ' · (ใน AR ของ iPhone ดูได้แต่ไม่สามารถแตะดูข้อมูล)' : '');
+        return;
+    }
     if (placed) { h.textContent = 'แตะชิ้นส่วนเพื่อดูข้อมูล · ลากซ้าย-ขวาเพื่อหมุนโมเดล'; return; }
     if (reticle.visible) h.textContent = '✅ เจอพื้นแล้ว — แตะเพื่อวางโมเดล';
     else if (canPlaceAnyway()) h.textContent = 'ยังหาพื้นไม่เจอ — แตะหน้าจอเพื่อวางโมเดลตรงหน้าคุณเลย';
     else h.textContent = 'ส่ายมือถือช้าๆ ให้เห็นพื้น (ที่มีแสงพอและมีลวดลาย) เพื่อให้ระบบจับพื้นได้';
 }
 
-// เครื่องที่ไม่รองรับ WebXR AR (เช่น iPhone) ให้ซ่อนปุ่ม AR แล้วบอกตรงๆ ว่าดูได้แบบ 3 มิติ
 if (navigator.xr && navigator.xr.isSessionSupported) {
     navigator.xr.isSessionSupported('immersive-ar').then(ok => {
         if (ok) {
@@ -232,18 +242,83 @@ if (navigator.xr && navigator.xr.isSessionSupported) {
             document.body.appendChild(btn);
             $('ar-enter').addEventListener('click', () => btn.click());
         } else {
-            showArUnsupported();
+            noWebXr();
         }
-    }).catch(showArUnsupported);
+    }).catch(noWebXr);
 } else {
-    showArUnsupported();
+    noWebXr();
 }
+
+// ไม่มี WebXR: ถ้าเป็น iPhone/iPad ยังไปต่อได้ด้วย AR Quick Look ของ Apple
+function noWebXr() { if (IS_IOS) setupIosQuickLook(); else showArUnsupported(); }
 
 function showArUnsupported() {
     const b = $('ar-enter');
     b.disabled = true;
     b.textContent = '📱 อุปกรณ์นี้ไม่รองรับ AR';
-    b.title = 'AR ต้องใช้ Chrome บน Android ที่รองรับ WebXR — เครื่องอื่นดูแบบ 3 มิติได้ตามปกติ';
+    b.title = 'AR ต้องใช้ Chrome บน Android (WebXR) หรือ Safari บน iPhone/iPad — เครื่องอื่นดูแบบ 3 มิติได้ตามปกติ';
+}
+
+// ---------- iOS: AR Quick Look ----------
+// Safari บน iOS ไม่รองรับ WebXR แต่เปิดไฟล์ USDZ ในตัวดู AR ของ Apple ได้
+// เราไม่มีไฟล์ USDZ เก็บไว้ จึงแปลงจากโมเดล GLB ที่โหลดมาแล้วในเครื่องผู้ใช้เลย
+// (วิธีเดียวกับที่ <model-viewer> ของ Google ใช้รองรับ iOS)
+let usdzUrl = null;
+
+function setupIosQuickLook() {
+    const b = $('ar-enter');
+    b.disabled = false;
+    b.textContent = '📱 ดูแบบ AR (iPhone / iPad)';
+    b.title = 'เปิดด้วยตัวดู AR ของ Apple';
+    b.addEventListener('click', launchIosQuickLook);
+}
+
+async function launchIosQuickLook() {
+    if (!modelInner) return;
+    const b = $('ar-enter');
+    const label = b.textContent;
+
+    if (!usdzUrl) {   // แปลงครั้งเดียวแล้วเก็บไว้ กดซ้ำไม่ต้องแปลงใหม่
+        b.disabled = true;
+        b.textContent = 'กำลังเตรียมไฟล์ AR...';
+        setStatus('กำลังแปลงโมเดลให้ตัวดู AR ของ iPhone<br><span style="font-size:11.5px;color:#657182;">โมเดลใหญ่อาจใช้เวลาสักครู่ อย่าปิดหน้านี้</span>');
+        try {
+            // โหลด exporter แบบ lazy — เครื่อง Android ไม่ต้องดาวน์โหลดไฟล์นี้เลย
+            const { USDZExporter } = await import('three/addons/exporters/USDZExporter.js');
+            // ให้เบราว์เซอร์ได้วาดข้อความ "กำลังแปลง" ก่อน เพราะการแปลงกินเธรดหลักยาว
+            await new Promise(r => setTimeout(r, 50));
+            const data = await new USDZExporter().parse(modelInner);
+            const blob = new Blob([data], { type: 'model/vnd.usdz+zip' });
+            usdzUrl = URL.createObjectURL(blob);
+            const mb = blob.size / 1048576;
+            // USDZ ไม่บีบอัดเรขาคณิต ไฟล์จึงมักโตกว่า .glb ราว 2 เท่า
+            // โมเดลใหญ่มากตัวดูของ Apple อาจเปิดช้าหรือไม่เปิดเลย บอกไว้ก่อนดีกว่าให้เดา
+            if (mb > 60) {
+                setStatus(`ไฟล์ AR ที่ได้มีขนาด ${mb.toFixed(0)} MB — ตัวดู AR ของ iPhone อาจใช้เวลาเปิดนาน<br><span style="font-size:11.5px;color:#657182;">ถ้าเปิดไม่ขึ้น แนะนำให้ผู้ดูแลระบบทำ QR จากโมเดลที่เล็กกว่า</span>`, false);
+                setTimeout(() => setStatus(''), 4000);
+            } else {
+                setStatus('');
+            }
+        } catch (err) {
+            console.error('[AR] แปลง USDZ ไม่สำเร็จ:', err);
+            setStatus('แปลงไฟล์ AR ไม่สำเร็จ<br><span style="font-size:11.5px;color:#657182;">โมเดลอาจใหญ่เกินกำลังเครื่อง — ดูแบบ 3 มิติในหน้านี้ได้ตามปกติ</span>', false);
+            b.disabled = false;
+            b.textContent = label;
+            return;
+        }
+        b.disabled = false;
+        b.textContent = label;
+    }
+
+    // Safari จะเปิด AR Quick Look ให้เฉพาะลิงก์ rel="ar" ที่ "มี element ลูกอยู่ข้างใน"
+    // ถ้าใส่ <a> เปล่าๆ จะกลายเป็นการดาวน์โหลดไฟล์ธรรมดาแทน
+    const a = document.createElement('a');
+    a.rel = 'ar';
+    a.href = usdzUrl;
+    a.appendChild(document.createElement('img'));
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
 }
 
 renderer.xr.addEventListener('sessionstart', () => {
