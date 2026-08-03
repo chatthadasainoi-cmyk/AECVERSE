@@ -2466,6 +2466,9 @@ async function initMultiplayer() {
         if (data.markers) { Object.assign(markerStore, data.markers); rebuildMarkers(); }
         modelLocked = data.modelLocked !== undefined ? data.modelLocked : true;
         isAdmin = !!data.isAdmin; // สิทธิ์ admin ตรวจจากบัญชีโดย server — ไม่มีรหัสผ่านแยกแล้ว
+        // คู่มือใช้ค่านี้ตัดสินว่าจะโชว์หัวข้อ/ปุ่มที่เป็นสิทธิ์แอดมินไหม
+        window.AEC_IS_ADMIN = isAdmin;
+        if (window.AecGuide) AecGuide.refresh();
         refreshTransformUiPermissions();
         updateMpAdminBadge(data.adminCount || 0);
 
