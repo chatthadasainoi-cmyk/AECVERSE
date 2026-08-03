@@ -428,6 +428,7 @@
             <span id="chat-unread-badge" class="chat-unread-badge" style="display:none;">0</span>
         </div>
         <div id="hud-multiplayer" class="key-btn-item" onclick="togglePanelElement('multiplayer-panel')" style="display:none;"><span class="key-badge">U</span> Multiplayer</div>
+        <div id="hud-guide" class="key-btn-item" onclick="AecGuide.open()" title="คู่มือการใช้งาน — แต่ละปุ่มทำอะไรได้บ้าง"><span class="key-badge">❓</span> วิธีใช้</div>
     </div>
   </div>
 
@@ -491,6 +492,7 @@
 
 <script src="color-wheel.js"></script>
 <script src="world-prefs.js"></script>
+<script src="guide.js"></script>
 <script src="app.js"></script>
 
     <!--
@@ -499,6 +501,12 @@
       2) ช่องค้นหาชิ้นส่วน: กรองรายการใน #mesh-container ตามข้อความ
       3) empty state บน canvas: เฝ้าดูข้อความสถานะใน #factory-status แล้วซ่อน/แสดงเอง
     -->
+    <script>
+    // เปิดคู่มือให้เองครั้งแรกที่เข้ามา (ติ๊ก "ไม่ต้องแสดงอีก" แล้วจะไม่ขึ้นอีก)
+    // โหมด viewer (Digital Twin) ไม่มีตัวละครและปุ่มส่วนใหญ่ จึงไม่ต้องเด้งคู่มือให้รก
+    if (new URLSearchParams(location.search).get('mode') !== 'viewer') AecGuide.autoOpenOnce();
+    </script>
+
     <script>
     (function () {
         function initTabs(tabBarId, panelIds) {
