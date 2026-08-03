@@ -848,6 +848,17 @@ io.on('connection', socket => {
         console.log(`[MARKER] removed ${data.id}`);
     });
 
+    // ล้างจุดทั้งหมดทีเดียว — จุดผูกกับพิกัดในโลก ไม่ได้ผูกกับตัวโมเดล
+    // พอเปลี่ยนโมเดลใหม่ จุดของโมเดลเก่าจึงค้างลอยอยู่ ต้องมีทางล้างให้หมดในคลิกเดียว
+    socket.on('markers_clear', () => {
+        const n = Object.keys(markers).length;
+        if (!n) return;
+        Object.keys(markers).forEach(id => delete markers[id]);
+        io.emit('markers_cleared');
+        schedulePersistSceneState();
+        console.log(`[MARKER] cleared all (${n})`);
+    });
+
     // ---------- เส้นวัดระยะ — แชร์ให้ทุกคนเห็นเหมือนกัน (ชั่วคราว ไม่ persist) ----------
     socket.on('measure_add', data => {
         if (!data || !data.a || !data.b) return;
