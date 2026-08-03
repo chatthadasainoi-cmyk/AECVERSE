@@ -160,6 +160,17 @@ window.AecGuide = (function () {
       .agd-foot label{display:flex;align-items:center;gap:7px;font-size:11.5px;color:#9aa7b8;cursor:pointer;}
       .agd-foot button{background:linear-gradient(90deg,#3b82f6,#22c55e);border:none;color:#04150b;
         font-family:inherit;font-size:12.5px;font-weight:800;padding:9px 20px;border-radius:9px;cursor:pointer;}
+      /* ปุ่ม "?" ลอยมุมขวาบนของฉาก 3D — ทางเข้าคู่มือที่มีอยู่เสมอ
+         จำเป็นเพราะแถบปุ่มด้านล่าง (#keybind-hud) ถูกซ่อนทั้งแถบบนจอเล็กแนวนอน
+         ถ้าไม่มีปุ่มนี้ ผู้ใช้มือถือที่ติ๊ก "ไม่ต้องแสดงอีก" จะเปิดคู่มือกลับมาไม่ได้เลย
+         วางไว้ใน #canvas-container จึงไม่ทับแผงข้างซ้าย/ขวาไม่ว่าจอกว้างแค่ไหน */
+      .agd-fab{position:absolute;top:10px;right:10px;z-index:40;
+        width:34px;height:34px;border-radius:50%;cursor:pointer;
+        display:flex;align-items:center;justify-content:center;
+        background:rgba(14,19,28,.85);border:1px solid #1c2531;color:#9aa7b8;
+        font-size:15px;font-weight:800;font-family:inherit;
+        backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);}
+      .agd-fab:hover{color:#eef2f7;border-color:#33475e;background:rgba(28,37,49,.92);}
       @media (max-width:760px){
         .agd-body{flex-direction:column;}
         .agd-nav{width:auto;display:flex;gap:6px;overflow-x:auto;border-right:none;border-bottom:1px solid #1c2531;}
@@ -259,14 +270,31 @@ window.AecGuide = (function () {
     if (o) o.classList.remove('open');
   }
 
+  // ปุ่ม "?" ลอยมุมขวาบนของฉาก — ทางเข้าคู่มือที่มีเสมอ ไม่ว่าแถบปุ่มด้านล่างจะถูกซ่อนหรือไม่
+  function mountFab() {
+    if (document.querySelector('.agd-fab')) return;
+    injectStyle();
+    const host = document.getElementById('canvas-container') || document.body;
+    const fab = document.createElement('button');
+    fab.className = 'agd-fab';
+    fab.type = 'button';
+    fab.textContent = '?';
+    fab.title = 'คู่มือการใช้งาน — แต่ละปุ่มทำอะไรได้บ้าง';
+    fab.setAttribute('aria-label', 'เปิดคู่มือการใช้งาน');
+    if (host === document.body) fab.style.position = 'fixed';
+    fab.addEventListener('click', open);
+    host.appendChild(fab);
+  }
+
   // เปิดให้เองครั้งแรกที่ผู้ใช้เข้ามา (จนกว่าจะติ๊ก "ไม่ต้องแสดงอีก")
   // หน่วงไว้ให้โลก 3D กับสิทธิ์ผู้ใช้โหลดเสร็จก่อน คู่มือจะได้แสดงหัวข้อตรงกับสิทธิ์จริง
   function autoOpenOnce() {
+    mountFab();   // ปุ่ม "?" ต้องมีเสมอ แม้ผู้ใช้จะปิดการแสดงอัตโนมัติไปแล้ว
     let hidden = false;
     try { hidden = localStorage.getItem('aec_guide_hidden') === '1'; } catch (e) {}
     if (hidden) return;
     setTimeout(open, 2500);
   }
 
-  return { open, close, autoOpenOnce, refresh: () => { if (built) render(); }, TOPICS };
+  return { open, close, autoOpenOnce, mountFab, refresh: () => { if (built) render(); }, TOPICS };
 })();
