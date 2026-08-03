@@ -1777,7 +1777,7 @@ function markerColorToHex(color) {
 }
 const MARKER_LABEL_RANGE = 8;   // ระยะที่เริ่มเห็นชื่อจุด
 const markerStore = {};         // id -> { id, name, color, x, y, z } (ตรงกับฝั่ง server)
-const markerObjects = new Map();// id -> { badge, ring, label, x, y, z }
+const markerObjects = new Map();// id -> { badge, label, x, y, z, sf }
 
 // ป้ายวงกลมลอย — หน้าตาเดียวกับป้ายเตือนของระบบเดิม เห็นได้จากไกลและรู้ทันทีว่าเป็นจุดที่ปักไว้
 function markerBadgeSprite(colorHex) {
@@ -1822,18 +1822,8 @@ function addMarkerVisual(m) {
     const colorHex = markerColorToHex(m.color);
     const sf = currentModelScaleFactor();
 
-    // วงแหวนบางๆ บนพื้น บอกตำแหน่งจริงว่าจุดอยู่ตรงไหน
-    const r = 1.4 * sf;
-    const ring = new THREE.Mesh(
-        new THREE.RingGeometry(r * 0.82, r, 48),
-        new THREE.MeshBasicMaterial({ color: colorHex, side: THREE.DoubleSide, transparent: true, opacity: 0.75, depthTest: false })
-    );
-    ring.rotation.x = -Math.PI / 2;
-    ring.position.set(m.x, m.y + 0.06, m.z);
-    ring.renderOrder = 998;
-    scene.add(ring);
-
-    // ป้ายวงกลมลอยเหนือจุด — ตัวหลักที่ผู้ใช้มองหา
+    // เดิมมีวงแหวนวางบนพื้นด้วย แต่พอโมเดลถูกขยาย วงจะโตตามจนบังฉากทั้งจอ
+    // จึงเหลือไว้แค่ป้ายวงกลมลอย ซึ่งเห็นชัดอยู่แล้วและไม่บังอะไร
     const badge = markerBadgeSprite(colorHex);
     badge.scale.set(0.85 * sf, 0.85 * sf, 1);
     badge.position.set(m.x, m.y + 1.7 * sf, m.z);
@@ -1844,13 +1834,12 @@ function addMarkerVisual(m) {
     label.visible = false; // โผล่เมื่อเดินเข้าใกล้เท่านั้น
     scene.add(label);
 
-    markerObjects.set(m.id, { badge, ring, label, x: m.x, y: m.y, z: m.z, sf });
+    markerObjects.set(m.id, { badge, label, x: m.x, y: m.y, z: m.z, sf });
 }
 
 function removeMarkerVisual(id) {
     const o = markerObjects.get(id);
     if (!o) return;
-    scene.remove(o.ring); o.ring.geometry.dispose(); o.ring.material.dispose();
     [o.badge, o.label].forEach(sprite => {
         scene.remove(sprite);
         sprite.material.map?.dispose();
@@ -1872,7 +1861,6 @@ function updateMarkers() {
     const pos = avatarModel ? avatarModel.position : camera.position;
     const range = MARKER_LABEL_RANGE * currentModelScaleFactor();
     markerObjects.forEach(o => {
-        o.ring.scale.set(pulse, pulse, 1);
         o.badge.scale.set(0.85 * o.sf * pulse, 0.85 * o.sf * pulse, 1);
         o.badge.position.y = o.y + (1.7 + bob) * o.sf; // ลอยขึ้นลงเบาๆ ให้สังเกตเห็นง่าย
         const d = Math.hypot(pos.x - o.x, pos.z - o.z);
@@ -1958,6 +1946,20 @@ window.saveActiveMarker = function () {
     if (mpSocket && mpSocket.connected) mpSocket.emit('marker_set', m);
     mpAppendChat({ name: '📍 ระบบ', color: '#22d3ee', text: `ปักจุด "${name}" แล้ว` });
     closeMarkerEditor();
+};
+
+// ลบจุดที่ปักไว้ทั้งหมด — ใช้ตอนเปลี่ยนโมเดลแล้วจุดของโมเดลเดิมค้างอยู่
+// ทุกคนกดได้ (จุดเป็นของส่วนรวมเหมือนกัน) แต่ถามยืนยันก่อนเพราะกู้คืนไม่ได้
+window.clearAllMarkers = function () {
+    const n = Object.keys(markerStore).length;
+    if (!n) { mpAppendChat({ name: '📍 ระบบ', color: '#94a3b8', text: 'ยังไม่มีจุดที่ปักไว้' }); return; }
+    if (!confirm(`ลบจุดที่ปักไว้ทั้งหมด ${n} จุด?\nทุกคนในโลกจะไม่เห็นจุดเหล่านี้อีก และกู้คืนไม่ได้`)) return;
+
+    // ลบฝั่งเราให้เห็นผลทันที ไม่ต้องรอ server ตอบ
+    Object.keys(markerStore).forEach(id => delete markerStore[id]);
+    [...markerObjects.keys()].forEach(removeMarkerVisual);
+    if (mpSocket && mpSocket.connected) mpSocket.emit('markers_clear');
+    mpAppendChat({ name: '📍 ระบบ', color: '#22d3ee', text: `ลบจุดที่ปักไว้ทั้งหมดแล้ว (${n} จุด)` });
 };
 
 window.removeActiveMarker = function () {
@@ -2510,6 +2512,10 @@ async function initMultiplayer() {
         if (!id) return;
         delete markerStore[id];
         removeMarkerVisual(id);
+    });
+    mpSocket.on('markers_cleared', () => {
+        Object.keys(markerStore).forEach(id => delete markerStore[id]);
+        [...markerObjects.keys()].forEach(removeMarkerVisual);
     });
 
     // มีคนเปลี่ยนชื่อเล่น (รวมถึงตัวเราเอง) — เปลี่ยนป้ายชื่อเหนือหัวให้ตรงกันทันที
