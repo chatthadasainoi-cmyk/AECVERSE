@@ -2246,24 +2246,42 @@ let isAdmin = false;
 //   engineer = แก้ข้อมูลความปลอดภัย + ปักจุดได้ แต่ยุ่งกับตัวโมเดลไม่ได้
 //   user     = ดูอย่างเดียว
 let myRole = 'user';
+// server ยังไม่บอกสิทธิ์มา (self_init) — ระหว่างนี้อย่าเพิ่งซ่อนอะไร ไม่งั้นแอดมินจะเห็นแผงกระพริบ
+let roleResolved = false;
 const canEditData = () => myRole === 'admin' || myRole === 'engineer';
 
 // ซ่อน/แสดงปุ่มตามสิทธิ์ — เป็นแค่ชั้นความสะดวก ตัวกันจริงอยู่ที่ server (denyAction)
+//   admin    : เห็นครบทุกอย่าง
+//   engineer : หน้าตาเหมือน admin ทุกประการ ยกเว้นอัปโหลด / เซฟ / โหลด / ปรับสเกล / ลบโมเดล
+//   user     : ตัดแผง "โมเดล" ทิ้งทั้งแท็บ จะได้ไม่เห็นปุ่มที่กดไม่ได้แล้วงง
 function refreshRoleUi() {
+    if (!roleResolved) return;
     const editors = canEditData();
-    // ปุ่มบนป้ายข้อมูลชิ้นส่วน
-    [['btn-set-marker', editors], ['btn-assign-type', editors], ['btn-edit-mode', editors]]
-        .forEach(([id, allow]) => { const el = $(id); if (el) el.style.display = allow ? '' : 'none'; });
-    // ปุ่มลบจุดทั้งหมด (แผงเลเยอร์)
-    const clearBtn = $('btn-clear-markers');
-    if (clearBtn) clearBtn.style.display = editors ? '' : 'none';
-    // อัปโหลด/จัดการโมเดล — เฉพาะ admin
-    ['factory-input', 'btn-save-scene', 'btn-load-scene'].forEach(id => {
-        const el = $(id);
-        const holder = el && (el.closest('label') || el.closest('button') || el);
-        if (holder) holder.style.display = isAdmin ? '' : 'none';
-    });
+    const show = (id, allow) => { const el = $(id); if (el) el.style.display = allow ? '' : 'none'; };
+
+    // ปุ่มแก้ข้อมูล/ปักจุด บนป้ายข้อมูลชิ้นส่วน — admin + engineer
+    ['btn-set-marker', 'btn-assign-type', 'btn-edit-mode', 'btn-clear-markers']
+        .forEach(id => show(id, editors));
+
+    // แผง "โมเดล" ทั้งแผง (อัปโหลด + คลังโมเดล + เซฟ/โหลด) — user ไม่ต้องเห็นเลย
+    // นอกจากนี้ปล่อยให้ระบบแท็บคุม display ของ #dashboard เองตามปกติ ไม่ไปแตะ
+    if (myRole === 'user') {
+        show('tab-dashboard', false);
+        const dash = $('dashboard');
+        // แท็บแรกคือ "โมเดล" — ถ้ากำลังเปิดอยู่ต้องเด้งไปแท็บถัดไป ไม่งั้นคอลัมน์ซ้ายว่าง
+        if ($('tab-dashboard')?.classList.contains('active')) window.activateLeftTab?.('transform-panel');
+        if (dash) dash.style.display = 'none';
+    } else {
+        show('tab-dashboard', true);
+    }
+
+    // ยุ่งกับตัวโมเดลได้เฉพาะ admin — engineer เห็นแผงแต่ไม่เห็นส่วนพวกนี้
+    show('model-upload-section', isAdmin);   // อัปโหลดไฟล์ใหม่
+    show('scene-io-section', isAdmin);       // เซฟ / โหลดฉาก (.zip)
+    show('model-transform-section', isAdmin); // ล็อก + gizmo + ตำแหน่ง/หมุน/สเกล
     document.querySelectorAll('.mlr-use-btn').forEach(b => { b.style.display = isAdmin ? '' : 'none'; });
+    // ปุ่มลบโมเดลมี interval คุมอยู่แล้ว (เช็ค isAdmin) — ที่นี่แค่ปิดให้ทันทีไม่ต้องรอรอบถัดไป
+    if (!isAdmin) show('btn-delete-model', false);
 }
 window.refreshRoleUi = refreshRoleUi;
 let modelLocked = true;
@@ -2543,6 +2561,7 @@ async function initMultiplayer() {
         modelLocked = data.modelLocked !== undefined ? data.modelLocked : true;
         isAdmin = !!data.isAdmin; // สิทธิ์ admin ตรวจจากบัญชีโดย server — ไม่มีรหัสผ่านแยกแล้ว
         myRole = data.role || (isAdmin ? 'admin' : 'user');
+        roleResolved = true;
         // คู่มือใช้ค่านี้ตัดสินว่าจะโชว์หัวข้อ/ปุ่มที่เป็นสิทธิ์แอดมินไหม
         window.AEC_IS_ADMIN = isAdmin;
         window.AEC_ROLE = myRole;
