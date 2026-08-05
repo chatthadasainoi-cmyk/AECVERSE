@@ -582,6 +582,10 @@ h3, h4 { margin: 0 0 10px 0; font-size: 13px; font-weight: 700; color: var(--tex
     padding: 20px;
     width: 380px;
     max-width: calc(100vw - 32px);
+    /* จอเตี้ย (โน้ตบุ๊ก/แนวนอนบนมือถือ) เนื้อหาในกล่องยาวเกินจอจนกดปุ่มบันทึกไม่ถึง
+       ต้องให้เลื่อนในกล่องได้ ไม่ใช่ล้นออกไปนอกหน้าจอเฉยๆ */
+    max-height: calc(100vh - 32px);
+    overflow-y: auto;
     box-shadow: 0 24px 64px rgba(0,0,0,0.6);
 }
 .type-modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
@@ -617,6 +621,49 @@ h3, h4 { margin: 0 0 10px 0; font-size: 13px; font-weight: 700; color: var(--tex
 }
 .marker-color-dot:hover { transform: scale(1.1); }
 .marker-color-dot.sel { border-color: #ffffff; box-shadow: 0 0 10px currentColor; }
+
+/* ---------- รูปทรง / ขนาด / รัศมี ของจุด (REQ 7-9) ---------- */
+.marker-shape-row { display: flex; gap: 7px; }
+.marker-shape-btn {
+    flex: 1; padding: 9px 4px; border-radius: 8px; cursor: pointer;
+    background: var(--panel-2); border: 1px solid var(--border); color: var(--text-1);
+    font-size: 11.5px; font-weight: 700; font-family: inherit;
+    transition: border-color .14s ease, color .14s ease, background .14s ease;
+}
+.marker-shape-btn:hover { border-color: #33475e; color: var(--text-0); }
+.marker-shape-btn.sel { border-color: #22d3ee; color: #22d3ee; background: rgba(34,211,238,.12); }
+.marker-slider { width: 100%; accent-color: #22d3ee; margin: 0 0 2px; display: block; }
+.marker-slider-value { float: right; color: #22d3ee; font-weight: 800; font-variant-numeric: tabular-nums; }
+.marker-zone-foot { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; margin-top: 8px; }
+.marker-pick-radius {
+    padding: 7px 11px; border-radius: 8px; cursor: pointer; font-family: inherit;
+    font-size: 11.5px; font-weight: 700; white-space: nowrap;
+    background: rgba(34,211,238,.12); border: 1px solid rgba(34,211,238,.35); color: #22d3ee;
+}
+.marker-pick-radius:hover { background: rgba(34,211,238,.2); }
+.marker-perimeter { font-size: 11px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+
+/* ปุ่ม "ปักจุด" — ติดสถานะไว้ว่ากำลังรอคลิกในฉากอยู่ */
+.btn-place-point { color: #22d3ee; border-color: rgba(34,211,238,.3); background: rgba(34,211,238,.08); }
+
+/* REQ 9: ปุ่มระยะปลอดภัยมีสไตล์เฉพาะตัว — แถบลายทแยงส้ม-ดำแบบป้ายเขตอันตราย
+   มองแวบเดียวก็รู้ว่าปุ่มนี้คือ "จุดระยะปลอดภัย" ไม่ปนกับปุ่มอื่นในแผงเดียวกัน */
+.btn-safety-zone {
+    position: relative; overflow: hidden;
+    color: #fbbf24; font-weight: 800;
+    border: 1px solid rgba(251,191,36,.5);
+    background:
+        repeating-linear-gradient(135deg,
+            rgba(251,191,36,.16) 0 9px,
+            rgba(251,191,36,.04) 9px 18px);
+    box-shadow: 0 0 0 1px rgba(251,191,36,.12) inset;
+}
+.btn-safety-zone:hover { border-color: rgba(251,191,36,.85); box-shadow: 0 0 14px rgba(251,191,36,.28); }
+.hud-safety-zone { color: #fbbf24; }
+
+/* กำลังอยู่ในโหมดรอคลิกวางจุด — เรืองแสงค้างไว้ให้รู้ว่ายังไม่ได้ออกจากโหมด */
+.place-on { box-shadow: 0 0 0 2px #22d3ee, 0 0 16px rgba(34,211,238,.45) !important; }
+.btn-safety-zone.place-on { box-shadow: 0 0 0 2px #fbbf24, 0 0 16px rgba(251,191,36,.5) !important; }
 
 /* ---------- จานสีแบบลากเลือกเอง (color-wheel.js) ---------- */
 .acw { display: flex; flex-direction: column; gap: 9px; }

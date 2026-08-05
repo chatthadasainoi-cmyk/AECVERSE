@@ -1411,6 +1411,8 @@ renderer.domElement.addEventListener('pointerup', (e) => {
     if (moved > 6 || elapsed > 600) return; // ถือว่าเป็นการลากกล้อง ไม่ใช่การชี้เลือก
 
     if (measureMode) { handleMeasureClick(e); return; } // โหมดวัดระยะ: คลิก = ปักหมุด ไม่ใช่เลือกชิ้นส่วน
+    if (radiusPickActive) { handleRadiusPickClick(e); return; }  // กำลังคลิกกำหนดรัศมีให้จุดที่แก้ไขอยู่
+    if (markerPlaceMode) { handleMarkerPlaceClick(e); return; }  // โหมดคลิกวางจุด: คลิก = วางจุดตรงนั้น
 
     if (!factoryModel) return;
     const rect = renderer.domElement.getBoundingClientRect();
@@ -1825,24 +1827,118 @@ function markerColorToHex(color) {
     return MARKER_COLOR_HEX[color] !== undefined ? MARKER_COLOR_HEX[color] : MARKER_COLOR_HEX.blue;
 }
 const MARKER_LABEL_RANGE = 8;   // ระยะที่เริ่มเห็นชื่อจุด
-const markerStore = {};         // id -> { id, name, color, x, y, z } (ตรงกับฝั่ง server)
-const markerObjects = new Map();// id -> { badge, label, x, y, z, sf }
+// id -> { id, name, color, x, y, z, shape, size, radius } (ตรงกับฝั่ง server)
+const markerStore = {};
+// id -> { badge, label, zone, perimLabel, x, y, z, size, radius, inside }
+const markerObjects = new Map();
 
-// ป้ายวงกลมลอย — หน้าตาเดียวกับป้ายเตือนของระบบเดิม เห็นได้จากไกลและรู้ทันทีว่าเป็นจุดที่ปักไว้
-function markerBadgeSprite(colorHex) {
+const MARKER_SHAPES = ['circle', 'square', 'triangle'];
+const normShape = s => (MARKER_SHAPES.includes(s) ? s : 'circle');
+// จุดที่ปักไว้ก่อนมีระบบขนาด (ไม่มีฟิลด์ size) เคยถูกวาดด้วย currentModelScaleFactor()
+// ถ้าเปลี่ยนมาใช้ 1 ดื้อๆ จุดเก่าบนโมเดลที่ถูกขยายไว้จะหดจนมองไม่เห็น จึงถอยไปใช้ค่าเดิมให้
+const markerSize = m => (Number.isFinite(Number(m.size)) && Number(m.size) > 0
+    ? Number(m.size)
+    : currentModelScaleFactor());
+const markerRadius = m => (Number.isFinite(Number(m.radius)) && Number(m.radius) > 0 ? Number(m.radius) : 0);
+
+// REQ 8 — ระยะเส้นรอบรูปของเขตปลอดภัย
+// นิยาม "รัศมี" = ระยะจากจุดศูนย์กลางถึงขอบที่ใกล้ที่สุด (inradius) เท่ากันทุกทรง
+// ผู้ใช้จึงเทียบระยะปลอดภัยข้ามทรงได้ตรงๆ ว่า "ห่างจากจุดนี้อย่างน้อยกี่เมตร"
+//   วงกลม   : เส้นรอบวง = 2πr
+//   สี่เหลี่ยม: ด้าน = 2r  -> รอบรูป = 8r
+//   สามเหลี่ยมด้านเท่า: ด้าน = 2√3·r -> รอบรูป = 6√3·r
+function zonePerimeter(shape, r) {
+    if (!r) return 0;
+    if (shape === 'square') return 8 * r;
+    if (shape === 'triangle') return 6 * Math.sqrt(3) * r;
+    return 2 * Math.PI * r;
+}
+function zoneArea(shape, r) {
+    if (!r) return 0;
+    if (shape === 'square') return 4 * r * r;
+    if (shape === 'triangle') return 3 * Math.sqrt(3) * r * r;
+    return Math.PI * r * r;
+}
+// จุดมุมของทรงบนระนาบ XZ (ใช้ทั้งวาดเขตและเช็คว่าใครอยู่ในเขต)
+function zoneCorners(shape, r) {
+    if (shape === 'square') return [[-r, -r], [r, -r], [r, r], [-r, r]];
+    if (shape === 'triangle') {
+        // สามเหลี่ยมด้านเท่า circumradius = 2r, ชี้ปลายไปทาง -Z
+        const R = 2 * r;
+        return [0, 1, 2].map(i => {
+            const a = -Math.PI / 2 + i * (Math.PI * 2 / 3);
+            return [R * Math.cos(a), R * Math.sin(a)];
+        });
+    }
+    const pts = [];
+    for (let i = 0; i < 64; i++) {
+        const a = (i / 64) * Math.PI * 2;
+        pts.push([r * Math.cos(a), r * Math.sin(a)]);
+    }
+    return pts;
+}
+// อยู่ในเขตไหม — วงกลมเช็คระยะตรงๆ, ทรงเหลี่ยมใช้ ray casting บนรายการมุม
+function pointInZone(shape, r, dx, dz) {
+    if (!r) return false;
+    if (shape === 'circle') return (dx * dx + dz * dz) <= r * r;
+    const pts = zoneCorners(shape, r);
+    let inside = false;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+        const [xi, zi] = pts[i], [xj, zj] = pts[j];
+        if ((zi > dz) !== (zj > dz) && dx < ((xj - xi) * (dz - zi)) / (zj - zi) + xi) inside = !inside;
+    }
+    return inside;
+}
+
+// ป้ายลอย — รูปทรงตามที่ผู้ใช้เลือก จุดที่มีเขตปลอดภัยจะใช้สัญลักษณ์โล่แทนเครื่องหมายตกใจ
+// ให้แยกออกทันทีว่าอันไหนเป็น "จุดระยะปลอดภัย" (REQ 9)
+function markerBadgeSprite(colorHex, shape, hasZone) {
     const css = '#' + colorHex.toString(16).padStart(6, '0');
     const canvas = document.createElement('canvas');
     canvas.width = 128; canvas.height = 128;
     const ctx = canvas.getContext('2d');
-    ctx.beginPath(); ctx.arc(64, 64, 46, 0, Math.PI * 2);
+    ctx.beginPath();
+    if (shape === 'square') {
+        const s = 42;
+        if (ctx.roundRect) ctx.roundRect(64 - s, 64 - s, s * 2, s * 2, 10);
+        else ctx.rect(64 - s, 64 - s, s * 2, s * 2);
+    } else if (shape === 'triangle') {
+        ctx.moveTo(64, 14); ctx.lineTo(116, 106); ctx.lineTo(12, 106); ctx.closePath();
+    } else {
+        ctx.arc(64, 64, 46, 0, Math.PI * 2);
+    }
     ctx.fillStyle = css; ctx.fill();
     ctx.lineWidth = 7; ctx.strokeStyle = '#ffffff'; ctx.stroke();
-    ctx.font = 'bold 62px Arial'; ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = '#ffffff';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('!', 64, 68);
+    // สามเหลี่ยมมีพื้นที่ว่างอยู่ค่อนล่าง ต้องดันสัญลักษณ์ลงมาไม่ให้ล้นออกนอกรูป
+    const cy = shape === 'triangle' ? 82 : 68;
+    ctx.font = hasZone ? 'bold 46px Arial' : 'bold 62px Arial';
+    ctx.fillText(hasZone ? '🛟' : '!', 64, cy);
     const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), depthTest: false, transparent: true }));
     sprite.renderOrder = 1001;
     return sprite;
+}
+
+// เขตปลอดภัยที่วางราบบนพื้น: พื้นโปร่งบางๆ + เส้นขอบทึบ
+// โชว์เฉพาะ Top View เท่านั้น (REQ 7) — มุมอื่นวงจะบังฉากจนดูอะไรไม่ออก
+function markerZoneMesh(shape, r, colorHex) {
+    const pts = zoneCorners(shape, r).map(([x, z]) => new THREE.Vector2(x, z));
+    const g = new THREE.ShapeGeometry(new THREE.Shape(pts));
+    const fill = new THREE.Mesh(g, new THREE.MeshBasicMaterial({
+        color: colorHex, transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false
+    }));
+    const loop = [...pts, pts[0]].map(p => new THREE.Vector3(p.x, 0, p.y));
+    const edge = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(loop),
+        new THREE.LineBasicMaterial({ color: colorHex, transparent: true, opacity: 0.95 })
+    );
+    const group = new THREE.Group();
+    // ShapeGeometry เกิดบนระนาบ XY ต้องพลิกลงมานอนบนระนาบ XZ
+    fill.rotation.x = -Math.PI / 2;
+    group.add(fill, edge);
+    group.renderOrder = 3;
+    return group;
 }
 
 function markerLabelSprite(name, colorHex) {
@@ -1869,31 +1965,61 @@ function markerLabelSprite(name, colorHex) {
 
 function addMarkerVisual(m) {
     const colorHex = markerColorToHex(m.color);
-    const sf = currentModelScaleFactor();
+    const shape = normShape(m.shape);
+    const radius = markerRadius(m);
+    // REQ 7 — ขนาดป้ายมาจากค่าที่ผู้ใช้ตั้งไว้เอง ไม่คูณ currentModelScaleFactor() อีกแล้ว
+    // เปลี่ยนโมเดลหรือย่อ/ขยายโมเดลกี่ครั้ง จุดก็ยังขนาดเท่าเดิมตามที่ตั้งไว้
+    const size = markerSize(m);
 
-    // เดิมมีวงแหวนวางบนพื้นด้วย แต่พอโมเดลถูกขยาย วงจะโตตามจนบังฉากทั้งจอ
-    // จึงเหลือไว้แค่ป้ายวงกลมลอย ซึ่งเห็นชัดอยู่แล้วและไม่บังอะไร
-    const badge = markerBadgeSprite(colorHex);
-    badge.scale.set(0.85 * sf, 0.85 * sf, 1);
-    badge.position.set(m.x, m.y + 1.7 * sf, m.z);
+    const badge = markerBadgeSprite(colorHex, shape, radius > 0);
+    badge.scale.set(0.85 * size, 0.85 * size, 1);
+    badge.position.set(m.x, m.y + 1.7 * size, m.z);
     scene.add(badge);
 
     const label = markerLabelSprite(m.name, colorHex);
-    label.position.set(m.x, m.y + 2.9 * sf, m.z);
+    label.scale.multiplyScalar(size);
+    label.position.set(m.x, m.y + 2.9 * size, m.z);
     label.visible = false; // โผล่เมื่อเดินเข้าใกล้เท่านั้น
     scene.add(label);
 
-    markerObjects.set(m.id, { badge, label, x: m.x, y: m.y, z: m.z, sf });
+    let zone = null, perimLabel = null;
+    if (radius > 0) {
+        zone = markerZoneMesh(shape, radius, colorHex);
+        zone.position.set(m.x, m.y + 0.05, m.z);
+        zone.visible = false; // เปิดเฉพาะ Top View — updateMarkers() เป็นคนสลับให้
+        scene.add(zone);
+
+        // REQ 8 — ป้ายบอกรัศมี/เส้นรอบรูป ลอยอยู่ที่ขอบเขต อ่านได้จากมุมมองบนสุด
+        perimLabel = markerLabelSprite(
+            `R ${radius.toFixed(1)} ม. · รอบรูป ${zonePerimeter(shape, radius).toFixed(1)} ม.`,
+            colorHex
+        );
+        perimLabel.scale.multiplyScalar(Math.max(1, radius / 6));
+        perimLabel.position.set(m.x, m.y + 0.6, m.z + radius);
+        perimLabel.visible = false;
+        scene.add(perimLabel);
+    }
+
+    markerObjects.set(m.id, {
+        badge, label, zone, perimLabel,
+        x: m.x, y: m.y, z: m.z, size, radius, shape,
+        inside: false // ตัวเราเองอยู่ในเขตนี้อยู่หรือเปล่า (ใช้ตรวจจังหวะ "เข้า/ออก")
+    });
 }
 
 function removeMarkerVisual(id) {
     const o = markerObjects.get(id);
     if (!o) return;
-    [o.badge, o.label].forEach(sprite => {
+    [o.badge, o.label, o.perimLabel].forEach(sprite => {
+        if (!sprite) return;
         scene.remove(sprite);
         sprite.material.map?.dispose();
         sprite.material.dispose();
     });
+    if (o.zone) {
+        scene.remove(o.zone);
+        o.zone.traverse(c => { c.geometry?.dispose(); c.material?.dispose(); });
+    }
     markerObjects.delete(id);
 }
 
@@ -1902,24 +2028,69 @@ function rebuildMarkers() {
     Object.values(markerStore).forEach(addMarkerVisual);
 }
 
-// เรียกทุกเฟรม — โชว์ชื่อเมื่อเดินเข้าใกล้ + วงกลมเต้นเบาๆ ให้สังเกตเห็นง่าย
+// REQ 7 — ประกาศในแชทว่าใครเข้า/ออกเขตไหน
+// ตรวจจากฝั่งเราเองแล้วส่งให้ server กระจาย (server เป็นคนใส่ชื่อจริงให้ กันปลอมชื่อ)
+function reportMarkerPresence(id, entered) {
+    if (mpSocket && mpSocket.connected) mpSocket.emit('marker_presence', { id, entered });
+}
+
+// เรียกทุกเฟรม — โชว์ชื่อเมื่อเดินเข้าใกล้ + ป้ายเต้นเบาๆ + สลับเขตปลอดภัยตามมุมกล้อง
 function updateMarkers() {
     if (markerObjects.size === 0) return;
     const pulse = 1 + Math.sin(Date.now() * 0.003) * 0.08;
     const bob = Math.sin(Date.now() * 0.0022) * 0.12;
     const pos = avatarModel ? avatarModel.position : camera.position;
     const range = MARKER_LABEL_RANGE * currentModelScaleFactor();
-    markerObjects.forEach(o => {
-        o.badge.scale.set(0.85 * o.sf * pulse, 0.85 * o.sf * pulse, 1);
-        o.badge.position.y = o.y + (1.7 + bob) * o.sf; // ลอยขึ้นลงเบาๆ ให้สังเกตเห็นง่าย
+    const topView = viewMode === 'top';
+    markerObjects.forEach((o, id) => {
+        o.badge.scale.set(0.85 * o.size * pulse, 0.85 * o.size * pulse, 1);
+        o.badge.position.y = o.y + (1.7 + bob) * o.size; // ลอยขึ้นลงเบาๆ ให้สังเกตเห็นง่าย
         const d = Math.hypot(pos.x - o.x, pos.z - o.z);
         o.label.visible = d <= range;
+
+        if (o.zone) {
+            o.zone.visible = topView;
+            if (o.perimLabel) o.perimLabel.visible = topView;
+            // ตัวละครเท่านั้นที่นับว่า "อยู่ในเขต" — โหมด viewer ไม่มีตัวละครก็ไม่ต้องประกาศ
+            if (avatarModel) {
+                const nowInside = pointInZone(o.shape, o.radius, pos.x - o.x, pos.z - o.z);
+                if (nowInside !== o.inside) {
+                    o.inside = nowInside;
+                    reportMarkerPresence(id, nowInside);
+                }
+            }
+        }
     });
 }
 
 // ---------- ตัวแก้ไขจุด (modal) ----------
 let markerEditorTarget = null; // { id, x, y, z, label }
 let markerEditorColor = 'blue';
+let markerEditorShape = 'circle';
+let markerEditorSize = 1;
+let markerEditorRadius = 0;
+
+// เปิดหน้าต่างแก้ไขจุดจากพิกัดโลกที่ระบุมาตรงๆ — ใช้ร่วมกันทั้งทางที่มาจากการ
+// เลือกชิ้นส่วน และทางที่มาจากการคลิกวางจุดเองในฉาก (REQ 7)
+function openMarkerEditorAt(id, x, y, z, targetText, defaultName, defaultRadius) {
+    const existing = markerStore[id];
+    markerEditorTarget = { id, x, y, z };
+    // เก็บเป็น hex เสมอ — marker เก่าที่บันทึกเป็นชื่อสีจะถูกแปลงให้อัตโนมัติ
+    const startHex = '#' + markerColorToHex(existing ? existing.color : 'blue').toString(16).padStart(6, '0');
+    markerEditorColor = startHex;
+    markerEditorShape = normShape(existing ? existing.shape : 'circle');
+    // เดาขนาดเริ่มต้นจากมาตราส่วนโมเดลครั้งเดียวตอนสร้าง ให้มองเห็นได้เลย
+    // พอกดบันทึกแล้วค่าจะถูกล็อกไว้กับจุดนั้น ไม่เปลี่ยนตามโมเดลอีก
+    markerEditorSize = Math.round(Math.min(20, Math.max(0.2, markerSize(existing || {}))) * 10) / 10;
+    markerEditorRadius = existing ? markerRadius(existing) : (defaultRadius || 0);
+
+    $('marker-editor-target').innerText = targetText;
+    $('marker-name-input').value = existing ? existing.name : (defaultName || '');
+    renderMarkerColorRow();
+    mountMarkerColorWheel(startHex);
+    syncMarkerEditorControls();
+    $('marker-editor-overlay').style.display = 'flex';
+}
 
 window.openMarkerEditorForActive = function () {
     if (!selection.uuid || !factoryModel) {
@@ -1930,23 +2101,124 @@ window.openMarkerEditorForActive = function () {
     factoryModel.traverse(c => { if (c.isMesh && c.uuid === selection.uuid) mesh = c; });
     if (!mesh) return;
 
-    // ปักที่ "ฐานของชิ้นส่วน" (กึ่งกลางแกน X/Z, ต่ำสุดแกน Y) เพื่อให้วงกลมวางบนพื้นพอดี
+    // ปักที่ "ฐานของชิ้นส่วน" (กึ่งกลางแกน X/Z, ต่ำสุดแกน Y) เพื่อให้เขตวางบนพื้นพอดี
     const box = new THREE.Box3().setFromObject(mesh);
     const center = box.getCenter(new THREE.Vector3());
     const id = 'm_' + (mesh._original3DName || mesh.name || mesh.uuid);
-    const existing = markerStore[id];
-
-    markerEditorTarget = { id, x: center.x, y: box.min.y, z: center.z, label: mesh.name || id };
-    // เก็บเป็น hex เสมอ — marker เก่าที่บันทึกเป็นชื่อสีจะถูกแปลงให้อัตโนมัติ
-    const startHex = '#' + markerColorToHex(existing ? existing.color : 'blue').toString(16).padStart(6, '0');
-    markerEditorColor = startHex;
-
-    $('marker-editor-target').innerText = `📦 ${mesh.name || mesh.uuid.slice(0, 8)}`;
-    $('marker-name-input').value = existing ? existing.name : (mesh.name || '');
-    renderMarkerColorRow();
-    mountMarkerColorWheel(startHex);
-    $('marker-editor-overlay').style.display = 'flex';
+    openMarkerEditorAt(id, center.x, box.min.y, center.z,
+        `📦 ${mesh.name || mesh.uuid.slice(0, 8)}`, mesh.name || '');
 };
+
+// ---------- REQ 7 & 9: โหมดคลิกวางจุดเองในฉาก ----------
+// 'point' = ปักจุดธรรมดา, 'zone' = ปักจุดระยะปลอดภัย (มีรัศมีติดมาให้เลย)
+let markerPlaceMode = null;
+
+function setMarkerPlaceMode(mode) {
+    markerPlaceMode = mode;
+    if (mode && measureMode) toggleMeasureMode(); // สองโหมดนี้แย่งคลิกกัน เปิดได้ทีละอย่าง
+    ['btn-place-marker', 'hud-place-marker'].forEach(id => $(id)?.classList.toggle('place-on', mode === 'point'));
+    ['btn-place-zone', 'hud-place-zone'].forEach(id => $(id)?.classList.toggle('place-on', mode === 'zone'));
+    renderer.domElement.style.cursor = mode ? 'crosshair' : '';
+    if (mode) {
+        mpAppendChat({
+            name: mode === 'zone' ? '🛟 ระยะปลอดภัย' : '📍 ปักจุด', color: '#22d3ee',
+            text: mode === 'zone'
+                ? 'คลิกในฉากเพื่อวาง "จุดศูนย์กลาง" ของเขตระยะปลอดภัย แล้วตั้งรัศมี/รูปทรงในหน้าต่างที่เปิดขึ้น (กดปุ่มซ้ำเพื่อออก)'
+                : 'คลิกตรงไหนในฉากก็ได้เพื่อวางจุดตรงนั้นพอดี (กดปุ่มซ้ำเพื่อออก)'
+        });
+    }
+}
+window.toggleMarkerPlaceMode = function () { setMarkerPlaceMode(markerPlaceMode === 'point' ? null : 'point'); };
+window.toggleZonePlaceMode = function () { setMarkerPlaceMode(markerPlaceMode === 'zone' ? null : 'zone'); };
+
+// ยิงรังสีจากตำแหน่งที่คลิกลงไปหาโมเดล/พื้น แล้วคืนพิกัดโลกที่โดน
+function pickWorldPoint(e) {
+    const rect = renderer.domElement.getBoundingClientRect();
+    pointerNDC.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    pointerNDC.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(pointerNDC, camera);
+    const targets = [groundPlane];
+    if (factoryModel) targets.push(factoryModel);
+    const hits = raycaster.intersectObjects(targets, true);
+    return hits.length ? hits[0].point.clone() : null;
+}
+
+function handleMarkerPlaceClick(e) {
+    const pt = pickWorldPoint(e);
+    if (!pt) return;
+    const isZone = markerPlaceMode === 'zone';
+    setMarkerPlaceMode(null); // วางแล้วออกจากโหมดทันที ไม่ให้ปักซ้ำโดยไม่ตั้งใจ
+    const id = 'mp_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    openMarkerEditorAt(
+        id, pt.x, pt.y, pt.z,
+        `${isZone ? '🛟 จุดระยะปลอดภัย' : '📍 จุดที่คลิก'} — X ${pt.x.toFixed(1)} / Z ${pt.z.toFixed(1)}`,
+        isZone ? 'จุดระยะปลอดภัย' : '',
+        // เขตปลอดภัยต้องมีรัศมีตั้งต้นให้เห็นภาพก่อน แล้วค่อยลากปรับ
+        isZone ? Math.max(3, currentModelScaleFactor() * 5) : 0
+    );
+}
+
+// ---------- คลิกกำหนดรัศมีจากในฉาก ----------
+// กดปุ่มในหน้าต่างแก้ไข -> หน้าต่างหลบไปชั่วคราว -> คลิกจุดที่อยากให้เป็นขอบเขต
+// ระยะจากจุดศูนย์กลางถึงจุดที่คลิกกลายเป็นรัศมี แล้วหน้าต่างกลับมา
+let radiusPickActive = false;
+window.startRadiusPick = function () {
+    if (!markerEditorTarget) return;
+    radiusPickActive = true;
+    $('marker-editor-overlay').style.display = 'none';
+    renderer.domElement.style.cursor = 'crosshair';
+    mpAppendChat({ name: '🛟 ระยะปลอดภัย', color: '#22d3ee', text: 'คลิกจุดที่ต้องการให้เป็น "ขอบเขต" — ระยะจากจุดศูนย์กลางถึงตรงนั้นจะกลายเป็นรัศมี' });
+};
+function handleRadiusPickClick(e) {
+    const pt = pickWorldPoint(e);
+    radiusPickActive = false;
+    renderer.domElement.style.cursor = '';
+    if (pt && markerEditorTarget) {
+        markerEditorRadius = Math.max(0.5, Math.hypot(pt.x - markerEditorTarget.x, pt.z - markerEditorTarget.z));
+        syncMarkerEditorControls();
+    }
+    $('marker-editor-overlay').style.display = 'flex';
+}
+
+// อัปเดตหน้าตาของแผงควบคุมทั้งหมดให้ตรงกับค่าที่ถืออยู่ (ทรง/ขนาด/รัศมี/เส้นรอบรูป)
+function syncMarkerEditorControls() {
+    document.querySelectorAll('#marker-shape-row .marker-shape-btn').forEach(b => {
+        b.classList.toggle('sel', b.dataset.shape === markerEditorShape);
+    });
+    const sizeSlider = $('marker-size-slider'), sizeOut = $('marker-size-value');
+    if (sizeSlider) sizeSlider.value = String(markerEditorSize);
+    if (sizeOut) sizeOut.textContent = markerEditorSize.toFixed(1) + '×';
+
+    const rSlider = $('marker-radius-slider'), rOut = $('marker-radius-value');
+    if (rSlider) {
+        // รัศมีที่ได้จากการคลิกในฉาก (หรือของโมเดลใหญ่ๆ) อาจเกินช่วงเริ่มต้นของ slider
+        // ต้องขยายช่วงตาม ไม่งั้น DOM จะหนีบค่าลงมาแล้วตัวเลขกับหัวลากไม่ตรงกัน
+        if (markerEditorRadius > Number(rSlider.max)) rSlider.max = String(Math.ceil(markerEditorRadius * 1.5));
+        rSlider.value = String(markerEditorRadius);
+    }
+    if (rOut) rOut.textContent = markerEditorRadius > 0 ? markerEditorRadius.toFixed(1) + ' ม.' : 'ไม่มีเขต';
+
+    // REQ 8 — โชว์เส้นรอบรูป (และพื้นที่) ให้เห็นสดๆ ระหว่างลาก
+    const perim = $('marker-perimeter-out');
+    if (perim) {
+        perim.textContent = markerEditorRadius > 0
+            ? `เส้นรอบรูป ${zonePerimeter(markerEditorShape, markerEditorRadius).toFixed(2)} ม. · พื้นที่ ${zoneArea(markerEditorShape, markerEditorRadius).toFixed(1)} ตร.ม.`
+            : 'ตั้งรัศมีมากกว่า 0 เพื่อสร้างเขตปลอดภัย';
+    }
+}
+
+window.pickMarkerShape = function (shape) {
+    markerEditorShape = normShape(shape);
+    syncMarkerEditorControls();
+};
+$('marker-size-slider')?.addEventListener('input', function () {
+    markerEditorSize = Number(this.value) || 1;
+    syncMarkerEditorControls();
+});
+$('marker-radius-slider')?.addEventListener('input', function () {
+    markerEditorRadius = Number(this.value) || 0;
+    syncMarkerEditorControls();
+});
 
 let markerWheel = null;
 function mountMarkerColorWheel(hex) {
@@ -1987,13 +2259,20 @@ window.closeMarkerEditor = function () {
 window.saveActiveMarker = function () {
     if (!markerEditorTarget) return;
     const name = ($('marker-name-input').value || '').trim() || 'จุดที่ทำเครื่องหมาย';
-    const m = { id: markerEditorTarget.id, name, color: markerEditorColor, x: markerEditorTarget.x, y: markerEditorTarget.y, z: markerEditorTarget.z };
+    const m = {
+        id: markerEditorTarget.id, name, color: markerEditorColor,
+        x: markerEditorTarget.x, y: markerEditorTarget.y, z: markerEditorTarget.z,
+        shape: markerEditorShape, size: markerEditorSize, radius: markerEditorRadius
+    };
     // วาดให้เห็นทันทีโดยไม่รอ server ตอบ (ถ้าเน็ตช้าจะได้ไม่รู้สึกว่ากดแล้วไม่มีอะไรเกิดขึ้น)
     markerStore[m.id] = m;
     removeMarkerVisual(m.id);
     addMarkerVisual(m);
     if (mpSocket && mpSocket.connected) mpSocket.emit('marker_set', m);
-    mpAppendChat({ name: '📍 ระบบ', color: '#22d3ee', text: `ปักจุด "${name}" แล้ว` });
+    const zoneNote = m.radius > 0
+        ? ` — เขตปลอดภัยรัศมี ${m.radius.toFixed(1)} ม. เส้นรอบรูป ${zonePerimeter(m.shape, m.radius).toFixed(1)} ม. (ดูวงได้ในมุมมอง Top View)`
+        : '';
+    mpAppendChat({ name: '📍 ระบบ', color: '#22d3ee', text: `ปักจุด "${name}" แล้ว${zoneNote}` });
     closeMarkerEditor();
 };
 
@@ -2187,6 +2466,7 @@ function clearRemoteMeasurement(id) {
 }
 window.toggleMeasureMode = function () {
     measureMode = !measureMode;
+    if (measureMode && markerPlaceMode) setMarkerPlaceMode(null); // สองโหมดนี้แย่งคลิกกัน เปิดได้ทีละอย่าง
     if (!measureMode) clearMeasurement();
     ['hud-measure', 'btn-measure-panel'].forEach(id => { const b = $(id); if (b) b.classList.toggle('measure-on', measureMode); });
     mpAppendChat({
@@ -2260,7 +2540,8 @@ function refreshRoleUi() {
     const show = (id, allow) => { const el = $(id); if (el) el.style.display = allow ? '' : 'none'; };
 
     // ปุ่มแก้ข้อมูล/ปักจุด บนป้ายข้อมูลชิ้นส่วน — admin + engineer
-    ['btn-set-marker', 'btn-assign-type', 'btn-edit-mode', 'btn-clear-markers']
+    ['btn-set-marker', 'btn-assign-type', 'btn-edit-mode', 'btn-clear-markers',
+        'btn-place-marker', 'btn-place-zone', 'hud-place-marker', 'hud-place-zone']
         .forEach(id => show(id, editors));
 
     // แผง "โมเดล" ทั้งแผง (อัปโหลด + คลังโมเดล + เซฟ/โหลด) — user ไม่ต้องเห็นเลย
@@ -2617,6 +2898,17 @@ async function initMultiplayer() {
     mpSocket.on('markers_cleared', () => {
         Object.keys(markerStore).forEach(id => delete markerStore[id]);
         [...markerObjects.keys()].forEach(removeMarkerVisual);
+    });
+
+    // REQ 7 — ประกาศในแชทว่าใครเข้า/ออกเขตของจุดไหน ทุกคนในห้องเห็นเหมือนกัน
+    mpSocket.on('marker_presence_changed', d => {
+        if (!d || !d.markerId) return;
+        const who = d.socketId === mpMyId ? 'คุณ' : (d.name || 'ผู้ใช้');
+        mpAppendChat({
+            name: d.entered ? '🟢 เข้าเขต' : '⚪ ออกจากเขต',
+            color: d.entered ? '#22c55e' : '#94a3b8',
+            text: d.entered ? `${who} เข้าไปอยู่ในเขต "${d.markerName}" แล้ว` : `${who} ออกจากเขต "${d.markerName}" แล้ว`
+        });
     });
 
     // มีคนเปลี่ยนชื่อเล่น (รวมถึงตัวเราเอง) — เปลี่ยนป้ายชื่อเหนือหัวให้ตรงกันทันที

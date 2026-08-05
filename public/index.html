@@ -248,6 +248,16 @@
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.3 8.7L15.3 2.7a1 1 0 00-1.4 0L2.7 13.9a1 1 0 000 1.4l6 6a1 1 0 001.4 0L21.3 10a1 1 0 000-1.3zM7.5 10.5l2 2M10.5 7.5l2 2M13.5 4.5l2 2"/></svg>
             วัดระยะ (คลิก 2 จุด)
         </button>
+        <!-- REQ 7: ปักจุดโดยคลิกในฉากตรงๆ ไม่ต้องเลือกชิ้นส่วนก่อน -->
+        <button id="btn-place-marker" class="panel-action-btn action-block btn-place-point" style="margin-top:8px;"
+                onclick="toggleMarkerPlaceMode()" title="คลิกในฉากเพื่อวางจุดตรงตำแหน่งที่คลิกพอดี">
+            📍 ปักจุด (คลิกในฉาก)
+        </button>
+        <!-- REQ 9: ปุ่มระยะปลอดภัย — สไตล์เฉพาะตัว (ขอบเรืองแสง + แถบลาย) ให้แยกออกจากปุ่มอื่นทันที -->
+        <button id="btn-place-zone" class="panel-action-btn action-block btn-safety-zone" style="margin-top:8px;"
+                onclick="toggleZonePlaceMode()" title="คลิกในฉากเพื่อวางจุดศูนย์กลางของเขตระยะปลอดภัย แล้วตั้งรัศมี/รูปทรง">
+            🛟 ตั้งจุดระยะปลอดภัย
+        </button>
         <button id="btn-clear-markers" class="panel-action-btn btn-danger-outline action-block" style="margin-top:8px;"
                 onclick="clearAllMarkers()" title="ลบจุดที่ปักไว้ทั้งหมดในโลกนี้">
             📍 ลบจุดที่ปักไว้ทั้งหมด
@@ -431,6 +441,8 @@
         <div id="freelook-btn" class="key-btn-item" onclick="document.dispatchEvent(new KeyboardEvent('keydown',{key:'f'}))"><span class="key-badge">F</span> Free Look</div>
         <div id="hud-jump" class="key-btn-item" onclick="triggerAvatarJump()"><span class="key-badge">Space</span> กระโดด</div>
         <div id="hud-measure" class="key-btn-item" onclick="toggleMeasureMode()" title="วัดระยะระหว่าง 2 จุดในแบบจำลอง (หน่วยเมตร)"><span class="key-badge">📏</span> วัดระยะ</div>
+        <div id="hud-place-marker" class="key-btn-item" onclick="toggleMarkerPlaceMode()" title="คลิกในฉากเพื่อวางจุดตรงตำแหน่งที่คลิก"><span class="key-badge">📍</span> ปักจุด</div>
+        <div id="hud-place-zone" class="key-btn-item hud-safety-zone" onclick="toggleZonePlaceMode()" title="วางจุดศูนย์กลางของเขตระยะปลอดภัย"><span class="key-badge">🛟</span> ระยะปลอดภัย</div>
         <div id="hud-fullscreen" class="key-btn-item" onclick="toggleFullscreen()" title="ขยายโลก 3D เต็มหน้าจอ"><span class="key-badge">⛶</span> เต็มจอ</div>
         <div id="hud-voice" class="key-btn-item" onclick="toggleMic()" title="เปิด/ปิดไมค์คุยกับผู้เล่นในโลก"><span class="key-badge">V</span> <span id="hud-voice-label">ไมค์</span></div>
         <div id="hud-chat" class="key-btn-item" onclick="toggleChatPanel()" title="เปิด/ปิดหน้าต่างแชท (กด / เพื่อพิมพ์)">
@@ -492,6 +504,32 @@
         <label class="marker-field-label">สีของจุด — กดสีด่วน หรือลากเลือกเองในจานสี</label>
         <div id="marker-color-row" class="marker-color-row" style="margin-bottom:12px;"></div>
         <div id="marker-color-wheel"></div>
+
+        <!-- REQ 7: รูปทรงของจุด/เขต — ป้ายลอยกับเขตบนพื้นใช้ทรงเดียวกัน จะได้จำคู่กันได้ -->
+        <label class="marker-field-label" style="margin-top:14px;">รูปทรงของจุด</label>
+        <div id="marker-shape-row" class="marker-shape-row">
+            <button class="marker-shape-btn" data-shape="circle" onclick="pickMarkerShape('circle')">⬤ วงกลม</button>
+            <button class="marker-shape-btn" data-shape="square" onclick="pickMarkerShape('square')">■ สี่เหลี่ยม</button>
+            <button class="marker-shape-btn" data-shape="triangle" onclick="pickMarkerShape('triangle')">▲ สามเหลี่ยม</button>
+        </div>
+
+        <!-- REQ 7: ขนาดป้ายตั้งเอง ไม่ใช่โตตามขนาดวัตถุ/โมเดลอีกต่อไป -->
+        <label class="marker-field-label" style="margin-top:14px;">
+            ขนาดป้าย <span id="marker-size-value" class="marker-slider-value">1.0×</span>
+        </label>
+        <input type="range" id="marker-size-slider" class="marker-slider" min="0.2" max="20" step="0.1" value="1">
+
+        <!-- REQ 8 & 9: รัศมีเขตปลอดภัย + ระยะเส้นรอบรูป -->
+        <label class="marker-field-label" style="margin-top:14px;">
+            รัศมีเขตปลอดภัย <span id="marker-radius-value" class="marker-slider-value">ไม่มีเขต</span>
+        </label>
+        <input type="range" id="marker-radius-slider" class="marker-slider" min="0" max="120" step="0.5" value="0">
+        <div class="marker-zone-foot">
+            <button class="marker-pick-radius" onclick="startRadiusPick()">🎯 คลิกกำหนดรัศมีในฉาก</button>
+            <span id="marker-perimeter-out" class="marker-perimeter">ตั้งรัศมีมากกว่า 0 เพื่อสร้างเขตปลอดภัย</span>
+        </div>
+        <div class="hint-text" style="margin-top:6px;">รัศมี = ระยะจากจุดศูนย์กลางถึงขอบเขตที่ใกล้ที่สุด — วงเขตจะแสดงเฉพาะในมุมมอง <b>Top View</b> เท่านั้น และระบบจะประกาศในแชทเมื่อมีคนเข้า/ออกเขตนี้</div>
+
         <div class="type-modal-footer" style="display:flex;gap:8px;">
             <button class="panel-action-btn btn-danger-outline" style="flex:1;" onclick="removeActiveMarker()">ลบจุดนี้</button>
             <button class="panel-action-btn btn-save" style="flex:1;" onclick="saveActiveMarker()">บันทึกจุด</button>
