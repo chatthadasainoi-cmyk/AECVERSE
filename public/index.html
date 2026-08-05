@@ -457,7 +457,9 @@
         <div id="hud-place-zone" class="key-btn-item hud-safety-zone" onclick="toggleZonePlaceMode()" title="วางจุดศูนย์กลางของเขตระยะปลอดภัย"><span class="key-badge">🛟</span> ระยะปลอดภัย</div>
         <div id="hud-place-sos" class="key-btn-item hud-emergency" onclick="toggleSosPlaceMode()" title="วางจุดรวมพลฉุกเฉิน"><span class="key-badge">🚨</span> จุดฉุกเฉิน</div>
         <div id="hud-fullscreen" class="key-btn-item" onclick="toggleFullscreen()" title="ขยายโลก 3D เต็มหน้าจอ"><span class="key-badge">⛶</span> เต็มจอ</div>
-        <div id="hud-voice" class="key-btn-item" onclick="toggleMic()" title="เปิด/ปิดไมค์คุยกับผู้เล่นในโลก"><span class="key-badge">V</span> <span id="hud-voice-label">ไมค์</span></div>
+        <!-- แถบล่างปุ่มคือระดับเสียงที่ไมค์รับได้จริง — ใช้แยกให้ออกว่า "ไมค์ไม่ทำงาน"
+             หรือ "ไมค์ทำงานแต่ปลายทางไม่ได้ยิน" ซึ่งแก้คนละทางกัน -->
+        <div id="hud-voice" class="key-btn-item" onclick="toggleMic()" title="เปิด/ปิดไมค์คุยกับผู้เล่นในโลก"><span class="key-badge">V</span> <span id="hud-voice-label">ไมค์</span><span id="hud-voice-level"></span></div>
         <div id="hud-chat" class="key-btn-item" onclick="toggleChatPanel()" title="เปิด/ปิดหน้าต่างแชท (กด / เพื่อพิมพ์)">
             <span class="key-badge">/</span> แชท
             <span id="chat-unread-badge" class="chat-unread-badge" style="display:none;">0</span>
