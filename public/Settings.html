@@ -277,6 +277,16 @@
         .ud-btn{width:100%;display:flex;align-items:center;justify-content:center;gap:8px;padding:11px;border-radius:9px;font-size:12.5px;font-weight:700;cursor:pointer;margin-top:10px;border:1px solid var(--border);background:var(--panel-2);color:var(--text-0);}
         .ud-btn.promote{color:var(--blue);border-color:rgba(59,130,246,.3);background:rgba(59,130,246,.08);}
         .ud-btn.demote{color:var(--red);border-color:rgba(239,68,68,.35);background:rgba(239,68,68,.12);}
+        /* ตัวเลือกสิทธิ์ — จัดซ้าย 2 บรรทัด (ชื่อสิทธิ์ + คำอธิบายว่าทำอะไรได้บ้าง) */
+        .ud-btn.role-opt{flex-direction:column;align-items:flex-start;gap:3px;text-align:left;padding:10px 12px;}
+        .ud-btn.role-opt .role-hint{font-size:10.5px;font-weight:500;color:var(--text-2);line-height:1.5;}
+        .ud-btn.role-opt:hover:not(:disabled){border-color:#33475e;}
+        .ud-btn.role-opt[data-role="admin"].current{color:var(--purple);border-color:rgba(168,85,247,.45);background:rgba(168,85,247,.12);}
+        .ud-btn.role-opt[data-role="engineer"].current{color:var(--blue);border-color:rgba(59,130,246,.45);background:rgba(59,130,246,.12);}
+        .ud-btn.role-opt[data-role="user"].current{color:var(--text-1);border-color:var(--border);background:var(--panel-2);}
+        .ud-btn.role-opt.current::after{content:"● ใช้อยู่";position:absolute;right:12px;top:11px;font-size:10px;font-weight:800;}
+        .ud-btn.role-opt{position:relative;}
+        .ud-btn.role-opt:disabled{cursor:default;opacity:1;}
         .g8-4{grid-template-columns:8fr 4fr;}
 
         /* ---------- QR Code generator (System Configuration tab) ---------- */
@@ -576,8 +586,18 @@
                             <div class="progress" style="margin-bottom:10px;"><span id="udOnboardingBar" style="width:0%;background:linear-gradient(90deg,var(--blue),var(--green));"></span></div>
                             <div id="udOnboardingList" style="display:flex;flex-direction:column;gap:4px;font-size:11.5px;"></div>
                             <div class="hr"></div>
-                            <button class="ud-btn promote" id="udPromoteBtn" style="display:none;" onclick="setRole(currentDetailUserId, 'admin')">⬆️ ตั้งเป็น Admin</button>
-                            <button class="ud-btn demote" id="udDemoteBtn" style="display:none;" onclick="setRole(currentDetailUserId, 'user')">⬇️ ถอด Admin</button>
+                            <div id="udRolePicker" style="display:none;">
+                                <div style="font-size:11.5px;color:var(--text-2);font-weight:700;margin-bottom:8px;">สิทธิ์การใช้งาน</div>
+                                <button class="ud-btn role-opt" data-role="admin" onclick="setRole(currentDetailUserId, 'admin')">
+                                    👑 Admin<span class="role-hint">ทำได้ทุกอย่าง — อัปโหลด / เซฟ / โหลด / ลบ / ปรับสเกล / แก้ไข / เพิ่มจุด</span>
+                                </button>
+                                <button class="ud-btn role-opt" data-role="engineer" onclick="setRole(currentDetailUserId, 'engineer')">
+                                    🛠️ Engineer<span class="role-hint">แก้ไขข้อมูล + เพิ่มจุดได้ — แต่อัปโหลด / เซฟ / โหลด / ลบ / ปรับสเกลโมเดลไม่ได้</span>
+                                </button>
+                                <button class="ud-btn role-opt" data-role="user" onclick="setRole(currentDetailUserId, 'user')">
+                                    👤 User<span class="role-hint">ดูอย่างเดียว — ไม่เห็นแผงจัดการโมเดลเลย</span>
+                                </button>
+                            </div>
                             <div id="udBootstrapNote" style="display:none;color:var(--text-2);font-size:11px;margin-top:10px;text-align:center;">Admin ตั้งต้นจาก environment variable — แก้ผ่านหน้านี้ไม่ได้</div>
                         </div>
                     </div>
@@ -1029,9 +1049,13 @@
             volRange.addEventListener('change', () => { localStorage.setItem('aec_voice_volume', volRange.value); saved(); });
         })();
 
-        const roleBadge = role => role === 'admin'
-            ? '<span class="badge b-purple">Admin</span>'
-            : '<span class="badge b-gray">User</span>';
+        // 3 ระดับสิทธิ์ — ต้องตรงกับ ROLES ใน server.js
+        const ROLE_LABEL = { admin: 'Admin', engineer: 'Engineer', user: 'User' };
+        const ROLE_BADGE_CLASS = { admin: 'b-purple', engineer: 'b-blue', user: 'b-gray' };
+        const roleBadge = role => {
+            const r = ROLE_LABEL[role] ? role : 'user';
+            return `<span class="badge ${ROLE_BADGE_CLASS[r]}">${ROLE_LABEL[r]}</span>`;
+        };
 
         // ต้องตรงกับ ONBOARDING_TASKS ใน public-portal.js และ ONBOARDING_TASK_IDS ใน server.js
         const ONBOARDING_TASK_LABELS = {
@@ -1124,8 +1148,9 @@
             document.getElementById('udAvatar').textContent = (u.email || '?').slice(0, 2).toUpperCase();
             document.getElementById('udName').textContent = u.email;
             const roleBadgeEl = document.getElementById('udRoleBadge');
-            roleBadgeEl.className = 'badge ' + (u.role === 'admin' ? 'b-purple' : 'b-gray');
-            roleBadgeEl.textContent = u.role === 'admin' ? 'Admin' : 'User';
+            const shownRole = ROLE_LABEL[u.role] ? u.role : 'user';
+            roleBadgeEl.className = 'badge ' + ROLE_BADGE_CLASS[shownRole];
+            roleBadgeEl.textContent = ROLE_LABEL[shownRole];
             document.getElementById('udEmail').textContent = u.email;
             document.getElementById('udStatus').innerHTML = u.online ? '<span class="presence online"><span class="p-dot"></span>Online now</span>' : '<span class="presence offline"><span class="p-dot"></span>Offline' + (u.lastSeenAt ? ' · ' + relativeLastSeen(u.lastSeenAt) : '') + '</span>';
             document.getElementById('udLastSignIn').textContent = u.lastSignInAt ? new Date(u.lastSignInAt).toLocaleString('th-TH') : '—';
@@ -1141,11 +1166,17 @@
                     '<span>' + label + '</span></div>';
             }).join('');
 
-            const promoteBtn = document.getElementById('udPromoteBtn'), demoteBtn = document.getElementById('udDemoteBtn'), bootstrapNote = document.getElementById('udBootstrapNote');
-            promoteBtn.style.display = demoteBtn.style.display = bootstrapNote.style.display = 'none';
-            if (u.isBootstrapAdmin) bootstrapNote.style.display = 'block';
-            else if (u.role === 'admin') demoteBtn.style.display = 'flex';
-            else promoteBtn.style.display = 'flex';
+            // Admin ตั้งต้นจาก env var แก้ผ่านหน้านี้ไม่ได้ — ซ่อนตัวเลือกทั้งชุด
+            const picker = document.getElementById('udRolePicker');
+            const bootstrapNote = document.getElementById('udBootstrapNote');
+            picker.style.display = u.isBootstrapAdmin ? 'none' : 'block';
+            bootstrapNote.style.display = u.isBootstrapAdmin ? 'block' : 'none';
+            // ไฮไลท์สิทธิ์ปัจจุบัน และปิดปุ่มของสิทธิ์ที่เป็นอยู่แล้ว (กดซ้ำไม่ได้อะไรขึ้นมา)
+            picker.querySelectorAll('.role-opt').forEach(b => {
+                const isCurrent = b.dataset.role === shownRole;
+                b.classList.toggle('current', isCurrent);
+                b.disabled = isCurrent;
+            });
         };
 
         async function loadUserManagement(){
