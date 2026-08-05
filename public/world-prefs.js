@@ -57,26 +57,66 @@ window.AecWorldPrefs = (function () {
         'border-radius:7px;padding:6px 10px;color:var(--text-0,#eef2f7);font-size:11.5px;font-weight:700;',
         'font-family:ui-monospace,"Cascadia Mono",monospace;cursor:pointer;}',
       '.wp-bind-key:hover{border-color:#33475e;}',
-      '.wp-bind-key.listening{border-color:#22d3ee;color:#22d3ee;background:rgba(34,211,238,0.12);}'
+      '.wp-bind-key.listening{border-color:#22d3ee;color:#22d3ee;background:rgba(34,211,238,0.12);}',
+      '.wp-meter{height:8px;border-radius:5px;background:var(--panel-2,#111826);border:1px solid var(--border,#1c2531);',
+        'overflow:hidden;margin-top:9px;}',
+      '.wp-meter i{display:block;height:100%;background:linear-gradient(90deg,#22c55e,#facc15);',
+        'transform:scaleX(0);transform-origin:left center;transition:transform .06s linear;}',
+      '.wp-note.err{color:#fca5a5;}',
+      '.wp-note.ok{color:#4ade80;}'
     ].join('');
     document.head.appendChild(s);
   })();
 
   // ---------- ไมโครโฟน ----------
+  // บอกสาเหตุจริงของความล้มเหลว ไม่ใช่เหมารวมว่า "ไม่ได้รับอนุญาต"
+  // (ต้องตรงกับ describeMicError ใน app.js — ผู้ใช้เจอปัญหาเดียวกันได้ทั้งสองที่)
+  function micErrorText(err) {
+    switch (err && err.name) {
+      case 'NotAllowedError':
+      case 'PermissionDeniedError':
+        return 'เบราว์เซอร์บล็อกไมโครโฟนอยู่ — กดรูปกุญแจหน้า URL แล้วเปลี่ยนสิทธิ์ "ไมโครโฟน" เป็นอนุญาต จากนั้นรีเฟรชหน้า';
+      case 'NotFoundError':
+      case 'DevicesNotFoundError':
+        return 'ไม่พบไมโครโฟนในเครื่องนี้ — เสียบไมค์หรือหูฟังที่มีไมค์แล้วกดตรวจหาใหม่';
+      case 'NotReadableError':
+      case 'TrackStartError':
+        return 'ไมโครโฟนถูกโปรแกรมอื่นใช้อยู่ (เช่น Zoom / Teams / Discord) — ปิดโปรแกรมนั้นก่อน';
+      case 'OverconstrainedError':
+      case 'ConstraintNotSatisfiedError':
+        return 'ไมโครโฟนตัวที่เลือกไว้ไม่มีอยู่แล้ว — เลือกตัวอื่นในรายการ';
+      default:
+        return 'เข้าถึงไมโครโฟนไม่ได้ (' + ((err && err.name) || 'ไม่ทราบสาเหตุ') + ')';
+    }
+  }
+
   function mountMic(container) {
     container.innerHTML =
       '<select id="wp-mic-select" class="wp-select"><option value="">ค่าเริ่มต้นของระบบ</option></select>' +
       '<button id="wp-mic-detect" class="wp-btn">🎙️ ตรวจหาไมโครโฟน</button>' +
+      '<button id="wp-mic-test" class="wp-btn" style="margin-top:8px;">🔊 ทดสอบไมค์ (พูดแล้วดูแถบ)</button>' +
+      '<div class="wp-meter"><i id="wp-mic-bar"></i></div>' +
       '<div id="wp-mic-note" class="wp-note">กด "ตรวจหาไมโครโฟน" เพื่อให้เบราว์เซอร์อนุญาต แล้วจะเห็นชื่ออุปกรณ์ทั้งหมด</div>';
 
     const sel = container.querySelector('#wp-mic-select');
     const note = container.querySelector('#wp-mic-note');
+    const bar = container.querySelector('#wp-mic-bar');
+    const testBtn = container.querySelector('#wp-mic-test');
+
+    const setNote = (text, cls) => { note.textContent = text; note.className = 'wp-note' + (cls ? ' ' + cls : ''); };
+
+    // ไม่ใช่ secure context = navigator.mediaDevices เป็น undefined ตั้งแต่แรก
+    // ต้องบอกให้ตรงว่าเป็นเรื่อง https ไม่ใช่เรื่องสิทธิ์
+    function mediaUnavailableReason() {
+      if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) return null;
+      return window.isSecureContext
+        ? 'เบราว์เซอร์นี้ไม่รองรับการเลือกอุปกรณ์เสียง'
+        : 'หน้านี้ไม่ได้เปิดผ่าน https:// — เบราว์เซอร์จึงไม่ยอมให้ใช้ไมโครโฟน';
+    }
 
     async function listDevices(askPermission) {
-      if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
-        note.textContent = 'เบราว์เซอร์นี้ไม่รองรับการเลือกอุปกรณ์เสียง';
-        return;
-      }
+      const blocked = mediaUnavailableReason();
+      if (blocked) { setNote(blocked, 'err'); return; }
       try {
         // ชื่ออุปกรณ์จะว่างเปล่าจนกว่าจะเคยได้รับอนุญาตใช้ไมค์ — ขอสิทธิ์ก่อนแล้วปิดทิ้งทันที
         if (askPermission) {
@@ -89,20 +129,78 @@ window.AecWorldPrefs = (function () {
           devices.map((d, i) =>
             `<option value="${d.deviceId}"${d.deviceId === saved ? ' selected' : ''}>${(d.label || ('ไมโครโฟน ' + (i + 1))).replace(/[<>]/g, '')}</option>`
           ).join('');
-        note.textContent = devices.length
-          ? `พบไมโครโฟน ${devices.length} ตัว — เลือกแล้วมีผลกับโลก 3D ทันทีที่เปิดไมค์ครั้งถัดไป`
-          : 'ไม่พบไมโครโฟนในเครื่องนี้';
+        if (!devices.length) setNote('ไม่พบไมโครโฟนในเครื่องนี้', 'err');
+        else if (!devices[0].label) setNote(`พบไมโครโฟน ${devices.length} ตัว แต่ยังไม่เห็นชื่อ — กด "ตรวจหาไมโครโฟน" เพื่ออนุญาตสิทธิ์ก่อน`);
+        else setNote(`พบไมโครโฟน ${devices.length} ตัว — เลือกแล้วมีผลกับโลก 3D ทันที ไม่ต้องรีเฟรช`, 'ok');
       } catch (err) {
-        note.textContent = 'เข้าถึงไมโครโฟนไม่ได้ — ตรวจสอบว่าอนุญาตสิทธิ์ไมค์ให้เว็บนี้แล้ว';
+        setNote(micErrorText(err), 'err');
       }
     }
 
+    // ---------- ทดสอบไมค์: เห็นแถบขยับ = ระบบรับเสียงได้จริง ----------
+    // จุดสำคัญของการแก้ปัญหา "ไมค์ไม่ทำงาน" คือแยกให้ออกก่อนว่าเสียงเข้าเครื่องได้ไหม
+    let testStream = null, testCtx = null, testRaf = 0;
+    function stopTest() {
+      if (testRaf) cancelAnimationFrame(testRaf);
+      testRaf = 0;
+      testStream?.getTracks().forEach(t => t.stop());
+      try { testCtx?.close(); } catch (e) {}
+      testStream = testCtx = null;
+      bar.style.transform = 'scaleX(0)';
+      testBtn.textContent = '🔊 ทดสอบไมค์ (พูดแล้วดูแถบ)';
+    }
+    async function startTest() {
+      const blocked = mediaUnavailableReason();
+      if (blocked) { setNote(blocked, 'err'); return; }
+      try {
+        const wanted = getMicDeviceId();
+        testStream = await navigator.mediaDevices.getUserMedia({
+          audio: wanted ? { deviceId: { exact: wanted } } : true
+        });
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        testCtx = new Ctx();
+        testCtx.resume && testCtx.resume();
+        const analyser = testCtx.createAnalyser();
+        analyser.fftSize = 512;
+        // ไม่ต่อไป destination เด็ดขาด ไม่งั้นเสียงตัวเองจะย้อนออกลำโพงแล้วหอน
+        testCtx.createMediaStreamSource(testStream).connect(analyser);
+        const buf = new Uint8Array(analyser.frequencyBinCount);
+        let sawSound = false;
+        const track = testStream.getAudioTracks()[0];
+        setNote(`กำลังฟังจาก "${track.label || 'ไมโครโฟนตัวเริ่มต้น'}" — ลองพูดดู แถบด้านบนต้องขยับ`);
+        testBtn.textContent = '⏹ หยุดทดสอบ';
+        const tick = () => {
+          testRaf = requestAnimationFrame(tick);
+          analyser.getByteTimeDomainData(buf);
+          let peak = 0;
+          for (let i = 0; i < buf.length; i++) peak = Math.max(peak, Math.abs(buf[i] - 128));
+          const level = Math.min(1, (peak / 128) * 2.2);
+          bar.style.transform = 'scaleX(' + level.toFixed(3) + ')';
+          if (!sawSound && level > 0.08) {
+            sawSound = true;
+            setNote('✅ ได้ยินเสียงจากไมค์ตัวนี้แล้ว — ใช้งานในโลก 3D ได้เลย', 'ok');
+          }
+        };
+        tick();
+      } catch (err) {
+        stopTest();
+        setNote(micErrorText(err), 'err');
+      }
+    }
+    testBtn.addEventListener('click', () => (testStream ? stopTest() : startTest()));
+    // ออกจากหน้า/สลับแท็บทิ้งไว้ ต้องคืนไมค์ให้ระบบ ไม่งั้นไฟไมค์ค้างและแอปอื่นแย่งใช้ไม่ได้
+    window.addEventListener('pagehide', stopTest);
+
     sel.addEventListener('change', () => {
       try { localStorage.setItem(MIC_KEY, sel.value); } catch (e) {}
-      note.textContent = '✅ บันทึกแล้ว';
+      setNote('✅ บันทึกแล้ว — มีผลกับโลก 3D ทันที', 'ok');
+      if (testStream) { stopTest(); startTest(); } // กำลังทดสอบอยู่ ให้ฟังตัวใหม่ต่อเลย
     });
     container.querySelector('#wp-mic-detect').addEventListener('click', () => listDevices(true));
     listDevices(false); // ลองแสดงเท่าที่เห็นได้ก่อน (ถ้าเคยอนุญาตไว้แล้วจะเห็นชื่อเลย)
+
+    // เสียบ/ถอดไมค์ระหว่างเปิดหน้าอยู่ -> รีเฟรชรายการให้เอง
+    navigator.mediaDevices?.addEventListener?.('devicechange', () => listDevices(false));
   }
 
   // ---------- ปุ่มควบคุม ----------

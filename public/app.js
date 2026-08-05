@@ -3114,7 +3114,35 @@ function applyChatVoicePrefs() {
     }
 }
 // หน้า Settings แก้ค่าใน localStorage -> แท็บนี้รับ event แล้วปรับตามทันที ไม่ต้องรีเฟรช
-window.addEventListener('storage', e => { if (e.key && e.key.startsWith('aec_')) applyChatVoicePrefs(); });
+window.addEventListener('storage', e => {
+    if (!e.key || !e.key.startsWith('aec_')) return;
+    applyChatVoicePrefs();
+    // เปลี่ยนไมค์ที่หน้า Settings ระหว่างที่ไมค์กำลังเปิดอยู่ -> สลับให้ทันทีโดยไม่ต้องรีเฟรช
+    if (e.key === 'aec_mic_device_id' && micOn) swapMicDevice();
+});
+
+// สลับไมโครโฟนกลางคันโดยไม่ตัดสายเสียงที่ต่ออยู่ — ใช้ replaceTrack จึงไม่ต้อง negotiate ใหม่
+async function swapMicDevice() {
+    const wanted = window.AecWorldPrefs ? AecWorldPrefs.getMicDeviceId() : '';
+    if (wanted === micDeviceInUse) return;
+    try {
+        const old = micStream;
+        micStream = await acquireMicStream();
+        const track = micStream.getAudioTracks()[0];
+        track.enabled = micOn;
+        Object.values(voicePeers).forEach(p => {
+            const sender = p.pc.getSenders().find(s => s.track && s.track.kind === 'audio');
+            if (sender) sender.replaceTrack(track).catch(err => console.warn('[VOICE] replaceTrack:', err));
+            else p.pc.addTrack(track, micStream);
+        });
+        old?.getTracks().forEach(t => t.stop());
+        if (micOn) startMicMeter(micStream);
+        mpAppendChat({ name: '🎙️ ระบบ', color: '#22d3ee', text: `เปลี่ยนไมโครโฟนเป็น "${track.label || 'ตัวเริ่มต้น'}" แล้ว` });
+    } catch (err) {
+        console.error('[VOICE] swapMicDevice:', err);
+        mpAppendChat({ name: '🎙️ ระบบ', color: '#ef4444', text: err._friendly || describeMicError(err) });
+    }
+}
 
 // ---------- autoplay unlock: เบราว์เซอร์บล็อกการเล่นเสียงจนกว่าผู้ใช้จะแตะหน้าจอ ----------
 // ฝั่ง "ผู้ฟัง" ที่ยังไม่เคยคลิก/กดคีย์ในหน้านี้จะเล่นเสียงเพื่อนไม่ได้ — เก็บ audio ที่
@@ -3154,10 +3182,19 @@ function getVoicePeer(peerId) {
     };
     pc.onicecandidate = e => { if (e.candidate) mpSocket.emit('voice_signal', { to: peerId, data: { candidate: e.candidate } }); };
     pc.oniceconnectionstatechange = () => {
-        console.log(`[VOICE] ${peerId} ice:`, pc.iceConnectionState);
-        if (pc.iceConnectionState === 'failed') {
+        const state = pc.iceConnectionState;
+        console.log(`[VOICE] ${peerId} ice:`, state);
+        const who = mpPlayerNames[peerId] || 'ผู้เล่น';
+        // ยืนยันตอนต่อติดด้วย ไม่ใช่บอกเฉพาะตอนพัง — ผู้ใช้จะได้แยกออกว่าปัญหาอยู่ที่
+        // "สายเสียงต่อไม่ติด" หรือ "ต่อติดแล้วแต่ไมค์ไม่มีเสียงเข้า"
+        if ((state === 'connected' || state === 'completed') && !entry.announced) {
+            entry.announced = true;
+            mpAppendChat({ name: '🎙️ ระบบ', color: '#22c55e', text: `เชื่อมต่อสายเสียงกับ ${who} แล้ว` });
+        }
+        if (state === 'failed') {
             // เครือข่ายบางคู่ (NAT เข้มทั้งสองฝั่ง) ต่อ P2P ไม่ได้เพราะมีแค่ STUN — แจ้งให้รู้ตรงๆ
-            mpAppendChat({ name: '🎙️ ระบบ', color: '#ef4444', text: `เชื่อมต่อเสียงกับ ${mpPlayerNames[peerId] || 'ผู้เล่น'} ไม่สำเร็จ (เครือข่ายปิดกั้นการเชื่อมต่อตรง)` });
+            entry.announced = false;
+            mpAppendChat({ name: '🎙️ ระบบ', color: '#ef4444', text: `เชื่อมต่อเสียงกับ ${who} ไม่สำเร็จ (เครือข่ายปิดกั้นการเชื่อมต่อตรง)` });
             try { pc.restartIce(); } catch (err) { /* เบราว์เซอร์เก่าไม่มี restartIce */ }
         }
     };
@@ -3219,6 +3256,101 @@ async function handleVoiceSignal(payload) {
     } catch (err) { console.error('[VOICE] signal:', err); }
 }
 
+// ---------- วินิจฉัยว่าทำไมเปิดไมค์ไม่ได้ ----------
+// เดิมข้อความเดียวคือ "เบราว์เซอร์ไม่ได้รับอนุญาต" ซึ่งผิดในเกือบทุกกรณี
+// ผู้ใช้จึงแก้เองไม่ถูกสักที — ต้องบอกสาเหตุจริงและวิธีแก้ให้ตรง
+function describeMicError(err) {
+    const name = err && err.name;
+    if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+        // อาจเป็นทั้ง "กดปฏิเสธ" และ "เคยบล็อกไว้ถาวร" — บอกทางแก้ทั้งสองแบบ
+        return 'เบราว์เซอร์บล็อกไมโครโฟนอยู่ — กดรูปกุญแจ/ไอคอนหน้า URL แล้วเปลี่ยนสิทธิ์ "ไมโครโฟน" เป็นอนุญาต จากนั้นรีเฟรชหน้า';
+    }
+    if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+        return 'ไม่พบไมโครโฟนในเครื่องนี้ — เสียบไมค์/หูฟังที่มีไมค์แล้วลองใหม่';
+    }
+    if (name === 'NotReadableError' || name === 'TrackStartError') {
+        return 'ไมโครโฟนถูกโปรแกรมอื่นใช้อยู่ (เช่น Zoom / Teams / Discord) — ปิดโปรแกรมนั้นก่อนแล้วลองใหม่';
+    }
+    if (name === 'OverconstrainedError' || name === 'ConstraintNotSatisfiedError') {
+        return 'ไมโครโฟนที่เลือกไว้ในหน้า Settings ไม่มีอยู่แล้ว — เข้าไปเลือกใหม่ที่ Settings → เสียง';
+    }
+    if (name === 'SecurityError') {
+        return 'หน้านี้ถูกนโยบายความปลอดภัยปิดกั้นการใช้ไมโครโฟน';
+    }
+    return `เปิดไมค์ไม่สำเร็จ (${name || 'ไม่ทราบสาเหตุ'}) — ${(err && err.message) || ''}`;
+}
+
+// deviceId ของไมค์ที่ micStream กำลังใช้อยู่จริง — ใช้เทียบว่าผู้ใช้เปลี่ยนตัวเลือกไปหรือยัง
+let micDeviceInUse = '';
+
+// ขอ stream ตามอุปกรณ์ที่ผู้ใช้เลือกไว้ (ถอยไปตัวเริ่มต้นถ้าตัวที่เลือกใช้ไม่ได้)
+async function acquireMicStream() {
+    // ต้องเป็น secure context เท่านั้น ไม่งั้น navigator.mediaDevices เป็น undefined
+    // แล้วจะพังเป็น TypeError ซึ่งอ่านไม่ออกว่าเกิดอะไรขึ้น
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        const why = window.isSecureContext
+            ? 'เบราว์เซอร์นี้ไม่รองรับการใช้ไมโครโฟน'
+            : 'ต้องเปิดผ่าน https:// เท่านั้น เบราว์เซอร์ไม่ยอมให้ใช้ไมโครโฟนบนหน้าที่ไม่ปลอดภัย';
+        throw Object.assign(new Error(why), { name: 'UnsupportedError', _friendly: why });
+    }
+    const wanted = window.AecWorldPrefs ? AecWorldPrefs.getMicDeviceId() : '';
+    const base = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            audio: wanted ? { ...base, deviceId: { exact: wanted } } : base
+        });
+        micDeviceInUse = wanted;
+        return stream;
+    } catch (errDevice) {
+        // ไมค์ตัวที่เลือกไว้ถูกถอดออก/ใช้ไม่ได้ -> ถอยไปใช้ตัวเริ่มต้น ดีกว่าเปิดไมค์ไม่ได้เลย
+        if (!wanted) throw errDevice;
+        console.warn('[VOICE] ไมค์ที่เลือกไว้ใช้ไม่ได้ ใช้ตัวเริ่มต้นแทน:', errDevice);
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: base });
+        micDeviceInUse = '';
+        mpAppendChat({ name: '🎙️ ระบบ', color: '#f59e0b', text: 'ไมโครโฟนที่เลือกไว้ใช้ไม่ได้ — เปลี่ยนไปใช้ตัวเริ่มต้นให้แล้ว' });
+        return stream;
+    }
+}
+
+// ---------- มาตรวัดระดับเสียงไมค์ ----------
+// สำคัญกว่าที่คิด: ถ้าไม่มีตัวนี้ ผู้ใช้แยกไม่ออกเลยว่า "ไมค์ไม่ทำงาน" หรือ
+// "ไมค์ทำงานแต่ปลายทางไม่ได้ยิน" ซึ่งเป็นคนละปัญหาและแก้คนละทาง
+let micMeterCtx = null, micMeterAnalyser = null, micMeterRaf = 0;
+function startMicMeter(stream) {
+    stopMicMeter();
+    try {
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return;
+        micMeterCtx = new Ctx();
+        micMeterCtx.resume?.();
+        const src = micMeterCtx.createMediaStreamSource(stream);
+        micMeterAnalyser = micMeterCtx.createAnalyser();
+        micMeterAnalyser.fftSize = 512;
+        src.connect(micMeterAnalyser); // ไม่ต่อไป destination — จะกลายเป็นเสียงสะท้อนกลับหูตัวเอง
+        const buf = new Uint8Array(micMeterAnalyser.frequencyBinCount);
+        const bar = $('hud-voice-level');
+        const tick = () => {
+            micMeterRaf = requestAnimationFrame(tick);
+            micMeterAnalyser.getByteTimeDomainData(buf);
+            let peak = 0;
+            for (let i = 0; i < buf.length; i++) peak = Math.max(peak, Math.abs(buf[i] - 128));
+            const level = Math.min(1, (peak / 128) * 2.2); // ขยายหน่อยให้เห็นการขยับตอนพูดเบาๆ
+            if (bar) bar.style.transform = `scaleX(${level.toFixed(3)})`;
+        };
+        tick();
+    } catch (err) {
+        console.warn('[VOICE] สร้างมาตรวัดระดับเสียงไม่สำเร็จ:', err);
+    }
+}
+function stopMicMeter() {
+    if (micMeterRaf) cancelAnimationFrame(micMeterRaf);
+    micMeterRaf = 0;
+    try { micMeterCtx?.close(); } catch (err) { /* ปิดซ้ำได้ ไม่เป็นไร */ }
+    micMeterCtx = micMeterAnalyser = null;
+    const bar = $('hud-voice-level');
+    if (bar) bar.style.transform = 'scaleX(0)';
+}
+
 async function toggleMic() {
     if (VIEWER_MODE) return;
     if (!voicePrefs.voiceEnabled) {
@@ -3231,44 +3363,57 @@ async function toggleMic() {
     }
     if (!micOn) {
         try {
-            if (!micStream) {
-                // ใช้ไมค์ตัวที่ผู้ใช้เลือกไว้เองที่หน้า Settings (บางเครื่องมีหลายตัว
-                // แล้วเบราว์เซอร์เลือกตัวที่ไม่มีเสียงให้) — ไม่ได้เลือกไว้ก็ใช้ค่าเริ่มต้นตามเดิม
-                const wantedMic = window.AecWorldPrefs ? AecWorldPrefs.getMicDeviceId() : '';
-                const audioConstraints = { echoCancellation: true, noiseSuppression: true };
-                if (wantedMic) audioConstraints.deviceId = { exact: wantedMic };
-                try {
-                    micStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
-                } catch (errDevice) {
-                    // ไมค์ตัวที่เลือกไว้ถูกถอดออก/ใช้ไม่ได้ -> ถอยไปใช้ตัวเริ่มต้น ดีกว่าเปิดไมค์ไม่ได้เลย
-                    if (!wantedMic) throw errDevice;
-                    console.warn('[VOICE] ไมค์ที่เลือกไว้ใช้ไม่ได้ ใช้ตัวเริ่มต้นแทน:', errDevice);
-                    micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
-                    mpAppendChat({ name: '🎙️ ระบบ', color: '#f59e0b', text: 'ไมโครโฟนที่เลือกไว้ใช้ไม่ได้ — เปลี่ยนไปใช้ตัวเริ่มต้นให้แล้ว' });
-                }
-                // มี peer อยู่แล้ว (เคยรับเสียงคนอื่น) -> ยัด track ของเราเข้าไป ระบบจะ negotiate ใหม่เอง
+            // เดิม stream ถูก cache ไว้ตลอด ทำให้เลือกไมค์ตัวใหม่ที่หน้า Settings แล้ว
+            // ไม่มีผลจนกว่าจะรีเฟรชหน้า — ตอนนี้ถ้าตัวเลือกเปลี่ยน จะขอ stream ใหม่ให้
+            const wanted = window.AecWorldPrefs ? AecWorldPrefs.getMicDeviceId() : '';
+            if (micStream && wanted !== micDeviceInUse) {
+                micStream.getTracks().forEach(t => t.stop());
+                micStream = null;
+            }
+            const isNewStream = !micStream;
+            if (isNewStream) micStream = await acquireMicStream();
+
+            if (isNewStream) {
+                // peer ที่มีอยู่แล้ว: ถ้ายังไม่เคยมี track ของเราให้ addTrack (จะ negotiate ใหม่เอง)
+                // ถ้ามีอยู่แล้ว (กรณีเปลี่ยนไมค์กลางคัน) ใช้ replaceTrack — ไม่ต้อง negotiate ซ้ำ
+                const newTrack = micStream.getAudioTracks()[0];
                 Object.values(voicePeers).forEach(p => {
-                    if (p.pc.getSenders().every(s => !s.track)) micStream.getTracks().forEach(t => p.pc.addTrack(t, micStream));
+                    const sender = p.pc.getSenders().find(s => s.track && s.track.kind === 'audio');
+                    if (sender) sender.replaceTrack(newTrack).catch(err => console.warn('[VOICE] replaceTrack:', err));
+                    else micStream.getTracks().forEach(t => p.pc.addTrack(t, micStream));
                 });
             }
             micStream.getAudioTracks().forEach(t => { t.enabled = true; });
             micOn = true;
+            startMicMeter(micStream);
             Object.keys(remoteAvatars).forEach(id => connectVoiceTo(id)); // ต่อ P2P หาทุกคนที่ออนไลน์
         } catch (err) {
             console.error('[VOICE] getUserMedia:', err);
-            mpAppendChat({ name: '🎙️ ระบบ', color: '#ef4444', text: 'เปิดไมค์ไม่สำเร็จ — เบราว์เซอร์ไม่ได้รับอนุญาตให้ใช้ไมโครโฟน' });
+            mpAppendChat({ name: '🎙️ ระบบ', color: '#ef4444', text: err._friendly || describeMicError(err) });
             return;
         }
     } else {
         if (micStream) micStream.getAudioTracks().forEach(t => { t.enabled = false; });
         micOn = false;
+        stopMicMeter();
     }
     mpSocket.emit('voice_state', { micOn });
     updateMicHudButton();
     updateVoiceIndicator();
+
+    if (!micOn) {
+        mpAppendChat({ name: '🎙️ ระบบ', color: '#9aa7b8', text: 'ปิดไมค์แล้ว' });
+        return;
+    }
+    // เดิมบอกว่า "ผู้เล่นทุกคนได้ยินคุณ" เสมอ ทั้งที่อาจไม่มีใครอยู่ในโลกเลย
+    // ผู้ใช้จึงเข้าใจว่าไมค์พัง ทั้งที่จริงๆ แค่ไม่มีคนฟัง
+    const listeners = Object.keys(remoteAvatars).length;
+    const track = micStream.getAudioTracks()[0];
     mpAppendChat({
-        name: '🎙️ ระบบ', color: micOn ? '#22c55e' : '#9aa7b8',
-        text: micOn ? 'ไมค์เปิดแล้ว — ผู้เล่นทุกคนได้ยินคุณ (กด V เพื่อปิด)' : 'ปิดไมค์แล้ว'
+        name: '🎙️ ระบบ', color: '#22c55e',
+        text: listeners
+            ? `ไมค์เปิดแล้ว (${track?.label || 'ไมโครโฟน'}) — มีผู้เล่นอีก ${listeners} คนในโลกที่จะได้ยินคุณ (กด V เพื่อปิด)`
+            : `ไมค์เปิดแล้ว (${track?.label || 'ไมโครโฟน'}) — ตอนนี้ยังไม่มีผู้เล่นคนอื่นอยู่ในโลก จึงยังไม่มีใครได้ยิน แถบสีเขียวบนปุ่มไมค์คือระดับเสียงที่ระบบรับได้จริง ลองพูดดูว่าขยับไหม`
     });
 }
 window.toggleMic = toggleMic;

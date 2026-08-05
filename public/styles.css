@@ -343,6 +343,15 @@ h3, h4 { margin: 0 0 10px 0; font-size: 13px; font-weight: 700; color: var(--tex
 /* สถานะไมค์บนปุ่ม HUD + ป้ายจำนวนข้อความที่ยังไม่ได้อ่าน */
 #hud-voice.mic-on { color: var(--green); }
 #hud-voice.mic-on .key-badge { background: var(--green); border-color: var(--green); color: #04150b; }
+/* มาตรวัดระดับเสียงไมค์ — แถบเขียวใต้ปุ่มที่ขยับตามเสียงพูดจริง
+   ให้ผู้ใช้เห็นด้วยตาว่าระบบรับเสียงเข้ามาได้จริงหรือเปล่า */
+#hud-voice { position: relative; }
+#hud-voice-level {
+    position: absolute; left: 6px; right: 6px; bottom: 2px; height: 3px;
+    border-radius: 2px; background: var(--green);
+    transform: scaleX(0); transform-origin: left center;
+    transition: transform .06s linear; pointer-events: none;
+}
 .chat-unread-badge {
     background: var(--red); color: #fff; font-size: 9px; font-weight: 800;
     min-width: 15px; height: 15px; padding: 0 4px; border-radius: 8px;
