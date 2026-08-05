@@ -258,6 +258,11 @@
                 onclick="toggleZonePlaceMode()" title="คลิกในฉากเพื่อวางจุดศูนย์กลางของเขตระยะปลอดภัย แล้วตั้งรัศมี/รูปทรง">
             🛟 ตั้งจุดระยะปลอดภัย
         </button>
+        <!-- REQ 3: จุดรวมพลฉุกเฉิน — ปักไว้แล้วเรียกให้ทุกคนเดินมาพร้อมกันได้ -->
+        <button id="btn-place-sos" class="panel-action-btn action-block btn-emergency" style="margin-top:8px;"
+                onclick="toggleSosPlaceMode()" title="คลิกในฉากเพื่อวางจุดรวมพลฉุกเฉิน">
+            🚨 ปักจุดฉุกเฉิน
+        </button>
         <button id="btn-clear-markers" class="panel-action-btn btn-danger-outline action-block" style="margin-top:8px;"
                 onclick="clearAllMarkers()" title="ลบจุดที่ปักไว้ทั้งหมดในโลกนี้">
             📍 ลบจุดที่ปักไว้ทั้งหมด
@@ -336,6 +341,13 @@
                 <span>🚶 กำลังเดินไป... <span id="walk-arrow-dist">—</span></span>
                 <span onclick="cancelAutoWalk()" style="cursor:pointer; color:#ef4444; font-weight:800;" title="ยกเลิก">✕</span>
             </div>
+        </div>
+
+        <!-- REQ 3: แถบเตือนค้างไว้ระหว่างที่มีการเรียกรวมพลฉุกเฉิน — ทุกคนเห็นตรงกัน -->
+        <div id="emergency-banner" style="display:none;">
+            <span class="eb-dot"></span>
+            <span id="emergency-banner-text">เรียกรวมพลฉุกเฉิน</span>
+            <button onclick="cancelEmergency()" title="ยกเลิกการเรียกรวมพล">✕</button>
         </div>
 
         <!-- LIVE DATA DOCK — แถบข้อมูลโปร่งแสงลอยขอบล่างฉาก ไม่บังมุมมอง 3D
@@ -443,6 +455,7 @@
         <div id="hud-measure" class="key-btn-item" onclick="toggleMeasureMode()" title="วัดระยะระหว่าง 2 จุดในแบบจำลอง (หน่วยเมตร)"><span class="key-badge">📏</span> วัดระยะ</div>
         <div id="hud-place-marker" class="key-btn-item" onclick="toggleMarkerPlaceMode()" title="คลิกในฉากเพื่อวางจุดตรงตำแหน่งที่คลิก"><span class="key-badge">📍</span> ปักจุด</div>
         <div id="hud-place-zone" class="key-btn-item hud-safety-zone" onclick="toggleZonePlaceMode()" title="วางจุดศูนย์กลางของเขตระยะปลอดภัย"><span class="key-badge">🛟</span> ระยะปลอดภัย</div>
+        <div id="hud-place-sos" class="key-btn-item hud-emergency" onclick="toggleSosPlaceMode()" title="วางจุดรวมพลฉุกเฉิน"><span class="key-badge">🚨</span> จุดฉุกเฉิน</div>
         <div id="hud-fullscreen" class="key-btn-item" onclick="toggleFullscreen()" title="ขยายโลก 3D เต็มหน้าจอ"><span class="key-badge">⛶</span> เต็มจอ</div>
         <div id="hud-voice" class="key-btn-item" onclick="toggleMic()" title="เปิด/ปิดไมค์คุยกับผู้เล่นในโลก"><span class="key-badge">V</span> <span id="hud-voice-label">ไมค์</span></div>
         <div id="hud-chat" class="key-btn-item" onclick="toggleChatPanel()" title="เปิด/ปิดหน้าต่างแชท (กด / เพื่อพิมพ์)">
@@ -456,6 +469,18 @@
 
   <!-- RIGHT COLUMN: structure list only (process-panel moved to floating overlay) -->
   <div id="right-col" class="side-col">
+    <!-- แถบแท็บ: สลับระหว่างรายชื่อชิ้นส่วนของโมเดล กับรายการจุดที่ปักไว้เอง -->
+    <div class="side-tabs" id="right-tabs">
+        <div class="side-tab" data-target="details-panel">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+            ชิ้นส่วน
+        </div>
+        <div class="side-tab" data-target="marker-list-panel">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s7-6.2 7-11a7 7 0 10-14 0c0 4.8 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+            จุดที่ปัก <span id="marker-list-count"></span>
+        </div>
+    </div>
+
     <!-- แผงรายชื่อชิ้นส่วนโครงสร้าง -->
     <div id="details-panel" class="panel">
         <div class="panel-head">
@@ -469,6 +494,26 @@
         <div id="model-meta"></div>
         <div id="mesh-container">
             <div class="mesh-empty-state">ยังไม่มีชิ้นส่วน<br>รายการจะแสดงเมื่อโหลดโมเดลแล้ว</div>
+        </div>
+    </div>
+
+    <!-- รายการจุดที่ปักไว้ — ค้นหาชื่อจุด เดินไปหา แก้ไข หรือลบทีละจุดได้ -->
+    <div id="marker-list-panel" class="panel" style="display:none;">
+        <div class="panel-head">
+            <h3><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s7-6.2 7-11a7 7 0 10-14 0c0 4.8 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>จุดที่ปักไว้</h3>
+            <span class="panel-sub">Marked Points</span>
+        </div>
+        <div class="mesh-filter-box">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+            <input id="marker-filter" placeholder="ค้นหาชื่อจุด..." autocomplete="off">
+        </div>
+        <!-- REQ 3: ปุ่มเรียกรวมพล — กดแล้วตัวละครของทุกคนในโลกเดินไปที่จุดฉุกเฉินพร้อมกัน -->
+        <button id="btn-call-emergency" class="panel-action-btn action-block btn-emergency" onclick="callEmergency()"
+                title="สั่งให้ตัวละครของทุกคนในโลกเดินไปที่จุดฉุกเฉิน">
+            🚨 เรียกรวมพลฉุกเฉิน
+        </button>
+        <div id="marker-list-container">
+            <div class="mesh-empty-state">ยังไม่มีจุดที่ปักไว้</div>
         </div>
     </div>
   </div>
@@ -504,6 +549,12 @@
         <label class="marker-field-label">สีของจุด — กดสีด่วน หรือลากเลือกเองในจานสี</label>
         <div id="marker-color-row" class="marker-color-row" style="margin-bottom:12px;"></div>
         <div id="marker-color-wheel"></div>
+
+        <!-- REQ 3: ทำจุดนี้ให้เป็นจุดรวมพลฉุกเฉิน -->
+        <button id="marker-emergency-toggle" class="marker-sos-toggle" onclick="toggleMarkerEmergency()">
+            <span class="mst-check">✓</span>
+            <span>🚨 ตั้งเป็นจุดรวมพลฉุกเฉิน<small>เรียกให้ทุกคนเดินมาที่จุดนี้พร้อมกันได้</small></span>
+        </button>
 
         <!-- REQ 7: รูปทรงของจุด/เขต — ป้ายลอยกับเขตบนพื้นใช้ทรงเดียวกัน จะได้จำคู่กันได้ -->
         <label class="marker-field-label" style="margin-top:14px;">รูปทรงของจุด</label>
@@ -587,6 +638,7 @@
             window.refreshRoleUi?.();   // สิทธิ์อาจรู้ผลมาก่อนแท็บพร้อม
         }
         initTabs('left-tabs', ['dashboard', 'transform-panel', 'safety-panel']);
+        initTabs('right-tabs', ['details-panel', 'marker-list-panel']);
 
         // ---- ค้นหาชิ้นส่วนในรายการ (กรองเฉพาะการแสดงผล ไม่แตะข้อมูล) ----
         const filter = document.getElementById('mesh-filter');
