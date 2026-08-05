@@ -857,20 +857,46 @@ io.on('connection', socket => {
         if (/^#[0-9a-f]{6}$/i.test(s)) return s.toLowerCase();
         return '#38bdf8';
     };
+    const MARKER_SHAPES = ['circle', 'square', 'triangle'];
     socket.on('marker_set', data => {
         if (!canEditData(user)) return denyAction(socket, 'ปักจุด');
         if (!data || !data.id) return;
         const num = v => (Number.isFinite(Number(v)) ? Number(v) : 0);
+        // จำกัดช่วงไว้ด้วย — ค่าติดลบหรือค่ามหาศาลทำให้ geometry ฝั่ง client พัง
+        const clamp = (v, lo, hi, dflt) => {
+            const n = Number(v);
+            return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : dflt;
+        };
         const marker = {
             id: String(data.id).slice(0, 64),
             name: String(data.name || 'จุดที่ทำเครื่องหมาย').slice(0, 80),
             color: sanitizeMarkerColor(data.color),
-            x: num(data.x), y: num(data.y), z: num(data.z)
+            x: num(data.x), y: num(data.y), z: num(data.z),
+            shape: MARKER_SHAPES.includes(data.shape) ? data.shape : 'circle',
+            size: clamp(data.size, 0.1, 40, 1),      // ขนาดป้าย — ผู้ใช้ตั้งเอง ไม่โตตามโมเดล
+            radius: clamp(data.radius, 0, 2000, 0)   // รัศมีเขตปลอดภัย (0 = ไม่มีเขต)
         };
         markers[marker.id] = marker;
         io.emit('marker_updated', marker); // io ไม่ใช่ broadcast — คนปักเองต้องได้ id ที่ผ่านการ sanitize กลับไปด้วย
         schedulePersistSceneState();
-        console.log(`[MARKER] set ${marker.id} "${marker.name}" (${marker.color})`);
+        console.log(`[MARKER] set ${marker.id} "${marker.name}" (${marker.color}, ${marker.shape}, r=${marker.radius})`);
+    });
+
+    // ---------- ใครเข้า/ออกเขตของจุดไหน ----------
+    // client เป็นคนตรวจระยะเอง (มันรู้ตำแหน่งตัวเองแม่นที่สุด) แล้วส่งมาให้ server กระจายต่อ
+    // server แค่ผูกชื่อผู้เล่นจริงเข้าไปกันการปลอมชื่อคนอื่น
+    socket.on('marker_presence', data => {
+        if (!data || !data.id || !markers[data.id]) return;
+        const p = players[socket.id];
+        if (!p) return; // watcher ไม่มีตัวละคร ไม่ต้องประกาศ
+        io.emit('marker_presence_changed', {
+            socketId: socket.id,
+            name: p.name,
+            color: p.color,
+            markerId: data.id,
+            markerName: markers[data.id].name,
+            entered: !!data.entered
+        });
     });
     socket.on('marker_remove', data => {
         if (!canEditData(user)) return denyAction(socket, 'ลบจุด');
