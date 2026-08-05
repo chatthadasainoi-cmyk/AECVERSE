@@ -37,11 +37,12 @@ if (VIEWER_MODE) {
 // 1. SCENE / CAMERA / RENDERER
 // ============================================================
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x080b11); // ตรงกับ --bg-0 ของ design system ทั้งเว็บ
-scene.fog = new THREE.Fog(0x080b11, 45, 140); // หมอกจางๆ ให้ฉากมีมิติ ไม่ตัดขอบกริดแข็งๆ
+// ไม่ใส่ fog แล้ว — เดิมหมอกทำให้ของไกลจางหายเป็นสีดำ พอซูมออกดูภาพรวมทั้งโรงงาน
+// ฉากจะมืดลงจนดูอะไรไม่ออก ตอนนี้เห็นชัดเท่ากันทุกระยะ
 
 const canvasContainer = $('canvas-container');
-const camera = new THREE.PerspectiveCamera(60, canvasContainer.clientWidth / canvasContainer.clientHeight, 0.1, 1000);
+// far ต้องไกลกว่ารัศมีโดมท้องฟ้า ไม่งั้นโดมจะอยู่นอกระยะมองแล้วไม่ถูกวาดเลย (ฉากกลายเป็นสีดำ)
+const camera = new THREE.PerspectiveCamera(60, canvasContainer.clientWidth / canvasContainer.clientHeight, 0.1, 6000);
 camera.position.set(0, 6, 12);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -53,23 +54,70 @@ const controls = new THREE.OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.05;
 controls.minDistance = 0.5;
-controls.maxDistance = 60;
+controls.maxDistance = 400; // เดิม 60 — ซูมออกดูภาพรวมทั้งโรงงานไม่ได้เลย โมเดลใหญ่ๆ ติดเพดาน
 
-scene.add(new THREE.AmbientLight(0xffffff, 0.55));
-scene.add(new THREE.HemisphereLight(0xbcd4ff, 0x0e131c, 0.55)); // แสงนวลโทนฟ้าจากท้องฟ้า ให้โมเดลดูมีมิติกว่าแสงขาวแบนๆ
-const dirLight = new THREE.DirectionalLight(0xffffff, 1.1);
+// แสงชุดนี้ปรับให้เข้ากับฉากท้องฟ้าสว่าง — ของเดิมตั้งไว้สำหรับพื้นหลังดำ
+// พอเปลี่ยนเป็นท้องฟ้าแล้วโมเดลจะดูทึบดำตัดกับฟ้าสว่างจนดูไม่ออก
+scene.add(new THREE.AmbientLight(0xffffff, 0.75));
+scene.add(new THREE.HemisphereLight(0xbcd4ff, 0x6b7280, 0.85)); // สีล่างเป็นเทาโทนพื้นดิน ไม่ใช่ดำสนิท
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.25);
 dirLight.position.set(10, 20, 10);
 scene.add(dirLight);
 
-// พื้น + กริดโทนเดียวกับเว็บ (น้ำเงินหม่น) แทนกริด neon cyan เดิม
-const groundDisc = new THREE.Mesh(
-    new THREE.CircleGeometry(80, 64),
-    new THREE.MeshBasicMaterial({ color: 0x0a0e16 })
+// ============================================================
+// ท้องฟ้า — โดมทรงกลมใบใหญ่ไล่สีจากขอบฟ้าขึ้นไปหาจุดสูงสุด
+// วาดด้วย shader ในตัว ไม่ต้องโหลดไฟล์ภาพหรือไลบรารีเพิ่ม จึงไม่มีอะไรให้โหลดช้า
+// side: BackSide = มองจากข้างในโดม, depthWrite: false = ไม่บังวัตถุอื่นในฉาก
+// ============================================================
+const skyDome = new THREE.Mesh(
+    new THREE.SphereGeometry(4000, 32, 16),
+    new THREE.ShaderMaterial({
+        side: THREE.BackSide,
+        depthWrite: false,
+        uniforms: {
+            topColor: { value: new THREE.Color(0x2a6fb5) },     // ฟ้าเข้มด้านบน
+            midColor: { value: new THREE.Color(0x8fc4e8) },     // ฟ้าอ่อนกลางท้องฟ้า
+            bottomColor: { value: new THREE.Color(0xdfe9f2) },  // ขาวนวลใกล้ขอบฟ้า
+            offset: { value: 120.0 },
+            exponent: { value: 0.7 }
+        },
+        vertexShader: `
+            varying vec3 vWorldPosition;
+            void main() {
+                vec4 wp = modelMatrix * vec4(position, 1.0);
+                vWorldPosition = wp.xyz;
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }`,
+        fragmentShader: `
+            uniform vec3 topColor; uniform vec3 midColor; uniform vec3 bottomColor;
+            uniform float offset; uniform float exponent;
+            varying vec3 vWorldPosition;
+            void main() {
+                float h = normalize(vWorldPosition + vec3(0.0, offset, 0.0)).y;
+                float t = pow(max(h, 0.0), exponent);
+                // ไล่ 2 ช่วง: ขอบฟ้า -> กลางฟ้า -> ยอดฟ้า ให้ดูเป็นธรรมชาติกว่าไล่สีเดียวรวด
+                vec3 col = h < 0.0 ? bottomColor : mix(mix(bottomColor, midColor, smoothstep(0.0, 0.35, t)), topColor, smoothstep(0.3, 1.0, t));
+                gl_FragColor = vec4(col, 1.0);
+            }`
+    })
 );
-groundDisc.rotation.x = -Math.PI / 2;
-groundDisc.position.y = -0.02;
-scene.add(groundDisc);
-scene.add(new THREE.GridHelper(60, 60, 0x2e4a75, 0x141c2a));
+skyDome.frustumCulled = false;
+scene.add(skyDome);
+
+// หมายเหตุ: เดิมมี "จานพื้นสีเข้ม" (รัศมี 80) + กริด 60x60 วางไว้เป็นพื้น
+// แต่มันสร้างขอบวงกลมชัดๆ ล้อมฉากไว้เหมือนกำแพงกั้น พอเปลี่ยนเป็นท้องฟ้าแล้วยิ่งเห็นขอบชัด
+// จึงเอาออกทั้งคู่ ให้โมเดลโรงงานเป็นพื้นจริงและมองได้ไกลไม่มีขอบตัด
+//
+// แต่ยังต้องมี "ระนาบพื้น" ไว้ให้เรย์ยิงโดน (เครื่องมือวัดระยะ + คลิกวางจุดบนพื้น)
+// จึงเหลือไว้เป็นระนาบใสสนิท มองไม่เห็นแต่ raycast โดน (ใช้ opacity 0 ไม่ใช่ visible:false
+// เพราะวัตถุที่ visible:false จะไม่ถูกนับตอน raycast)
+const groundPlane = new THREE.Mesh(
+    new THREE.PlaneGeometry(4000, 4000),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+);
+groundPlane.rotation.x = -Math.PI / 2;
+groundPlane.position.y = -0.02;
+scene.add(groundPlane);
 
 function fitRendererToContainer() {
     const w = canvasContainer.clientWidth, h = canvasContainer.clientHeight;
@@ -1060,6 +1108,7 @@ window.refreshModelLibrary = async function () {
             row.appendChild(btn);
             listEl.appendChild(row);
         });
+        refreshRoleUi(); // รายการเพิ่งวาดใหม่ ต้องบังคับสิทธิ์ซ้ำกับปุ่มที่เพิ่งสร้าง
     } catch (err) {
         listEl.innerHTML = '<div class="hint-text" style="color:#ef4444;">โหลดรายการไม่สำเร็จ</div>';
         console.error('[Model Library] โหลดรายการไม่สำเร็จ:', err);
@@ -2150,7 +2199,7 @@ function handleMeasureClick(e) {
     pointerNDC.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
     pointerNDC.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
     raycaster.setFromCamera(pointerNDC, camera);
-    const targets = [groundDisc];
+    const targets = [groundPlane];
     if (factoryModel) targets.push(factoryModel);
     const hits = raycaster.intersectObjects(targets, true);
     if (!hits.length) return;
@@ -2192,6 +2241,31 @@ function handleMeasureClick(e) {
 // เกินช่วงนั้น thumb ของ slider จะไปสุดปลายช่วงแต่ค่าที่ใช้จริงยังถูกต้องเสมอ
 // ============================================================
 let isAdmin = false;
+// สิทธิ์ปัจจุบันของผู้ใช้: 'admin' | 'engineer' | 'user' (server เป็นคนตัดสิน)
+//   admin    = ทำได้ทุกอย่าง
+//   engineer = แก้ข้อมูลความปลอดภัย + ปักจุดได้ แต่ยุ่งกับตัวโมเดลไม่ได้
+//   user     = ดูอย่างเดียว
+let myRole = 'user';
+const canEditData = () => myRole === 'admin' || myRole === 'engineer';
+
+// ซ่อน/แสดงปุ่มตามสิทธิ์ — เป็นแค่ชั้นความสะดวก ตัวกันจริงอยู่ที่ server (denyAction)
+function refreshRoleUi() {
+    const editors = canEditData();
+    // ปุ่มบนป้ายข้อมูลชิ้นส่วน
+    [['btn-set-marker', editors], ['btn-assign-type', editors], ['btn-edit-mode', editors]]
+        .forEach(([id, allow]) => { const el = $(id); if (el) el.style.display = allow ? '' : 'none'; });
+    // ปุ่มลบจุดทั้งหมด (แผงเลเยอร์)
+    const clearBtn = $('btn-clear-markers');
+    if (clearBtn) clearBtn.style.display = editors ? '' : 'none';
+    // อัปโหลด/จัดการโมเดล — เฉพาะ admin
+    ['factory-input', 'btn-save-scene', 'btn-load-scene'].forEach(id => {
+        const el = $(id);
+        const holder = el && (el.closest('label') || el.closest('button') || el);
+        if (holder) holder.style.display = isAdmin ? '' : 'none';
+    });
+    document.querySelectorAll('.mlr-use-btn').forEach(b => { b.style.display = isAdmin ? '' : 'none'; });
+}
+window.refreshRoleUi = refreshRoleUi;
 let modelLocked = true;
 const SLIDER_IDS = ['param-posX', 'param-posY', 'param-posZ', 'param-rotY', 'param-scale'];
 const NUMBER_IDS = ['num-posX', 'num-posY', 'num-posZ', 'num-rotY', 'num-scale'];
@@ -2468,10 +2542,13 @@ async function initMultiplayer() {
         if (data.markers) { Object.assign(markerStore, data.markers); rebuildMarkers(); }
         modelLocked = data.modelLocked !== undefined ? data.modelLocked : true;
         isAdmin = !!data.isAdmin; // สิทธิ์ admin ตรวจจากบัญชีโดย server — ไม่มีรหัสผ่านแยกแล้ว
+        myRole = data.role || (isAdmin ? 'admin' : 'user');
         // คู่มือใช้ค่านี้ตัดสินว่าจะโชว์หัวข้อ/ปุ่มที่เป็นสิทธิ์แอดมินไหม
         window.AEC_IS_ADMIN = isAdmin;
+        window.AEC_ROLE = myRole;
         if (window.AecGuide) AecGuide.refresh();
         refreshTransformUiPermissions();
+        refreshRoleUi();
         updateMpAdminBadge(data.adminCount || 0);
 
         // ส่วนเฉพาะ player: ข้อมูลตัวละครของตัวเอง (watcher ได้ self เป็น null)
@@ -2513,6 +2590,11 @@ async function initMultiplayer() {
         delete markerStore[id];
         removeMarkerVisual(id);
     });
+    // server ปฏิเสธเพราะไม่มีสิทธิ์ — บอกผู้ใช้ตรงๆ ดีกว่าปล่อยให้กดแล้วเงียบ
+    mpSocket.on('action_denied', ({ action }) => {
+        mpAppendChat({ name: '🔒 สิทธิ์', color: '#ef4444', text: `บัญชีของคุณไม่มีสิทธิ์${action ? ' "' + action + '"' : 'ทำรายการนี้'}` });
+    });
+
     mpSocket.on('markers_cleared', () => {
         Object.keys(markerStore).forEach(id => delete markerStore[id]);
         [...markerObjects.keys()].forEach(removeMarkerVisual);
@@ -3312,6 +3394,18 @@ function updateAvatarPhysics() {
 // สลับจากแท็บบนหน้า Dashboard (ส่งเข้ามาทาง postMessage เพราะโลก 3D อยู่ใน iframe)
 // ============================================================
 let viewMode = 'third'; // third = กล้องตามหลังตัวละคร (ค่าเริ่มต้นเดิม)
+
+// ความสูงกล้องในโหมด Top View — เลื่อน scroll เพื่อซูมเข้า/ออกได้
+// (โหมดนี้ปิด OrbitControls ไว้เพราะโค้ดเราตั้งตำแหน่งกล้องเองทุกเฟรม
+//  ล้อเมาส์ของ OrbitControls จึงใช้ไม่ได้ ต้องดักล้อเองแล้วปรับความสูงแทน)
+const TOP_VIEW_MIN_H = 6, TOP_VIEW_MAX_H = 260;
+let topViewHeight = 26;
+renderer.domElement.addEventListener('wheel', e => {
+    if (viewMode !== 'top' || lobbyActive) return;
+    e.preventDefault();                       // กันหน้าเว็บเลื่อนตามไปด้วย
+    const factor = Math.exp(e.deltaY * 0.0012); // คูณแบบ exponential ให้ระยะซูมรู้สึกสม่ำเสมอทุกความสูง
+    topViewHeight = Math.min(TOP_VIEW_MAX_H, Math.max(TOP_VIEW_MIN_H, topViewHeight * factor));
+}, { passive: false });
 const FIRST_PERSON_EYE = 1.55; // ความสูงระดับสายตาของตัวละคร
 
 function applyCameraForViewMode() {
@@ -3329,7 +3423,8 @@ function applyCameraForViewMode() {
 
     if (viewMode === 'top') {
         // มุมมองจากด้านบน — มองลงตรงๆ ที่ตัวละคร (เยื้อง z นิดเดียวกันกล้องพลิกตอนมองดิ่ง 90°)
-        const h = 26 * sf;
+        // ความสูงปรับได้ด้วยการเลื่อน scroll (topViewHeight) ไม่ใช่ค่าตายตัวเหมือนเดิม
+        const h = topViewHeight * sf;
         camera.position.set(avatarModel.position.x, avatarModel.position.y + h, avatarModel.position.z + 0.01);
         controls.target.set(avatarModel.position.x, avatarModel.position.y, avatarModel.position.z);
         return;

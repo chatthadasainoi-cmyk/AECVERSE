@@ -38,6 +38,30 @@ function isAdminUser(user) {
     return user.app_metadata?.role === 'admin';
 }
 
+// ============================================================
+// ROLE — 3 ระดับ
+//   admin    : ทำได้ทุกอย่าง (อัปโหลด/ลบโมเดล, ขยับโมเดล, แก้ข้อมูล, ปักจุด)
+//   engineer : แก้ข้อมูลความปลอดภัย + ปักจุดได้ แต่ยุ่งกับตัวโมเดลไม่ได้
+//   user     : ดูอย่างเดียว
+// ============================================================
+const ROLES = ['admin', 'engineer', 'user'];
+function userRole(user) {
+    if (isAdminUser(user)) return 'admin';
+    return user?.app_metadata?.role === 'engineer' ? 'engineer' : 'user';
+}
+// แก้ข้อมูลชิ้นส่วน/ปักจุดได้ไหม
+const canEditData = user => userRole(user) !== 'user';
+// ยุ่งกับตัวโมเดล (อัปโหลด/ลบ/ขยับ/ล็อก) ได้ไหม
+const canManageModel = user => userRole(user) === 'admin';
+
+// ปฏิเสธคำสั่งที่ไม่มีสิทธิ์ แล้วบอกกลับไปให้ client ขึ้นข้อความได้
+// สำคัญ: ต้องกันที่ฝั่ง server ด้วย ซ่อนปุ่มฝั่งหน้าเว็บอย่างเดียวไม่พอ
+// เพราะใครก็ยิง socket event ตรงมาเองได้จาก console
+function denyAction(socket, what) {
+    socket.emit('action_denied', { action: what });
+    console.warn(`[PERM] ปฏิเสธ "${what}" — ${socket.data.user?.email || 'unknown'} (${userRole(socket.data.user)})`);
+}
+
 // รายการ id งาน onboarding ที่นับ progress ได้ — ต้องตรงกับ ONBOARDING_TASKS ใน
 // public/public-portal.js เป๊ะๆ (ชื่อ id เท่านั้นพอ ไม่ต้องมี label/href/icon ฝั่งนี้)
 const ONBOARDING_TASK_IDS = ['avatarSaved', 'virtualTourVisited', 'digitalTwinVisited', 'knowledgeCheckPassed', 'settingsVisited'];
@@ -74,7 +98,7 @@ app.get('/api/admin/users', requireAdmin, async (req, res) => {
         return {
             id: u.id,
             email: u.email,
-            role: isAdminUser(u) ? 'admin' : 'user',
+            role: userRole(u),
             isBootstrapAdmin: ADMIN_BOOTSTRAP_EMAILS.includes((u.email || '').toLowerCase()),
             createdAt: u.created_at,
             lastSignInAt: u.last_sign_in_at,
@@ -94,12 +118,12 @@ app.get('/api/me/role', async (req, res) => {
     if (!token) return res.status(401).json({ error: 'ไม่พบ token การเข้าสู่ระบบ' });
     const { data, error } = await supabaseVerify.auth.getUser(token);
     if (error || !data.user) return res.status(401).json({ error: 'Token ไม่ถูกต้องหรือหมดอายุ' });
-    res.json({ isAdmin: isAdminUser(data.user) });
+    res.json({ isAdmin: isAdminUser(data.user), role: userRole(data.user) });
 });
 
 app.post('/api/admin/users/:id/role', requireAdmin, async (req, res) => {
     const { role } = req.body;
-    if (role !== 'admin' && role !== 'user') return res.status(400).json({ error: 'role ต้องเป็น admin หรือ user เท่านั้น' });
+    if (!ROLES.includes(role)) return res.status(400).json({ error: 'role ต้องเป็น admin, engineer หรือ user เท่านั้น' });
 
     const { data: targetData, error: getErr } = await supabaseAdmin.auth.admin.getUserById(req.params.id);
     if (getErr || !targetData.user) return res.status(404).json({ error: 'ไม่พบผู้ใช้นี้' });
@@ -710,6 +734,7 @@ io.on('connection', socket => {
             self: player,
             others: Object.values(players).filter(p => p.id !== socket.id),
             isAdmin: userIsAdmin,
+            role: userRole(user),   // 'admin' | 'engineer' | 'user' — client ใช้ตัดสินว่าจะโชว์ปุ่มไหน
             ...publicState()
         });
         socket.emit('plant_update', computePlantSnapshot());
@@ -726,6 +751,7 @@ io.on('connection', socket => {
 
     // ---------- model share / remove ----------
     socket.on('model_shared', data => {
+        if (!canManageModel(user)) return denyAction(socket, 'อัปโหลด/เปลี่ยนโมเดล');
         // มีโมเดลอยู่แล้วและถูกล็อก -> เฉพาะ admin เท่านั้นที่อัปโหลดทับได้
         // (ไม่งั้นผู้ใช้ทั่วไป "ลบ" ฉากของห้องได้ทางอ้อมด้วยการอัปโหลดโมเดลใหม่ทับ)
         if (currentModelUrl && modelLocked && !admins.has(socket.id)) {
@@ -743,6 +769,7 @@ io.on('connection', socket => {
     });
 
     socket.on('model_removed', () => {
+        if (!canManageModel(user)) return denyAction(socket, 'ลบโมเดล');
         // ลบได้เฉพาะ admin ที่ "ปลดล็อกโมเดลแล้ว" เท่านั้น — ล็อกอยู่ = ห้ามลบ (กันลบพลาด/ผู้ใช้ลบ)
         if (!admins.has(socket.id) || modelLocked) return;
         currentModelUrl = null;
@@ -756,6 +783,7 @@ io.on('connection', socket => {
 
     // ---------- REQ 1&2: lock + transform sync (สิทธิ์ admin มาจากบัญชีอัตโนมัติ) ----------
     socket.on('toggle_lock', () => {
+        if (!canManageModel(user)) return denyAction(socket, 'ล็อก/ปลดล็อกโมเดล');
         if (!admins.has(socket.id)) return; // เฉพาะ admin เท่านั้นที่ล็อก/ปลดล็อกได้
         modelLocked = !modelLocked;
         io.emit('lock_state', { locked: modelLocked, by: players[socket.id]?.name || 'Admin' });
@@ -764,6 +792,7 @@ io.on('connection', socket => {
     });
 
     socket.on('model_transform_update', data => {
+        if (!canManageModel(user)) return denyAction(socket, 'ปรับตำแหน่งโมเดล');
         // ป้องกันฝั่ง user ทั่วไปแก้ไขข้อมูล — ปรับได้เฉพาะ admin ที่ปลดล็อกแล้วเท่านั้น
         if (!admins.has(socket.id) || modelLocked) return;
         modelTransform = {
@@ -779,6 +808,7 @@ io.on('connection', socket => {
 
     // ---------- workflow / safety data edit ----------
     socket.on('workflow_update', data => {
+        if (!canEditData(user)) return denyAction(socket, 'แก้ไขข้อมูลชิ้นส่วน');
         workflowDb[data.key] = {
             name: data.name,
             desc: data.desc,
@@ -794,6 +824,7 @@ io.on('connection', socket => {
 
     // ล้างการกำหนด type — ต้อง sync + persist เหมือนการกำหนด (เดิมเป็น local อย่างเดียว)
     socket.on('type_clear', data => {
+        if (!canEditData(user)) return denyAction(socket, 'ล้างการกำหนดประเภท');
         if (!data || !data.key) return;
         delete workflowDb[data.key];
         delete typeAssignments[data.key];
@@ -827,6 +858,7 @@ io.on('connection', socket => {
         return '#38bdf8';
     };
     socket.on('marker_set', data => {
+        if (!canEditData(user)) return denyAction(socket, 'ปักจุด');
         if (!data || !data.id) return;
         const num = v => (Number.isFinite(Number(v)) ? Number(v) : 0);
         const marker = {
@@ -841,6 +873,7 @@ io.on('connection', socket => {
         console.log(`[MARKER] set ${marker.id} "${marker.name}" (${marker.color})`);
     });
     socket.on('marker_remove', data => {
+        if (!canEditData(user)) return denyAction(socket, 'ลบจุด');
         if (!data || !data.id || !markers[data.id]) return;
         delete markers[data.id];
         io.emit('marker_removed', { id: data.id });
@@ -851,6 +884,7 @@ io.on('connection', socket => {
     // ล้างจุดทั้งหมดทีเดียว — จุดผูกกับพิกัดในโลก ไม่ได้ผูกกับตัวโมเดล
     // พอเปลี่ยนโมเดลใหม่ จุดของโมเดลเก่าจึงค้างลอยอยู่ ต้องมีทางล้างให้หมดในคลิกเดียว
     socket.on('markers_clear', () => {
+        if (!canEditData(user)) return denyAction(socket, 'ลบจุดทั้งหมด');
         const n = Object.keys(markers).length;
         if (!n) return;
         Object.keys(markers).forEach(id => delete markers[id]);
