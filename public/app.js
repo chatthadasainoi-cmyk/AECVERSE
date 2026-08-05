@@ -1384,6 +1384,19 @@ function walkToSelected() {
 }
 window.walkToSelected = walkToSelected;
 
+// เดินอัตโนมัติไปยังพิกัดที่ระบุ (ไม่ต้องมีชิ้นส่วนถูกเลือก) — ใช้กับจุดที่ปักไว้
+// และการเรียกรวมพลฉุกเฉิน (REQ 3)
+function walkToPoint(x, z) {
+    if (!avatarModel) return false;
+    if (isFreeLook) { isFreeLook = false; resetCameraToAvatar(); }
+    autoWalk.active = true;
+    autoWalk.targetX = x;
+    autoWalk.targetZ = z;
+    const hud = $('walk-arrow-hud'); if (hud) hud.style.display = 'flex';
+    return true;
+}
+window.walkToPoint = walkToPoint;
+
 function cancelAutoWalk() {
     if (!autoWalk.active) return;
     autoWalk.active = false;
@@ -1892,7 +1905,7 @@ function pointInZone(shape, r, dx, dz) {
 
 // ป้ายลอย — รูปทรงตามที่ผู้ใช้เลือก จุดที่มีเขตปลอดภัยจะใช้สัญลักษณ์โล่แทนเครื่องหมายตกใจ
 // ให้แยกออกทันทีว่าอันไหนเป็น "จุดระยะปลอดภัย" (REQ 9)
-function markerBadgeSprite(colorHex, shape, hasZone) {
+function markerBadgeSprite(colorHex, shape, hasZone, isEmergency) {
     const css = '#' + colorHex.toString(16).padStart(6, '0');
     const canvas = document.createElement('canvas');
     canvas.width = 128; canvas.height = 128;
@@ -1913,8 +1926,9 @@ function markerBadgeSprite(colorHex, shape, hasZone) {
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     // สามเหลี่ยมมีพื้นที่ว่างอยู่ค่อนล่าง ต้องดันสัญลักษณ์ลงมาไม่ให้ล้นออกนอกรูป
     const cy = shape === 'triangle' ? 82 : 68;
-    ctx.font = hasZone ? 'bold 46px Arial' : 'bold 62px Arial';
-    ctx.fillText(hasZone ? '🛟' : '!', 64, cy);
+    const glyph = isEmergency ? '🚨' : (hasZone ? '🛟' : '!');
+    ctx.font = glyph === '!' ? 'bold 62px Arial' : 'bold 46px Arial';
+    ctx.fillText(glyph, 64, cy);
     const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), depthTest: false, transparent: true }));
     sprite.renderOrder = 1001;
     return sprite;
@@ -1970,8 +1984,9 @@ function addMarkerVisual(m) {
     // REQ 7 — ขนาดป้ายมาจากค่าที่ผู้ใช้ตั้งไว้เอง ไม่คูณ currentModelScaleFactor() อีกแล้ว
     // เปลี่ยนโมเดลหรือย่อ/ขยายโมเดลกี่ครั้ง จุดก็ยังขนาดเท่าเดิมตามที่ตั้งไว้
     const size = markerSize(m);
+    const emergency = !!m.emergency;
 
-    const badge = markerBadgeSprite(colorHex, shape, radius > 0);
+    const badge = markerBadgeSprite(colorHex, shape, radius > 0, emergency);
     badge.scale.set(0.85 * size, 0.85 * size, 1);
     badge.position.set(m.x, m.y + 1.7 * size, m.z);
     scene.add(badge);
@@ -2002,9 +2017,10 @@ function addMarkerVisual(m) {
 
     markerObjects.set(m.id, {
         badge, label, zone, perimLabel,
-        x: m.x, y: m.y, z: m.z, size, radius, shape,
+        x: m.x, y: m.y, z: m.z, size, radius, shape, emergency,
         inside: false // ตัวเราเองอยู่ในเขตนี้อยู่หรือเปล่า (ใช้ตรวจจังหวะ "เข้า/ออก")
     });
+    renderMarkerList();
 }
 
 function removeMarkerVisual(id) {
@@ -2021,6 +2037,7 @@ function removeMarkerVisual(id) {
         o.zone.traverse(c => { c.geometry?.dispose(); c.material?.dispose(); });
     }
     markerObjects.delete(id);
+    renderMarkerList();
 }
 
 function rebuildMarkers() {
@@ -2042,8 +2059,11 @@ function updateMarkers() {
     const pos = avatarModel ? avatarModel.position : camera.position;
     const range = MARKER_LABEL_RANGE * currentModelScaleFactor();
     const topView = viewMode === 'top';
+    // จุดฉุกเฉินเต้นแรงและเร็วกว่าจุดปกติ — มองปราดเดียวต้องแยกออกจากจุดอื่นทันที
+    const sos = 1 + Math.sin(Date.now() * 0.008) * 0.3;
     markerObjects.forEach((o, id) => {
-        o.badge.scale.set(0.85 * o.size * pulse, 0.85 * o.size * pulse, 1);
+        const p = o.emergency ? sos : pulse;
+        o.badge.scale.set(0.85 * o.size * p, 0.85 * o.size * p, 1);
         o.badge.position.y = o.y + (1.7 + bob) * o.size; // ลอยขึ้นลงเบาๆ ให้สังเกตเห็นง่าย
         const d = Math.hypot(pos.x - o.x, pos.z - o.z);
         o.label.visible = d <= range;
@@ -2069,10 +2089,11 @@ let markerEditorColor = 'blue';
 let markerEditorShape = 'circle';
 let markerEditorSize = 1;
 let markerEditorRadius = 0;
+let markerEditorEmergency = false;
 
 // เปิดหน้าต่างแก้ไขจุดจากพิกัดโลกที่ระบุมาตรงๆ — ใช้ร่วมกันทั้งทางที่มาจากการ
 // เลือกชิ้นส่วน และทางที่มาจากการคลิกวางจุดเองในฉาก (REQ 7)
-function openMarkerEditorAt(id, x, y, z, targetText, defaultName, defaultRadius) {
+function openMarkerEditorAt(id, x, y, z, targetText, defaultName, defaultRadius, defaultEmergency) {
     const existing = markerStore[id];
     markerEditorTarget = { id, x, y, z };
     // เก็บเป็น hex เสมอ — marker เก่าที่บันทึกเป็นชื่อสีจะถูกแปลงให้อัตโนมัติ
@@ -2083,6 +2104,7 @@ function openMarkerEditorAt(id, x, y, z, targetText, defaultName, defaultRadius)
     // พอกดบันทึกแล้วค่าจะถูกล็อกไว้กับจุดนั้น ไม่เปลี่ยนตามโมเดลอีก
     markerEditorSize = Math.round(Math.min(20, Math.max(0.2, markerSize(existing || {}))) * 10) / 10;
     markerEditorRadius = existing ? markerRadius(existing) : (defaultRadius || 0);
+    markerEditorEmergency = existing ? !!existing.emergency : !!defaultEmergency;
 
     $('marker-editor-target').innerText = targetText;
     $('marker-name-input').value = existing ? existing.name : (defaultName || '');
@@ -2109,27 +2131,31 @@ window.openMarkerEditorForActive = function () {
         `📦 ${mesh.name || mesh.uuid.slice(0, 8)}`, mesh.name || '');
 };
 
-// ---------- REQ 7 & 9: โหมดคลิกวางจุดเองในฉาก ----------
-// 'point' = ปักจุดธรรมดา, 'zone' = ปักจุดระยะปลอดภัย (มีรัศมีติดมาให้เลย)
+// ---------- REQ 3, 7 & 9: โหมดคลิกวางจุดเองในฉาก ----------
+// 'point' = ปักจุดธรรมดา, 'zone' = จุดระยะปลอดภัย (มีรัศมีติดมาให้เลย), 'sos' = จุดรวมพลฉุกเฉิน
 let markerPlaceMode = null;
+const PLACE_MODE_HINT = {
+    point: ['📍 ปักจุด', 'คลิกตรงไหนในฉากก็ได้เพื่อวางจุดตรงนั้นพอดี (กดปุ่มซ้ำเพื่อออก)'],
+    zone: ['🛟 ระยะปลอดภัย', 'คลิกในฉากเพื่อวาง "จุดศูนย์กลาง" ของเขตระยะปลอดภัย แล้วตั้งรัศมี/รูปทรงในหน้าต่างที่เปิดขึ้น (กดปุ่มซ้ำเพื่อออก)'],
+    sos: ['🚨 จุดฉุกเฉิน', 'คลิกในฉากเพื่อวางจุดรวมพลฉุกเฉิน — พอปักแล้วจะมีปุ่มเรียกให้ทุกคนเดินมาที่จุดนี้พร้อมกัน (กดปุ่มซ้ำเพื่อออก)']
+};
 
 function setMarkerPlaceMode(mode) {
     markerPlaceMode = mode;
     if (mode && measureMode) toggleMeasureMode(); // สองโหมดนี้แย่งคลิกกัน เปิดได้ทีละอย่าง
-    ['btn-place-marker', 'hud-place-marker'].forEach(id => $(id)?.classList.toggle('place-on', mode === 'point'));
-    ['btn-place-zone', 'hud-place-zone'].forEach(id => $(id)?.classList.toggle('place-on', mode === 'zone'));
+    [['point', 'btn-place-marker', 'hud-place-marker'],
+    ['zone', 'btn-place-zone', 'hud-place-zone'],
+    ['sos', 'btn-place-sos', 'hud-place-sos']]
+        .forEach(([m, ...ids]) => ids.forEach(id => $(id)?.classList.toggle('place-on', mode === m)));
     renderer.domElement.style.cursor = mode ? 'crosshair' : '';
-    if (mode) {
-        mpAppendChat({
-            name: mode === 'zone' ? '🛟 ระยะปลอดภัย' : '📍 ปักจุด', color: '#22d3ee',
-            text: mode === 'zone'
-                ? 'คลิกในฉากเพื่อวาง "จุดศูนย์กลาง" ของเขตระยะปลอดภัย แล้วตั้งรัศมี/รูปทรงในหน้าต่างที่เปิดขึ้น (กดปุ่มซ้ำเพื่อออก)'
-                : 'คลิกตรงไหนในฉากก็ได้เพื่อวางจุดตรงนั้นพอดี (กดปุ่มซ้ำเพื่อออก)'
-        });
+    if (mode && PLACE_MODE_HINT[mode]) {
+        const [who, text] = PLACE_MODE_HINT[mode];
+        mpAppendChat({ name: who, color: mode === 'sos' ? '#ef4444' : '#22d3ee', text });
     }
 }
 window.toggleMarkerPlaceMode = function () { setMarkerPlaceMode(markerPlaceMode === 'point' ? null : 'point'); };
 window.toggleZonePlaceMode = function () { setMarkerPlaceMode(markerPlaceMode === 'zone' ? null : 'zone'); };
+window.toggleSosPlaceMode = function () { setMarkerPlaceMode(markerPlaceMode === 'sos' ? null : 'sos'); };
 
 // ยิงรังสีจากตำแหน่งที่คลิกลงไปหาโมเดล/พื้น แล้วคืนพิกัดโลกที่โดน
 function pickWorldPoint(e) {
@@ -2146,15 +2172,18 @@ function pickWorldPoint(e) {
 function handleMarkerPlaceClick(e) {
     const pt = pickWorldPoint(e);
     if (!pt) return;
-    const isZone = markerPlaceMode === 'zone';
+    const mode = markerPlaceMode;
     setMarkerPlaceMode(null); // วางแล้วออกจากโหมดทันที ไม่ให้ปักซ้ำโดยไม่ตั้งใจ
     const id = 'mp_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const head = { zone: '🛟 จุดระยะปลอดภัย', sos: '🚨 จุดรวมพลฉุกเฉิน' }[mode] || '📍 จุดที่คลิก';
+    const dfltName = { zone: 'จุดระยะปลอดภัย', sos: 'จุดรวมพลฉุกเฉิน' }[mode] || '';
     openMarkerEditorAt(
         id, pt.x, pt.y, pt.z,
-        `${isZone ? '🛟 จุดระยะปลอดภัย' : '📍 จุดที่คลิก'} — X ${pt.x.toFixed(1)} / Z ${pt.z.toFixed(1)}`,
-        isZone ? 'จุดระยะปลอดภัย' : '',
-        // เขตปลอดภัยต้องมีรัศมีตั้งต้นให้เห็นภาพก่อน แล้วค่อยลากปรับ
-        isZone ? Math.max(3, currentModelScaleFactor() * 5) : 0
+        `${head} — X ${pt.x.toFixed(1)} / Z ${pt.z.toFixed(1)}`,
+        dfltName,
+        // เขตปลอดภัย/จุดฉุกเฉินต้องมีรัศมีตั้งต้นให้เห็นภาพก่อน แล้วค่อยลากปรับ
+        mode === 'point' ? 0 : Math.max(3, currentModelScaleFactor() * 5),
+        mode === 'sos'
     );
 }
 
@@ -2198,6 +2227,9 @@ function syncMarkerEditorControls() {
     }
     if (rOut) rOut.textContent = markerEditorRadius > 0 ? markerEditorRadius.toFixed(1) + ' ม.' : 'ไม่มีเขต';
 
+    const sos = $('marker-emergency-toggle');
+    if (sos) sos.classList.toggle('on', markerEditorEmergency);
+
     // REQ 8 — โชว์เส้นรอบรูป (และพื้นที่) ให้เห็นสดๆ ระหว่างลาก
     const perim = $('marker-perimeter-out');
     if (perim) {
@@ -2209,6 +2241,10 @@ function syncMarkerEditorControls() {
 
 window.pickMarkerShape = function (shape) {
     markerEditorShape = normShape(shape);
+    syncMarkerEditorControls();
+};
+window.toggleMarkerEmergency = function () {
+    markerEditorEmergency = !markerEditorEmergency;
     syncMarkerEditorControls();
 };
 $('marker-size-slider')?.addEventListener('input', function () {
@@ -2262,7 +2298,8 @@ window.saveActiveMarker = function () {
     const m = {
         id: markerEditorTarget.id, name, color: markerEditorColor,
         x: markerEditorTarget.x, y: markerEditorTarget.y, z: markerEditorTarget.z,
-        shape: markerEditorShape, size: markerEditorSize, radius: markerEditorRadius
+        shape: markerEditorShape, size: markerEditorSize, radius: markerEditorRadius,
+        emergency: markerEditorEmergency
     };
     // วาดให้เห็นทันทีโดยไม่รอ server ตอบ (ถ้าเน็ตช้าจะได้ไม่รู้สึกว่ากดแล้วไม่มีอะไรเกิดขึ้น)
     markerStore[m.id] = m;
@@ -2302,6 +2339,159 @@ window.removeActiveMarker = function () {
 };
 
 $('marker-editor-overlay')?.addEventListener('click', function (e) { if (e.target === this) closeMarkerEditor(); });
+
+// ============================================================
+// 9.3 รายการจุดที่ปักไว้ (คอลัมน์ขวา) — ค้นหาชื่อจุด เดินไปหา แก้ไข หรือลบทีละจุด
+// เดิมลบได้แค่ "ล้างทั้งหมด" ซึ่งแรงเกินไปเวลาปักผิดแค่จุดเดียว
+// ============================================================
+const SHAPE_GLYPH = { circle: '⬤', square: '■', triangle: '▲' };
+let markerListFilter = '';
+// ชื่อจุดมาจากผู้ใช้คนอื่น ห้ามยัดเข้า innerHTML ดิบๆ
+const escHtml = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+function renderMarkerList() {
+    const box = $('marker-list-container');
+    if (!box) return;
+    const all = Object.values(markerStore);
+    // จุดฉุกเฉินขึ้นก่อนเสมอ ที่เหลือเรียงตามชื่อให้หาเจอง่าย
+    all.sort((a, b) => (!!b.emergency - !!a.emergency) || String(a.name).localeCompare(String(b.name), 'th'));
+
+    const countEl = $('marker-list-count');
+    if (countEl) countEl.textContent = all.length ? `(${all.length})` : '';
+
+    const q = markerListFilter.trim().toLowerCase();
+    const list = q ? all.filter(m => String(m.name).toLowerCase().includes(q)) : all;
+
+    if (!all.length) {
+        box.innerHTML = '<div class="mesh-empty-state">ยังไม่มีจุดที่ปักไว้<br>ใช้ปุ่ม 📍 ปักจุด ในแท็บ "เลเยอร์" เพื่อเริ่ม</div>';
+        return;
+    }
+    if (!list.length) {
+        box.innerHTML = `<div class="mesh-empty-state">ไม่พบจุดที่ชื่อตรงกับ "${escHtml(markerListFilter)}"</div>`;
+        return;
+    }
+
+    const editors = canEditData();
+    box.innerHTML = list.map(m => {
+        const css = '#' + markerColorToHex(m.color).toString(16).padStart(6, '0');
+        const r = markerRadius(m);
+        const meta = [
+            `X ${Number(m.x).toFixed(1)} · Z ${Number(m.z).toFixed(1)}`,
+            r > 0 ? `รัศมี ${r.toFixed(1)} ม. · รอบรูป ${zonePerimeter(normShape(m.shape), r).toFixed(1)} ม.` : null
+        ].filter(Boolean).join(' — ');
+        return `<div class="mk-item${m.emergency ? ' sos' : ''}" data-id="${escHtml(m.id)}">
+            <div class="mk-row">
+                <span class="mk-dot" style="color:${css};">${SHAPE_GLYPH[normShape(m.shape)]}</span>
+                <span class="mk-name">${m.emergency ? '🚨 ' : ''}${escHtml(m.name)}</span>
+            </div>
+            <div class="mk-meta">${escHtml(meta)}</div>
+            <div class="mk-actions">
+                <button class="mk-btn go" data-act="go" title="ให้ตัวละครเดินไปที่จุดนี้">🚶 เดินไป</button>
+                ${editors ? `<button class="mk-btn edit" data-act="edit" title="แก้ชื่อ/สี/รูปทรง/รัศมี">✏️ แก้ไข</button>
+                <button class="mk-btn del" data-act="del" title="ลบเฉพาะจุดนี้">🗑️ ลบ</button>
+                ${m.emergency ? '<button class="mk-btn sos" data-act="sos" title="สั่งให้ทุกคนเดินมาที่จุดนี้">🚨 เรียกรวมพล</button>' : ''}` : ''}
+            </div>
+        </div>`;
+    }).join('');
+}
+window.renderMarkerList = renderMarkerList;
+
+// ใช้ event delegation แทน onclick ในสตริง — id ของจุดมาจากชื่อชิ้นส่วนในไฟล์โมเดล
+// ซึ่งอาจมีอัญประกาศปนมาแล้วทำให้ attribute แตก
+$('marker-list-container')?.addEventListener('click', e => {
+    const btn = e.target.closest('.mk-btn');
+    const item = e.target.closest('.mk-item');
+    if (!btn || !item) return;
+    const id = item.dataset.id;
+    ({ go: walkToMarker, edit: editMarkerById, del: deleteMarkerById, sos: callEmergency })[btn.dataset.act]?.(id);
+});
+
+$('marker-filter')?.addEventListener('input', function () {
+    markerListFilter = this.value || '';
+    renderMarkerList();
+});
+
+window.walkToMarker = function (id) {
+    const m = markerStore[id];
+    if (!m) return;
+    if (!walkToPoint(m.x, m.z)) {
+        mpAppendChat({ name: '📍 ระบบ', color: '#94a3b8', text: 'โหมดนี้ไม่มีตัวละครให้เดิน — เปิดในโหมด Metaverse เพื่อใช้งาน' });
+        return;
+    }
+    mpAppendChat({ name: '🚶 เดินไป', color: '#22c55e', text: `กำลังเดินไปที่ "${m.name}"` });
+};
+
+window.editMarkerById = function (id) {
+    const m = markerStore[id];
+    if (!m) return;
+    openMarkerEditorAt(id, m.x, m.y, m.z, `📍 ${m.name} — X ${Number(m.x).toFixed(1)} / Z ${Number(m.z).toFixed(1)}`, m.name);
+};
+
+// ลบทีละจุด — ที่ผู้ใช้ขอเพิ่ม เพราะเดิมมีแต่ปุ่มล้างทั้งหมด
+window.deleteMarkerById = function (id) {
+    const m = markerStore[id];
+    if (!m) return;
+    if (!confirm(`ลบจุด "${m.name}" ?\nทุกคนในโลกจะไม่เห็นจุดนี้อีก และกู้คืนไม่ได้`)) return;
+    delete markerStore[id];
+    removeMarkerVisual(id);
+    if (mpSocket && mpSocket.connected) mpSocket.emit('marker_remove', { id });
+    mpAppendChat({ name: '📍 ระบบ', color: '#94a3b8', text: `ลบจุด "${m.name}" แล้ว` });
+};
+
+// ============================================================
+// 9.4 REQ 3 — เรียกรวมพลฉุกเฉิน
+// กดครั้งเดียว ตัวละครของทุกคนในโลกเดินไปที่จุดฉุกเฉินเองอัตโนมัติ
+// ============================================================
+let activeEmergency = null; // { markerId, name, x, y, z, by } ที่ server บอกว่ากำลังเรียกอยู่
+
+function emergencyMarkers() {
+    return Object.values(markerStore).filter(m => m.emergency);
+}
+
+// เรียกรวมพล — ถ้ามีจุดฉุกเฉินหลายจุดให้เลือกจากรายการ, ถ้ามีจุดเดียวก็ใช้จุดนั้นเลย
+window.callEmergency = function (id) {
+    // ปุ่มหลักทำหน้าที่สลับเรียก/ยกเลิก — แต่ถ้ากดจากรายการจุด (มี id) ให้ถือว่าตั้งใจเรียกจุดนั้น
+    if (activeEmergency && !id) { cancelEmergency(); return; }
+    const list = emergencyMarkers();
+    let target = id ? markerStore[id] : (list.length === 1 ? list[0] : null);
+    if (!target && list.length > 1) {
+        const names = list.map((m, i) => `${i + 1}. ${m.name}`).join('\n');
+        const pick = prompt(`มีจุดฉุกเฉิน ${list.length} จุด — พิมพ์หมายเลขจุดที่ต้องการเรียกรวมพล:\n${names}`, '1');
+        target = list[Number(pick) - 1];
+    }
+    if (!target) {
+        mpAppendChat({ name: '🚨 ฉุกเฉิน', color: '#ef4444', text: 'ยังไม่มีจุดฉุกเฉินในโลกนี้ — ปักด้วยปุ่ม "🚨 ปักจุดฉุกเฉิน" ก่อน' });
+        return;
+    }
+    if (!confirm(`เรียกรวมพลฉุกเฉินไปที่ "${target.name}" ?\nตัวละครของ "ทุกคน" ที่อยู่ในโลกตอนนี้จะถูกสั่งให้เดินไปที่จุดนั้นทันที`)) return;
+    if (mpSocket && mpSocket.connected) mpSocket.emit('emergency_call', { id: target.id });
+};
+
+window.cancelEmergency = function () {
+    if (mpSocket && mpSocket.connected) mpSocket.emit('emergency_cancel');
+};
+
+// รับคำสั่งจาก server แล้วสั่งตัวละครของเราเดินไปเอง + ขึ้นแถบเตือนค้างไว้
+function applyEmergencyCall(call) {
+    activeEmergency = call;
+    const banner = $('emergency-banner');
+    if (banner) {
+        banner.style.display = call ? 'flex' : 'none';
+        if (call) $('emergency-banner-text').textContent = `เรียกรวมพลฉุกเฉิน → "${call.name}"`;
+    }
+    const btn = $('btn-call-emergency');
+    if (btn) {
+        btn.classList.toggle('calling', !!call);
+        btn.textContent = call ? '🚨 ยกเลิกการเรียกรวมพล' : '🚨 เรียกรวมพลฉุกเฉิน';
+    }
+    if (call) {
+        mpAppendChat({ name: '🚨 ฉุกเฉิน', color: '#ef4444', text: `เรียกรวมพลไปที่ "${call.name}" — ทุกคนกำลังถูกนำทางไปที่จุดนั้น` });
+        if (!walkToPoint(call.x, call.z)) return; // โหมด viewer ไม่มีตัวละคร แค่รับรู้ว่ามีการเรียก
+    } else {
+        mpAppendChat({ name: '🚨 ฉุกเฉิน', color: '#94a3b8', text: 'ยกเลิกการเรียกรวมพลแล้ว' });
+        cancelAutoWalk();
+    }
+}
 
 // ============================================================
 // 9.5 SAFETY VISUALIZATION LAYERS — ชั้นแสดงผลตามแบบประเมิน IOC
@@ -2541,7 +2731,8 @@ function refreshRoleUi() {
 
     // ปุ่มแก้ข้อมูล/ปักจุด บนป้ายข้อมูลชิ้นส่วน — admin + engineer
     ['btn-set-marker', 'btn-assign-type', 'btn-edit-mode', 'btn-clear-markers',
-        'btn-place-marker', 'btn-place-zone', 'hud-place-marker', 'hud-place-zone']
+        'btn-place-marker', 'btn-place-zone', 'btn-place-sos', 'btn-call-emergency',
+        'hud-place-marker', 'hud-place-zone', 'hud-place-sos']
         .forEach(id => show(id, editors));
 
     // แผง "โมเดล" ทั้งแผง (อัปโหลด + คลังโมเดล + เซฟ/โหลด) — user ไม่ต้องเห็นเลย
@@ -2563,6 +2754,8 @@ function refreshRoleUi() {
     document.querySelectorAll('.mlr-use-btn').forEach(b => { b.style.display = isAdmin ? '' : 'none'; });
     // ปุ่มลบโมเดลมี interval คุมอยู่แล้ว (เช็ค isAdmin) — ที่นี่แค่ปิดให้ทันทีไม่ต้องรอรอบถัดไป
     if (!isAdmin) show('btn-delete-model', false);
+    // รายการจุดโชว์ปุ่มแก้ไข/ลบตามสิทธิ์ ต้องวาดใหม่เมื่อรู้สิทธิ์แล้ว
+    if (typeof renderMarkerList === 'function') renderMarkerList();
 }
 window.refreshRoleUi = refreshRoleUi;
 let modelLocked = true;
@@ -2839,6 +3032,8 @@ async function initMultiplayer() {
         if (data.workflowDb) Object.assign(workflowDatabase, data.workflowDb);
         if (data.typeAssignments) Object.assign(userDefinedTypes, data.typeAssignments);
         if (data.markers) { Object.assign(markerStore, data.markers); rebuildMarkers(); }
+        // เพิ่งเข้ามาแต่มีการเรียกรวมพลค้างอยู่ — ต้องถูกนำทางไปด้วยเหมือนคนอื่น
+        if (data.emergencyCall) applyEmergencyCall(data.emergencyCall);
         modelLocked = data.modelLocked !== undefined ? data.modelLocked : true;
         isAdmin = !!data.isAdmin; // สิทธิ์ admin ตรวจจากบัญชีโดย server — ไม่มีรหัสผ่านแยกแล้ว
         myRole = data.role || (isAdmin ? 'admin' : 'user');
@@ -2899,6 +3094,10 @@ async function initMultiplayer() {
         Object.keys(markerStore).forEach(id => delete markerStore[id]);
         [...markerObjects.keys()].forEach(removeMarkerVisual);
     });
+
+    // REQ 3 — มีคนกดเรียกรวมพลฉุกเฉิน: ตัวละครของเราเดินไปเองทันที
+    mpSocket.on('emergency_called', call => applyEmergencyCall(call));
+    mpSocket.on('emergency_cancelled', () => applyEmergencyCall(null));
 
     // REQ 7 — ประกาศในแชทว่าใครเข้า/ออกเขตของจุดไหน ทุกคนในห้องเห็นเหมือนกัน
     mpSocket.on('marker_presence_changed', d => {

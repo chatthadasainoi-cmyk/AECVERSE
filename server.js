@@ -179,9 +179,13 @@ let currentModelUrl = null;
 let currentModelName = null;
 const workflowDb = {};        // key -> { name, desc, steps, colorClass, requiresPPE }
 const typeAssignments = {};   // key -> typeKey ที่ admin กำหนดเอง
-// จุดที่ผู้ใช้ปักเอง (marker) — id -> { id, name, color, x, y, z }
+// จุดที่ผู้ใช้ปักเอง (marker) — id -> { id, name, color, x, y, z, shape, size, radius, emergency }
 // ต่างจาก typeAssignments ตรงที่ตั้งชื่อ/สีได้อิสระ ไม่ต้องผูกกับประเภทอุปกรณ์ที่มีอยู่
 const markers = {};
+// REQ 3: การเรียกรวมพลฉุกเฉินที่ยัง "ค้างอยู่" — null = ไม่มีการเรียก
+// เก็บไว้เพื่อให้คนที่เพิ่งเข้ามาทีหลังรู้ด้วยว่าตอนนี้กำลังเรียกอยู่ (ส่งไปกับ self_init)
+// ไม่ต้อง persist ลงไฟล์ — เป็นเหตุการณ์เฉพาะหน้า รีสตาร์ท server แล้วถือว่าจบไป
+let emergencyCall = null;
 
 // REQ 1 & 2: ตำแหน่ง/ขนาด/หมุนของโมเดลโรงงาน — sync ให้ทุกคนเห็นตรงกัน
 let modelTransform = { posX: 0, posY: 0, posZ: 0, rotY: 0, scale: 1 };
@@ -491,6 +495,7 @@ function publicState() {
         markers,
         modelTransform,
         modelLocked,
+        emergencyCall, // คนที่เพิ่งเข้ามาต้องรู้ด้วยว่ากำลังมีการเรียกรวมพลค้างอยู่
         adminCount: admins.size
     };
 }
@@ -874,7 +879,8 @@ io.on('connection', socket => {
             x: num(data.x), y: num(data.y), z: num(data.z),
             shape: MARKER_SHAPES.includes(data.shape) ? data.shape : 'circle',
             size: clamp(data.size, 0.1, 40, 1),      // ขนาดป้าย — ผู้ใช้ตั้งเอง ไม่โตตามโมเดล
-            radius: clamp(data.radius, 0, 2000, 0)   // รัศมีเขตปลอดภัย (0 = ไม่มีเขต)
+            radius: clamp(data.radius, 0, 2000, 0),  // รัศมีเขตปลอดภัย (0 = ไม่มีเขต)
+            emergency: !!data.emergency              // เป็นจุดรวมพลฉุกเฉินไหม
         };
         markers[marker.id] = marker;
         io.emit('marker_updated', marker); // io ไม่ใช่ broadcast — คนปักเองต้องได้ id ที่ผ่านการ sanitize กลับไปด้วย
@@ -903,6 +909,11 @@ io.on('connection', socket => {
         if (!data || !data.id || !markers[data.id]) return;
         delete markers[data.id];
         io.emit('marker_removed', { id: data.id });
+        // ลบจุดที่กำลังเรียกรวมพลอยู่ = การเรียกนั้นไม่มีที่หมายแล้ว ต้องยกเลิกตามไปด้วย
+        if (emergencyCall && emergencyCall.markerId === data.id) {
+            emergencyCall = null;
+            io.emit('emergency_cancelled');
+        }
         schedulePersistSceneState();
         console.log(`[MARKER] removed ${data.id}`);
     });
@@ -915,8 +926,28 @@ io.on('connection', socket => {
         if (!n) return;
         Object.keys(markers).forEach(id => delete markers[id]);
         io.emit('markers_cleared');
+        if (emergencyCall) { emergencyCall = null; io.emit('emergency_cancelled'); }
         schedulePersistSceneState();
         console.log(`[MARKER] cleared all (${n})`);
+    });
+
+    // ---------- REQ 3: เรียกรวมพลฉุกเฉิน ----------
+    // กดครั้งเดียวแล้วตัวละครของ "ทุกคน" ในโลกจะเดินไปที่จุดนั้นเองอัตโนมัติ
+    // สิทธิ์เท่ากับการปักจุด (admin/engineer) — เป็นคำสั่งที่กระทบทุกคน ต้องกันไว้ที่ server
+    socket.on('emergency_call', data => {
+        if (!canEditData(user)) return denyAction(socket, 'เรียกรวมพลฉุกเฉิน');
+        const m = data && data.id ? markers[data.id] : null;
+        if (!m) return;
+        emergencyCall = { markerId: m.id, name: m.name, x: m.x, y: m.y, z: m.z, by: user?.email || 'ระบบ', at: Date.now() };
+        io.emit('emergency_called', emergencyCall);
+        console.log(`[EMERGENCY] เรียกรวมพลไปที่ "${m.name}" โดย ${emergencyCall.by}`);
+    });
+    socket.on('emergency_cancel', () => {
+        if (!canEditData(user)) return denyAction(socket, 'ยกเลิกการเรียกฉุกเฉิน');
+        if (!emergencyCall) return;
+        emergencyCall = null;
+        io.emit('emergency_cancelled');
+        console.log(`[EMERGENCY] ยกเลิกโดย ${user?.email || 'unknown'}`);
     });
 
     // ---------- เส้นวัดระยะ — แชร์ให้ทุกคนเห็นเหมือนกัน (ชั่วคราว ไม่ persist) ----------
