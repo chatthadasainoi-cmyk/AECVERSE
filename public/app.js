@@ -2931,6 +2931,9 @@ async function initMultiplayer() {
         const name = mpPlayerNames[data.id] || data.id;
         removeRemote(data.id);
         closeVoicePeer(data.id);
+        // closeVoicePeer ไม่ลบ remoteMicOn ให้ (ตัวเฝ้าซ่อมต้องใช้ค่านี้ตัดสินใจว่าจะสร้างสายใหม่ไหม)
+        // ออกจากโลกไปแล้วค่อยลบตรงนี้
+        delete remoteMicOn[data.id];
         mpAppendChat({ name: 'ระบบ', color: '#64748b', text: `${name} ออกจากโลก` });
     });
     mpSocket.on('player_moved', data => {
@@ -3031,7 +3034,12 @@ async function initMultiplayer() {
         remoteMicOn[data.id] = !!data.micOn;
         updateVoiceIndicator();
         const name = mpPlayerNames[data.id] || 'ผู้เล่น';
-        if (data.micOn) mpAppendChat({ name: '🎙️', color: '#22d3ee', text: `${name} เปิดไมค์` });
+        if (data.micOn) {
+            mpAppendChat({ name: '🎙️', color: '#22d3ee', text: `${name} เปิดไมค์` });
+            // อีกฝั่งจะยิง offer มาเองก็จริง แต่ถ้า offer นั้นหายกลางทางจะเงียบไปเลย
+            // สร้างสายจากฝั่งเราด้วยเป็นทางสำรอง — ถ้าชนกันก็มี perfect negotiation คุมอยู่แล้ว
+            if (remoteAvatars[data.id]) connectVoiceTo(data.id);
+        }
     });
     mpSocket.on('plant_update', updatePlantStrip);
 
@@ -3149,19 +3157,28 @@ async function swapMicDevice() {
 // ถูกบล็อกไว้ แล้วปลดล็อกทั้งหมดทันทีที่มี gesture แรก
 const blockedAudioEls = new Set();
 let audioUnlockArmed = false;
+// ตัวปลดล็อกต้อง "ติดค้างไว้ตลอด" ไม่ใช่ once
+// เดิมใช้ { once: true } คู่กับ audioUnlockArmed ที่ไม่เคยรีเซ็ต — พอปลดล็อกไปแล้วครั้งแรก
+// เสียงของคนที่เปิดไมค์ "ทีหลัง" ถ้าโดนบล็อกจะค้างอยู่ใน blockedAudioEls ตลอดกาล
+// เพราะไม่มีใครมาสั่ง play ให้อีกแล้ว = ได้ยินคนแรกคนเดียว ไม่ได้ยินคนถัดๆ ไป
+function unlockBlockedAudio() {
+    blockedAudioEls.forEach(a => {
+        a.play().then(() => blockedAudioEls.delete(a)).catch(() => { /* ยังไม่ได้ ไว้รอบหน้า */ });
+    });
+}
+function armAudioUnlock() {
+    if (audioUnlockArmed) return;
+    audioUnlockArmed = true;
+    ['pointerdown', 'keydown', 'touchstart'].forEach(ev =>
+        window.addEventListener(ev, unlockBlockedAudio, { capture: true }));
+}
 function tryPlayRemoteAudio(el) {
     el.play().then(() => blockedAudioEls.delete(el)).catch(() => {
         blockedAudioEls.add(el);
-        if (!audioUnlockArmed) {
-            audioUnlockArmed = true;
-            mpAppendChat({ name: '🔊 ระบบ', color: '#f59e0b', text: 'มีเสียงพูดเข้ามา — คลิกที่หน้าจอหนึ่งครั้งเพื่อเปิดเสียง' });
-            const unlock = () => {
-                blockedAudioEls.forEach(a => a.play().catch(() => {}));
-                blockedAudioEls.clear();
-            };
-            window.addEventListener('pointerdown', unlock, { once: true });
-            window.addEventListener('keydown', unlock, { once: true });
-        }
+        armAudioUnlock();
+        mpAppendChat({ name: '🔊 ระบบ', color: '#f59e0b', text: 'มีเสียงพูดเข้ามา — คลิกที่หน้าจอหนึ่งครั้งเพื่อเปิดเสียง' });
+        // ผู้ใช้อาจคลิกไปแล้วก่อนหน้านี้ (มี sticky activation อยู่) ลองซ้ำอีกรอบสั้นๆ
+        setTimeout(() => { if (blockedAudioEls.has(el)) el.play().then(() => blockedAudioEls.delete(el)).catch(() => {}); }, 400);
     });
 }
 
@@ -3169,7 +3186,12 @@ function getVoicePeer(peerId) {
     if (voicePeers[peerId]) return voicePeers[peerId];
     const pc = new RTCPeerConnection(VOICE_RTC_CONFIG);
     // กติกา "perfect negotiation": ฝ่าย polite ยอมถอยเมื่อ offer ชนกันกลางอากาศ
-    const entry = { pc, polite: String(mpMyId) > String(peerId), makingOffer: false, audioEl: null, pendingCandidates: [] };
+    const entry = {
+        pc, polite: String(mpMyId) > String(peerId), makingOffer: false,
+        audioEl: null, pendingCandidates: [],
+        queue: Promise.resolve(), // คิวประมวลผลสัญญาณของคู่นี้ — กันสัญญาณทับกันกลาง await
+        negotiated: false, announced: false
+    };
     voicePeers[peerId] = entry;
 
     pc.onnegotiationneeded = async () => {
@@ -3202,10 +3224,14 @@ function getVoicePeer(peerId) {
         if (!entry.audioEl) {
             entry.audioEl = document.createElement('audio');
             entry.audioEl.autoplay = true;
+            entry.audioEl.playsInline = true; // iOS ไม่งั้นจะพยายามเปิดเป็น player เต็มจอ
             entry.audioEl.style.display = 'none';
             document.body.appendChild(entry.audioEl);
+            // บางครั้ง srcObject ถูกตั้งก่อนที่ stream จะพร้อมเล่นจริง — ลองเล่นซ้ำตอนพร้อม
+            entry.audioEl.addEventListener('canplay', () => tryPlayRemoteAudio(entry.audioEl));
         }
-        entry.audioEl.srcObject = e.streams[0];
+        // ใช้ stream ของ track ที่เพิ่งได้มา (บาง browser ส่ง e.streams มาว่าง)
+        entry.audioEl.srcObject = e.streams[0] || new MediaStream([e.track]);
         entry.audioEl.volume = voicePrefs.volume;
         tryPlayRemoteAudio(entry.audioEl); // autoplay อาจถูกบล็อก — จัดการ unlock ให้
     };
@@ -3215,9 +3241,17 @@ function getVoicePeer(peerId) {
 
 function connectVoiceTo(peerId) {
     const entry = getVoicePeer(peerId);
-    if (micStream && entry.pc.getSenders().every(s => !s.track)) {
-        micStream.getTracks().forEach(t => entry.pc.addTrack(t, micStream));
+    if (micStream) {
+        if (entry.pc.getSenders().every(s => !s.track)) {
+            micStream.getTracks().forEach(t => entry.pc.addTrack(t, micStream));
+        }
+    } else if (!entry.pc.getTransceivers().length) {
+        // ไม่มีไมค์ของตัวเองแต่ยังอยากได้ยินคนอื่น — ต้องเปิดช่อง "รับอย่างเดียว" ไว้
+        // ไม่งั้น pc จะไม่มี track เลย onnegotiationneeded ไม่ทำงาน แล้วสายนี้ก็ไม่เกิดขึ้นจริง
+        // (เดิมฝั่งที่ปิดไมค์จึงได้ยินคนอื่นก็ต่อเมื่ออีกฝ่ายยิง offer มาให้เท่านั้น)
+        entry.pc.addTransceiver('audio', { direction: 'recvonly' });
     }
+    return entry;
 }
 
 function closeVoicePeer(peerId) {
@@ -3226,34 +3260,80 @@ function closeVoicePeer(peerId) {
     try { p.pc.close(); } catch (err) { /* ปิดซ้ำได้ ไม่เป็นไร */ }
     if (p.audioEl) { blockedAudioEls.delete(p.audioEl); p.audioEl.remove(); }
     delete voicePeers[peerId];
-    delete remoteMicOn[peerId];
     updateVoiceIndicator();
 }
 
-async function handleVoiceSignal(payload) {
+// ---------- ตัวเฝ้าซ่อมสายเสียง ----------
+// WebRTC ต่อไม่ติดเป็นเรื่องปกติ (ICE ล้ม, สัญญาณหาย, เน็ตสะดุด) เดิมพอสายไหนตาย
+// ก็ตายถาวรจนกว่าจะรีเฟรชหน้า ซึ่งตรงกับอาการ "รีเข้าแล้วได้ยินอีกคน"
+// ตัวนี้ไล่ตรวจทุก 4 วิ แล้วรื้อสายที่ตายทิ้งสร้างใหม่ให้เอง
+const VOICE_REPAIR_MS = 4000;
+function repairVoiceLinks() {
+    if (!mpSocket || !mpSocket.connected) return;
+    Object.keys(remoteAvatars).forEach(peerId => {
+        const entry = voicePeers[peerId];
+        // ต้องมีสายเมื่อฝั่งใดฝั่งหนึ่งเปิดไมค์ — ถ้าเรายังไม่มีสายเลย ให้สร้าง
+        const needed = micOn || remoteMicOn[peerId];
+        if (!needed) return;
+        if (!entry) { connectVoiceTo(peerId); return; }
+
+        const st = entry.pc.connectionState;
+        if (st === 'failed' || st === 'closed') {
+            console.warn(`[VOICE] สายกับ ${peerId} ตาย (${st}) — สร้างใหม่`);
+            closeVoicePeer(peerId);
+            connectVoiceTo(peerId);
+            return;
+        }
+        // ต่อติดแล้วแต่เสียงไม่เล่น (โดน autoplay บล็อก) — ลองสั่งเล่นซ้ำ
+        if (entry.audioEl && entry.audioEl.paused && entry.audioEl.srcObject) tryPlayRemoteAudio(entry.audioEl);
+    });
+    // คนที่ออกจากโลกไปแล้วแต่สายยังค้าง — เก็บกวาดทิ้ง
+    Object.keys(voicePeers).forEach(id => { if (!remoteAvatars[id]) closeVoicePeer(id); });
+}
+// โหมด viewer ไม่มีตัวละคร/ไม่มีเสียง ไม่ต้องเสียรอบ timer เปล่าๆ
+if (!VIEWER_MODE) setInterval(repairVoiceLinks, VOICE_REPAIR_MS);
+
+// สัญญาณของ "แต่ละคู่" ต้องประมวลผลทีละอันเรียงกันเสมอ
+// เดิม handler เป็น async แล้วผูกกับ socket ตรงๆ พอสัญญาณมาถี่ๆ (โดยเฉพาะตอนหลายคน
+// เปิดไมค์พร้อมกัน) มันจะเข้ามาทับกันกลาง await แล้ว setRemoteDescription เจอ state
+// ที่ยังไม่เสร็จ -> โยน InvalidStateError ทิ้งไปเงียบๆ สายนั้นก็ตายไปเลย
+// ผลคือ "ได้ยินบางคน ไม่ได้ยินบางคน" และสลับคนไปมาทุกครั้งที่รีเข้าใหม่
+function handleVoiceSignal(payload) {
     if (!payload || !payload.from) return;
     const entry = getVoicePeer(payload.from);
+    entry.queue = entry.queue
+        .then(() => processVoiceSignal(entry, payload))
+        .catch(err => console.error('[VOICE] signal:', err));
+}
+
+async function processVoiceSignal(entry, payload) {
     const pc = entry.pc;
+    if (pc.signalingState === 'closed') return;
     const data = payload.data || {};
-    try {
-        if (data.description) {
-            const collision = data.description.type === 'offer' && (entry.makingOffer || pc.signalingState !== 'stable');
-            if (collision && !entry.polite) return; // ฝ่ายไม่ polite ทิ้ง offer ที่ชนกัน แล้วรอรอบใหม่
-            await pc.setRemoteDescription(data.description);
-            // ICE candidates ที่มาถึง "ก่อน" remote description ถูกพักไว้ — เติมเข้าตอนนี้
-            // (เดิมโยนทิ้งเงียบๆ ทำให้บางคู่เชื่อมเสียงไม่ติดเลย)
-            while (entry.pendingCandidates.length) {
-                await pc.addIceCandidate(entry.pendingCandidates.shift()).catch(() => {});
-            }
-            if (data.description.type === 'offer') {
-                await pc.setLocalDescription();
-                mpSocket.emit('voice_signal', { to: payload.from, data: { description: pc.localDescription } });
-            }
-        } else if (data.candidate) {
-            if (pc.remoteDescription) await pc.addIceCandidate(data.candidate).catch(() => {});
-            else entry.pendingCandidates.push(data.candidate);
+
+    if (data.description) {
+        const offer = data.description.type === 'offer';
+        const collision = offer && (entry.makingOffer || pc.signalingState !== 'stable');
+        // ทั้งสองฝั่งยิง offer ชนกัน (glare): ฝ่ายไม่ polite เมิน แล้วรับ answer ของอีกฝ่ายแทน
+        // ฝ่าย polite ต้องถอย local offer ของตัวเองก่อน ไม่งั้น setRemoteDescription จะ error
+        if (collision && !entry.polite) return;
+        if (collision) await pc.setLocalDescription({ type: 'rollback' }).catch(() => {});
+
+        await pc.setRemoteDescription(data.description);
+        entry.negotiated = true;
+        // ICE candidates ที่มาถึง "ก่อน" remote description ถูกพักไว้ — เติมเข้าตอนนี้
+        // (เดิมโยนทิ้งเงียบๆ ทำให้บางคู่เชื่อมเสียงไม่ติดเลย)
+        while (entry.pendingCandidates.length) {
+            await pc.addIceCandidate(entry.pendingCandidates.shift()).catch(() => {});
         }
-    } catch (err) { console.error('[VOICE] signal:', err); }
+        if (offer) {
+            await pc.setLocalDescription();
+            mpSocket.emit('voice_signal', { to: payload.from, data: { description: pc.localDescription } });
+        }
+    } else if (data.candidate) {
+        if (pc.remoteDescription) await pc.addIceCandidate(data.candidate).catch(() => {});
+        else entry.pendingCandidates.push(data.candidate);
+    }
 }
 
 // ---------- วินิจฉัยว่าทำไมเปิดไมค์ไม่ได้ ----------
