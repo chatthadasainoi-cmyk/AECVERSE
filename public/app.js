@@ -2961,6 +2961,7 @@ function updateMpUI() {
             <span style="color:${color};font-weight:${isMe ? 'bold' : 'normal'}">${isMe ? '👤 ' : ''}${name}</span>
         </div>`;
     }).join('');
+    renderVoiceMixer(); // รายชื่อเปลี่ยน -> แผงปรับเสียงต้องตามด้วย
 }
 function mpAppendChat(msg) {
     const log = $('chat-log');
@@ -3235,6 +3236,7 @@ async function initMultiplayer() {
         const name = mpPlayerNames[data.id] || 'ผู้เล่น';
         if (data.micOn) {
             mpAppendChat({ name: '🎙️', color: '#22d3ee', text: `${name} เปิดไมค์` });
+            renderVoiceMixer();
             // อีกฝั่งจะยิง offer มาเองก็จริง แต่ถ้า offer นั้นหายกลางทางจะเงียบไปเลย
             // สร้างสายจากฝั่งเราด้วยเป็นทางสำรอง — ถ้าชนกันก็มี perfect negotiation คุมอยู่แล้ว
             if (remoteAvatars[data.id]) connectVoiceTo(data.id);
@@ -3310,7 +3312,8 @@ function applyChatVoicePrefs() {
     voicePrefs.chatEnabled = localStorage.getItem('aec_chat_enabled') !== 'off';
     const rawVol = parseInt(localStorage.getItem('aec_voice_volume') ?? '80', 10);
     voicePrefs.volume = Math.min(1, Math.max(0, (isNaN(rawVol) ? 80 : rawVol) / 100));
-    Object.values(voicePeers).forEach(p => { if (p.audioEl) p.audioEl.volume = voicePrefs.volume; });
+    spatialPrefs.enabled = localStorage.getItem('aec_spatial_voice') !== 'off';
+    applyPeerVolumes(); // ระดับรวมเปลี่ยน -> ดันเข้ากราฟเสียงของทุกคน
     if (!voicePrefs.voiceEnabled && micOn) toggleMic(); // ถูกปิดจากหน้า Settings -> ดับไมค์ทันที
     if (!VIEWER_MODE) {
         const chatBtn = $('hud-chat');
@@ -3349,6 +3352,205 @@ async function swapMicDevice() {
         console.error('[VOICE] swapMicDevice:', err);
         mpAppendChat({ name: '🎙️ ระบบ', color: '#ef4444', text: err._friendly || describeMicError(err) });
     }
+}
+
+// ============================================================
+// 11.65 SPATIAL VOICE — เสียงมีทิศทางและระยะจริงในโลก 3D
+// เสียงของแต่ละคนถูกวางไว้ที่ "ตำแหน่งตัวละครของเขา" ในโลก ส่วนหูของเราอยู่ที่ตัวเรา
+// เดินเข้าใกล้เสียงดังขึ้น เดินห่างเสียงเบาลง คนอยู่ทางซ้ายก็ได้ยินจากหูซ้ายจริงๆ
+//
+// กราฟเสียงต่อคน: MediaStream -> gain (ระดับเสียงรายคน) -> panner (ตำแหน่งในโลก) -> ลำโพง
+//
+// ⚠️ ข้อควรระวังของ Chrome: stream จาก WebRTC จะไม่มีเสียงไหลเข้า Web Audio เลย
+// ถ้าไม่ผูกกับ <audio> element ด้วย จึงต้องคง element ไว้แต่ mute มันทิ้ง
+// แล้วปล่อยให้เสียงจริงออกทางกราฟนี้แทน
+// ============================================================
+const SPATIAL_KEY = 'aec_player_audio';
+const spatialPrefs = { enabled: localStorage.getItem('aec_spatial_voice') !== 'off' };
+// ตั้งค่าเสียงรายคน เก็บด้วย "ชื่อผู้เล่น" ไม่ใช่ socket id เพราะ id เปลี่ยนทุกครั้งที่ต่อใหม่
+// -> ปิดเสียงใครไว้ พรุ่งนี้เข้ามาก็ยังปิดอยู่
+let playerAudioPrefs = {};
+try { playerAudioPrefs = JSON.parse(localStorage.getItem(SPATIAL_KEY) || '{}') || {}; } catch (e) { playerAudioPrefs = {}; }
+function savePlayerAudioPrefs() {
+    try { localStorage.setItem(SPATIAL_KEY, JSON.stringify(playerAudioPrefs)); } catch (e) { /* โควตาเต็ม ไม่เป็นไร */ }
+}
+function prefsForPeer(peerId) {
+    const key = mpPlayerNames[peerId] || peerId;
+    if (!playerAudioPrefs[key]) playerAudioPrefs[key] = { muted: false, volume: 1 };
+    return playerAudioPrefs[key];
+}
+
+let spatialCtx = null;
+function ensureSpatialCtx() {
+    if (spatialCtx) return spatialCtx;
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return null;
+    spatialCtx = new Ctx();
+    // เบราว์เซอร์เริ่ม context เป็น suspended จนกว่าจะมี gesture — ปลุกทุกครั้งที่ผู้ใช้แตะจอ
+    const wake = () => spatialCtx.resume?.().catch(() => {});
+    ['pointerdown', 'keydown', 'touchstart'].forEach(ev => window.addEventListener(ev, wake, { capture: true }));
+    wake();
+    return spatialCtx;
+}
+
+// ระดับเสียงสุดท้ายของคนคนนึง = ปิดเสียงไหม × ระดับรายคน × ระดับรวม
+function peerGainValue(peerId) {
+    const p = prefsForPeer(peerId);
+    return p.muted ? 0 : p.volume * voicePrefs.volume;
+}
+
+function attachSpatialAudio(entry, peerId, stream) {
+    const ctx = spatialPrefs.enabled ? ensureSpatialCtx() : null;
+    if (!ctx) return false; // ไม่รองรับ/ปิดไว้ -> ผู้เรียกจะถอยไปใช้ <audio> ธรรมดา
+    try {
+        // ต่อกราฟใหม่ทุกครั้งที่ stream เปลี่ยน (renegotiate/เปลี่ยนไมค์)
+        entry.src?.disconnect();
+        entry.src = ctx.createMediaStreamSource(stream);
+        if (!entry.gain) {
+            entry.gain = ctx.createGain();
+            entry.panner = ctx.createPanner();
+            Object.assign(entry.panner, {
+                panningModel: 'HRTF',      // จำลองการได้ยินสองหูจริง ไม่ใช่แค่ซ้าย-ขวา
+                distanceModel: 'inverse',
+                rolloffFactor: 1,
+                coneInnerAngle: 360        // พูดแล้วได้ยินรอบทิศ ไม่ต้องหันหน้าใส่กัน
+            });
+            entry.gain.connect(entry.panner).connect(ctx.destination);
+        }
+        entry.src.connect(entry.gain);
+        entry.gain.gain.value = peerGainValue(peerId);
+        return true;
+    } catch (err) {
+        console.warn('[VOICE] ต่อเสียง 3 มิติไม่สำเร็จ ใช้เสียงธรรมดาแทน:', err);
+        return false;
+    }
+}
+
+function detachSpatialAudio(entry) {
+    [entry.src, entry.gain, entry.panner].forEach(n => { try { n?.disconnect(); } catch (e) { } });
+    entry.src = entry.gain = entry.panner = null;
+}
+
+// เรียกทุกเฟรมจาก animate() — ย้ายหูของเราและปากของทุกคนให้ตรงตำแหน่งจริงในโลก
+function updateSpatialAudio() {
+    if (!spatialCtx || !spatialPrefs.enabled) return;
+    const me = avatarModel || camera;
+    const sf = currentModelScaleFactor();
+    const listener = spatialCtx.listener;
+
+    // ระยะได้ยินต้องสเกลตามโมเดล ไม่งั้นพอโมเดลถูกขยาย 20 เท่า ยืนติดกันก็ยังเงียบ
+    const ref = 4 * sf, max = 70 * sf;
+
+    if (listener.positionX) {
+        listener.positionX.value = me.position.x;
+        listener.positionY.value = me.position.y;
+        listener.positionZ.value = me.position.z;
+    } else if (listener.setPosition) {
+        listener.setPosition(me.position.x, me.position.y, me.position.z); // Safari รุ่นเก่า
+    }
+    // ทิศที่เราหันหน้าไป — ตัวละครใน three.js หันไปทาง -Z ของตัวเอง
+    const yaw = me.rotation ? me.rotation.y : 0;
+    const fx = -Math.sin(yaw), fz = -Math.cos(yaw);
+    if (listener.forwardX) {
+        listener.forwardX.value = fx; listener.forwardY.value = 0; listener.forwardZ.value = fz;
+        listener.upX.value = 0; listener.upY.value = 1; listener.upZ.value = 0;
+    } else if (listener.setOrientation) {
+        listener.setOrientation(fx, 0, fz, 0, 1, 0);
+    }
+
+    Object.keys(voicePeers).forEach(peerId => {
+        const entry = voicePeers[peerId];
+        if (!entry.panner) return;
+        const av = remoteAvatars[peerId];
+        if (!av) return;
+        entry.panner.refDistance = ref;
+        entry.panner.maxDistance = max;
+        if (entry.panner.positionX) {
+            entry.panner.positionX.value = av.position.x;
+            entry.panner.positionY.value = av.position.y;
+            entry.panner.positionZ.value = av.position.z;
+        } else if (entry.panner.setPosition) {
+            entry.panner.setPosition(av.position.x, av.position.y, av.position.z);
+        }
+    });
+}
+
+// ---------- แผงปรับเสียงรายคน (ปิดเสียง / เร่ง-ลดเสียงทีละคน) ----------
+// ชื่อผู้เล่นตั้งเองได้ ห้ามยัดเข้า innerHTML ดิบๆ
+const escHtmlV = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+function renderVoiceMixer() {
+    const box = $('voice-mixer-list');
+    if (!box) return;
+    const ids = Object.keys(remoteAvatars);
+    if (!ids.length) {
+        box.innerHTML = '<div class="vm-empty">ยังไม่มีผู้เล่นคนอื่นในโลก</div>';
+        return;
+    }
+    box.innerHTML = ids.map(id => {
+        const p = prefsForPeer(id);
+        const name = mpPlayerNames[id] || id.slice(0, 6);
+        const color = mpPlayerColors[id] || '#9aa7b8';
+        const talking = remoteMicOn[id] ? '🎙️' : '';
+        return `<div class="vm-row" data-id="${escHtmlV(id)}">
+            <button class="vm-mute${p.muted ? ' on' : ''}" data-act="mute" title="ปิด/เปิดเสียงคนนี้">${p.muted ? '🔇' : '🔊'}</button>
+            <span class="vm-name" style="color:${color};">${escHtmlV(name)} ${talking}</span>
+            <input class="vm-vol" type="range" min="0" max="200" step="5" value="${Math.round(p.volume * 100)}"${p.muted ? ' disabled' : ''}>
+            <span class="vm-val">${Math.round(p.volume * 100)}%</span>
+        </div>`;
+    }).join('');
+}
+window.renderVoiceMixer = renderVoiceMixer;
+
+// ชื่อผู้เล่นมาจากคนอื่น ใช้ delegation แทน onclick ในสตริง
+$('voice-mixer-list')?.addEventListener('click', e => {
+    const btn = e.target.closest('[data-act="mute"]');
+    const row = e.target.closest('.vm-row');
+    if (!btn || !row) return;
+    const p = prefsForPeer(row.dataset.id);
+    p.muted = !p.muted;
+    savePlayerAudioPrefs();
+    applyPeerVolumes();
+    renderVoiceMixer();
+});
+$('voice-mixer-list')?.addEventListener('input', e => {
+    if (!e.target.classList.contains('vm-vol')) return;
+    const row = e.target.closest('.vm-row');
+    const p = prefsForPeer(row.dataset.id);
+    p.volume = Number(e.target.value) / 100;   // เกิน 100% ได้ ไว้ดันเสียงคนที่ไมค์เบามาก
+    row.querySelector('.vm-val').textContent = e.target.value + '%';
+    savePlayerAudioPrefs();
+    applyPeerVolumes();
+});
+window.toggleVoiceMixer = function (show) {
+    const el = $('voice-mixer');
+    if (!el) return;
+    const open = show === undefined ? el.style.display === 'none' : show;
+    el.style.display = open ? 'block' : 'none';
+    if (open) renderVoiceMixer();
+};
+window.toggleSpatialVoice = function () {
+    spatialPrefs.enabled = !spatialPrefs.enabled;
+    localStorage.setItem('aec_spatial_voice', spatialPrefs.enabled ? 'on' : 'off');
+    $('vm-spatial-btn')?.classList.toggle('on', spatialPrefs.enabled);
+    // สลับโหมดต้องต่อกราฟใหม่ทั้งหมด — รื้อสายเสียงแล้วให้ตัวเฝ้าซ่อมสร้างใหม่ให้
+    Object.keys(voicePeers).forEach(closeVoicePeer);
+    mpAppendChat({
+        name: '🎧 ระบบ', color: '#22d3ee',
+        text: spatialPrefs.enabled
+            ? 'เปิดเสียงตามตำแหน่ง — เดินเข้าใกล้ใครจะได้ยินคนนั้นดังขึ้น และรู้ว่าเสียงมาจากทางไหน'
+            : 'ปิดเสียงตามตำแหน่ง — ได้ยินทุกคนดังเท่ากันหมดไม่ว่าอยู่ไกลแค่ไหน'
+    });
+};
+
+// ใช้หลังเปลี่ยนค่าใน mixer — ดันค่าใหม่เข้ากราฟที่ต่ออยู่ทันที
+function applyPeerVolumes() {
+    Object.keys(voicePeers).forEach(peerId => {
+        const entry = voicePeers[peerId];
+        const g = peerGainValue(peerId);
+        if (entry.gain) entry.gain.gain.value = g;
+        // สายที่ไม่ได้ผ่านกราฟ 3 มิติ (fallback) คุมที่ตัว element แทน
+        else if (entry.audioEl) { entry.audioEl.volume = Math.min(1, g); entry.audioEl.muted = prefsForPeer(peerId).muted; }
+    });
 }
 
 // ---------- autoplay unlock: เบราว์เซอร์บล็อกการเล่นเสียงจนกว่าผู้ใช้จะแตะหน้าจอ ----------
@@ -3430,9 +3632,17 @@ function getVoicePeer(peerId) {
             entry.audioEl.addEventListener('canplay', () => tryPlayRemoteAudio(entry.audioEl));
         }
         // ใช้ stream ของ track ที่เพิ่งได้มา (บาง browser ส่ง e.streams มาว่าง)
-        entry.audioEl.srcObject = e.streams[0] || new MediaStream([e.track]);
-        entry.audioEl.volume = voicePrefs.volume;
+        const stream = e.streams[0] || new MediaStream([e.track]);
+        entry.audioEl.srcObject = stream;
+
+        // ต่อเข้ากราฟเสียง 3 มิติ ถ้าทำได้ — element ยังต้องเล่นอยู่ (Chrome ต้องการ)
+        // แต่ต้อง mute ทิ้ง ไม่งั้นจะได้ยินซ้อนกัน 2 ทาง ทั้งแบบมีทิศทางและแบบแบนๆ
+        const spatial = attachSpatialAudio(entry, peerId, stream);
+        entry.audioEl.muted = spatial;
+        entry.audioEl.volume = spatial ? 0 : Math.min(1, peerGainValue(peerId));
+        if (!spatial) entry.audioEl.muted = prefsForPeer(peerId).muted;
         tryPlayRemoteAudio(entry.audioEl); // autoplay อาจถูกบล็อก — จัดการ unlock ให้
+        renderVoiceMixer();
     };
     if (micStream) micStream.getTracks().forEach(t => pc.addTrack(t, micStream));
     return entry;
@@ -3457,9 +3667,11 @@ function closeVoicePeer(peerId) {
     const p = voicePeers[peerId];
     if (!p) return;
     try { p.pc.close(); } catch (err) { /* ปิดซ้ำได้ ไม่เป็นไร */ }
+    detachSpatialAudio(p);
     if (p.audioEl) { blockedAudioEls.delete(p.audioEl); p.audioEl.remove(); }
     delete voicePeers[peerId];
     updateVoiceIndicator();
+    renderVoiceMixer();
 }
 
 // ---------- ตัวเฝ้าซ่อมสายเสียง ----------
@@ -4198,6 +4410,7 @@ function animate() {
     frameDt = animClock.getDelta(); // เวลาต่อเฟรมสำหรับ AnimationMixer ของตัวละคร
     safeCall(updateAvatarPhysics, 'updateAvatarPhysics');
     safeCall(updateRemoteAvatars, 'updateRemoteAvatars');
+    safeCall(updateSpatialAudio, 'updateSpatialAudio');
     safeCall(updateProximityTags, 'updateProximityTags');
     safeCall(updateMarkers, 'updateMarkers');
     safeCall(checkPPEZones, 'checkPPEZones');

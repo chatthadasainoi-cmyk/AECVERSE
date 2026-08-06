@@ -387,8 +387,21 @@
                     แชท
                 </span>
                 <span id="chat-voice-indicator" class="chat-voice-ind"></span>
+                <button class="chat-close-btn" onclick="toggleVoiceMixer()" title="ปรับเสียงรายคน / ปิดเสียงคนที่ไม่อยากได้ยิน">🎧</button>
                 <button class="chat-close-btn" onclick="toggleChatPanel(false)" title="ปิดหน้าต่างแชท">✕</button>
             </div>
+
+            <!-- แผงปรับเสียงรายคน — ปิดเสียง/เร่ง-ลดเสียงเป็นรายบุคคล และสลับโหมดเสียงตามตำแหน่ง -->
+            <div id="voice-mixer" style="display:none;">
+                <div class="vm-head">
+                    <span>🎧 เสียงผู้เล่น</span>
+                    <button id="vm-spatial-btn" class="vm-spatial on" onclick="toggleSpatialVoice()"
+                            title="เปิด/ปิดเสียงตามตำแหน่งในโลก">เสียงตามตำแหน่ง</button>
+                </div>
+                <div id="voice-mixer-list"></div>
+                <div class="vm-hint">ค่าที่ตั้งไว้จำเป็นรายบุคคล เข้ามาใหม่ก็ยังเป็นค่าเดิม · เร่งได้ถึง 200% สำหรับคนที่ไมค์เบา</div>
+            </div>
+
             <div id="chat-log"></div>
             <div class="chat-input-row">
                 <input id="chat-input" placeholder="พิมพ์ข้อความ... (Enter ส่ง)" maxlength="200" autocomplete="off">
