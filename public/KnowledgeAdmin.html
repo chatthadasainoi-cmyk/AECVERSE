@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<title>AEC VERSE — Knowledge Check (Admin)</title>
+<link rel="icon" type="image/png" href="Logo.png">
+<script src="page-transitions.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="public-portal.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="supabaseClient.js"></script>
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<script src="public-portal.js"></script>
+<style>
+.field-label{display:block;font-size:11px;font-weight:600;color:var(--text-1);margin-bottom:6px;}
+input[type="text"],input[type="number"],input[type="date"],input[type="time"],select{
+  width:100%;background:var(--panel-2);border:1px solid var(--border);border-radius:8px;
+  padding:9px 11px;color:var(--text-0);font-size:12.5px;outline:none;font-family:inherit;}
+input:focus,select:focus{border-color:var(--blue);}
+select{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%239aa7b8" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>');
+  background-repeat:no-repeat;background-position:right 10px center;background-size:14px;padding-right:32px;}
+
+.card h3{margin:0 0 14px;font-size:13.5px;font-weight:800;font-family:"Sora",sans-serif;display:flex;align-items:center;gap:8px;}
+.card h3 .n{width:20px;height:20px;border-radius:6px;background:var(--blue-soft);color:var(--blue);
+  display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;flex-shrink:0;}
+
+.toggle{position:relative;width:40px;height:23px;border-radius:14px;background:var(--panel-2);border:1px solid var(--border);cursor:pointer;flex-shrink:0;}
+.toggle.on{background:var(--green);border-color:var(--green);}
+.toggle .knob{position:absolute;top:2px;left:2px;width:17px;height:17px;border-radius:50%;background:#fff;transition:left .15s;}
+.toggle.on .knob{left:19px;}
+.toggle.disabled{opacity:.45;cursor:not-allowed;}
+
+.opt-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid var(--border-soft);}
+.opt-row:last-child{border-bottom:none;}
+.opt-row .o-label{font-size:12px;font-weight:600;}
+.opt-row .o-sub{font-size:10.5px;color:var(--text-2);margin-top:1px;}
+
+.radio-line{display:flex;align-items:center;gap:8px;font-size:12px;padding:5px 0;cursor:pointer;}
+.radio-line input[type=radio]{width:15px;height:15px;accent-color:var(--blue);flex-shrink:0;}
+
+.f-grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.f-grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;}
+@media (max-width:760px){.f-grid2,.f-grid3{grid-template-columns:1fr;}}
+.unit{font-size:10.5px;color:var(--text-2);margin-left:4px;}
+.dt-pair{display:flex;gap:6px;}
+.dt-pair input[type=date]{flex:1.3;}
+.dt-pair input[type=time]{flex:1;}
+.schedule-fields{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:12px;}
+@media (max-width:760px){.schedule-fields{grid-template-columns:1fr;}}
+.schedule-fields.off{opacity:.4;pointer-events:none;}
+
+.rule-status{display:flex;flex-direction:column;gap:6px;}
+.rule-status .rs-row{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;color:var(--text-2);}
+
+.cert-grid{display:grid;grid-template-columns:1fr 210px;gap:16px;align-items:start;}
+@media (max-width:900px){.cert-grid{grid-template-columns:1fr;}}
+.cert-preview{background:linear-gradient(160deg,#fdf6e3,#f3e6c4);border-radius:10px;padding:18px;color:#3a2f1a;
+  border:4px solid #c9a24a;text-align:center;font-family:"Sora",sans-serif;}
+.cert-preview .c-org{font-size:9px;letter-spacing:1px;font-weight:700;color:#8a6d1f;text-transform:uppercase;}
+.cert-preview .c-title{font-size:15px;font-weight:800;margin:6px 0 1px;}
+.cert-preview .c-sub{font-size:8.5px;color:#7a6a3f;}
+.cert-preview .c-desc{font-size:8.5px;color:#7a6a3f;margin-top:6px;}
+.cert-preview .c-name{font-size:13px;font-weight:800;margin:6px 0;border-bottom:1px solid #c9a24a;display:inline-block;padding-bottom:2px;}
+.cert-preview .c-course{font-weight:800;font-size:11px;margin:4px 0 6px;}
+.cert-preview .c-seal{width:28px;height:28px;border-radius:50%;background:radial-gradient(circle,#c9a24a,#8a6d1f);margin:6px auto 0;}
+.cert-preview .c-foot{font-size:8px;color:#7a6a3f;margin-top:10px;}
+
+.notif-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 24px;}
+@media (max-width:760px){.notif-grid{grid-template-columns:1fr;}}
+.soon{font-size:9.5px;font-weight:800;color:var(--yellow);background:var(--yellow-soft);
+  border:1px solid rgba(245,158,11,.35);border-radius:20px;padding:2px 8px;margin-left:6px;}
+
+.qcard{border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:10px;background:var(--panel-2);}
+.qcard .q-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:8px;}
+.qcard .q-text{font-size:12.5px;font-weight:600;line-height:1.5;flex:1;}
+.qcard .q-topic{margin-bottom:8px;}
+.qcard .q-opt{display:flex;align-items:center;gap:8px;margin-bottom:6px;}
+.qcard .q-opt input[type=radio]{accent-color:var(--blue);width:14px;height:14px;flex-shrink:0;}
+.qcard .q-opt input[type=text]{padding:6px 9px;font-size:12px;}
+.qbank-scroll{max-height:460px;overflow-y:auto;padding-right:4px;margin-bottom:10px;}
+.btn-icon{width:28px;height:28px;border-radius:7px;display:flex;align-items:center;justify-content:center;
+  color:var(--text-2);cursor:pointer;background:transparent;border:none;flex-shrink:0;}
+.btn-icon:hover{background:var(--panel-2);color:var(--text-0);}
+.btn-icon.del:hover{color:var(--red);background:var(--red-soft);}
+
+.gate{text-align:center;padding:60px 20px;}
+.gate .g-ic{font-size:38px;margin-bottom:12px;}
+.gate .g-t{font-size:15px;font-weight:800;margin-bottom:6px;}
+.gate .g-s{font-size:12.5px;color:var(--text-2);line-height:1.7;}
+.status-line{font-size:11.5px;min-height:16px;margin-top:8px;}
+.status-line.ok{color:var(--green);}
+.status-line.err{color:var(--red);}
+.action-bar{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;}
+.avail-pill{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;padding:4px 11px;border-radius:20px;}
+.hide{display:none !important;}
+@media (max-width:1200px){.g2-admin{grid-template-columns:1fr;}}
+</style>
+<link rel="stylesheet" href="ui-polish.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="portal-sidebar"></aside>
+    <div class="page">
+      <div class="topbar" id="portal-topbar"></div>
+      <div class="page-content">
+
+        <!-- ไม่ใช่แอดมิน = ไม่ให้เห็นอะไรเลย (server ก็ปฏิเสธ API อยู่แล้ว นี่เป็นชั้นความสะดวก) -->
+        <div id="notAdmin" class="card gate hide">
+          <div class="g-ic">🔒</div>
+          <div class="g-t">หน้านี้สำหรับผู้ดูแลระบบเท่านั้น</div>
+          <div class="g-s">บัญชีของคุณไม่มีสิทธิ์ตั้งค่าแบบทดสอบ<br>
+            ถ้าต้องการ<b>ทำแบบทดสอบ</b> ไปที่หน้า Knowledge Check ได้เลย</div>
+          <button class="btn primary" style="margin-top:16px;" onclick="location.href='PublicKnowledge.html'">ไปหน้าทำแบบทดสอบ</button>
+        </div>
+
+        <div id="adminBody" class="hide">
+          <div class="sec-head"><span class="sec-num">•</span><span class="sec-tag">KNOWLEDGE CHECK — ADMIN</span></div>
+          <div class="sec-title">ตั้งค่าแบบทดสอบความรู้ก่อนเข้าเยี่ยมชม</div>
+          <div class="sec-sub" style="margin-bottom:16px;">
+            ทุกอย่างในหน้านี้มีผลกับผู้เยี่ยมชมทุกคนทันทีที่กดบันทึก —
+            <span id="availPill" class="avail-pill">กำลังโหลด...</span>
+          </div>
+
+          <div class="grid g2-admin" style="grid-template-columns:1fr 1.3fr;gap:16px;align-items:start;">
+
+            <!-- ========== ซ้าย: เปิด/ปิด + หัวข้อ + คลังคำถาม ========== -->
+            <div>
+              <div class="card">
+                <div class="opt-row" style="border-bottom:none;padding:0 0 12px;">
+                  <div>
+                    <div class="o-label">เปิดใช้งานแบบทดสอบ</div>
+                    <div class="o-sub">ปิดไว้ = ผู้เยี่ยมชมเห็นข้อความ "ยังไม่เปิดให้ทำ"</div>
+                  </div>
+                  <div class="toggle" id="tg-enabled"><div class="knob"></div></div>
+                </div>
+
+                <label class="field-label">หัวข้อการอบรม (แสดงให้ผู้เยี่ยมชมเห็น)</label>
+                <input type="text" id="in-topic">
+              </div>
+
+              <div class="card">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;">
+                  <span style="font-size:12.5px;font-weight:800;">คลังคำถาม (<span id="qCount">0</span> ข้อ)</span>
+                  <button class="btn outline btn-sm" onclick="addQuestion()">+ เพิ่มคำถาม</button>
+                </div>
+                <div class="qbank-scroll" id="qbank"></div>
+                <button class="btn primary" style="width:100%;" onclick="saveQuestions()">บันทึกคลังคำถาม</button>
+                <div id="qStatus" class="status-line"></div>
+              </div>
+            </div>
+
+            <!-- ========== ขวา: 5 ส่วนการตั้งค่า ========== -->
+            <div>
+              <div class="card">
+                <h3><span class="n">1</span>การกำหนดเวลา (Schedule)</h3>
+                <div class="f-grid2">
+                  <div>
+                    <div class="o-label" style="margin-bottom:6px;font-size:12px;font-weight:600;">โหมดการเปิดใช้งาน</div>
+                    <label class="radio-line"><input type="radio" name="schedMode" value="always">เปิดตลอดเวลา</label>
+                    <label class="radio-line"><input type="radio" name="schedMode" value="range">กำหนดช่วงเวลา</label>
+                  </div>
+                  <div style="font-size:11px;color:var(--text-2);line-height:1.7;">
+                    ช่วงเวลาคำนวณที่เซิร์ฟเวอร์ ผู้ใช้จะแก้นาฬิกาเครื่องตัวเองเพื่อเข้าทำก่อน/หลังเวลาไม่ได้
+                  </div>
+                </div>
+                <div class="schedule-fields off" id="schedFields">
+                  <div>
+                    <div class="field-label">วันที่เริ่มต้น</div>
+                    <div class="dt-pair"><input type="date" id="in-startDate"><input type="time" id="in-startTime"></div>
+                  </div>
+                  <div>
+                    <div class="field-label">วันที่สิ้นสุด</div>
+                    <div class="dt-pair"><input type="date" id="in-endDate"><input type="time" id="in-endTime"></div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card">
+                <h3><span class="n">2</span>การตั้งค่าการทำแบบทดสอบ</h3>
+                <div class="f-grid3" style="margin-bottom:12px;">
+                  <div><div class="field-label">คะแนนผ่าน<span class="unit">%</span></div><input type="number" id="in-passingScore" min="0" max="100"></div>
+                  <div><div class="field-label">เวลาที่ใช้สอบ<span class="unit">นาที · 0 = ไม่จำกัด</span></div><input type="number" id="in-timeLimit" min="0" max="240"></div>
+                  <div><div class="field-label">จำนวนข้อที่สุ่มออกมา<span class="unit">0 = ทุกข้อ</span></div><input type="number" id="in-questionCount" min="0" max="100"></div>
+                </div>
+                <div style="margin-bottom:6px;max-width:220px;">
+                  <div class="field-label">จำนวนครั้งที่ทำได้<span class="unit">ครั้ง/คน · 0 = ไม่จำกัด</span></div>
+                  <input type="number" id="in-maxAttempts" min="0" max="99">
+                </div>
+
+                <div class="opt-row"><div><div class="o-label">สุ่มลำดับคำถาม</div></div><div class="toggle" id="tg-randomQuestions"><div class="knob"></div></div></div>
+                <div class="opt-row"><div><div class="o-label">สลับตัวเลือก</div></div><div class="toggle" id="tg-shuffleChoices"><div class="knob"></div></div></div>
+                <div class="opt-row"><div><div class="o-label">แสดงคะแนนทันทีหลังส่ง</div></div><div class="toggle" id="tg-showScore"><div class="knob"></div></div></div>
+                <div class="opt-row"><div><div class="o-label">แสดงเฉลยหลังสอบ</div><div class="o-sub">ปิดไว้ = เฉลยไม่ถูกส่งไปที่เครื่องผู้ทำเลย</div></div><div class="toggle" id="tg-showAnswers"><div class="knob"></div></div></div>
+              </div>
+
+              <div class="card">
+                <h3><span class="n">3</span>ผลการทำแบบทดสอบ (Result &amp; Passing Rule)</h3>
+                <div class="f-grid3">
+                  <div>
+                    <div class="opt-row" style="border-bottom:none;padding:0 0 10px;"><div><div class="o-label">แสดงผลสอบแก่ผู้ทำ</div></div><div class="toggle" id="tg-showResult"><div class="knob"></div></div></div>
+                    <div class="opt-row" style="border-bottom:none;padding:0;"><div><div class="o-label">บันทึกผลลงประวัติ</div></div><div class="toggle" id="tg-saveResult"><div class="knob"></div></div></div>
+                  </div>
+                  <div>
+                    <div class="o-label" style="margin-bottom:6px;font-size:12px;font-weight:600;">การตัดสินผลสอบ</div>
+                    <label class="radio-line"><input type="radio" name="passRule" value="total">คะแนนรวม</label>
+                    <label class="radio-line"><input type="radio" name="passRule" value="perQuestion">รายข้อ (ต้องถูกทุกข้อ)</label>
+                  </div>
+                  <div>
+                    <div class="o-label" style="margin-bottom:6px;font-size:12px;font-weight:600;">สถานะการสอบ</div>
+                    <div class="rule-status" id="ruleStatus"></div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card">
+                <h3><span class="n">4</span>ใบเซอร์ติฟิเคต (Certificate)</h3>
+                <div class="cert-grid">
+                  <div>
+                    <div class="opt-row" style="border-bottom:none;padding:0 0 12px;"><div><div class="o-label">เปิดใช้งานใบเซอร์ติฟิเคต</div></div><div class="toggle" id="tg-certEnabled"><div class="knob"></div></div></div>
+                    <div class="o-label" style="margin-bottom:6px;font-size:12px;font-weight:600;">ออกใบเซอร์ติฟิเคตเมื่อ</div>
+                    <label class="radio-line"><input type="radio" name="certRule" value="pass">ผ่านการสอบ</label>
+                    <label class="radio-line"><input type="radio" name="certRule" value="passAndTour">ผ่านการสอบ และเคยชม Virtual Tour</label>
+                    <div style="margin-top:12px;">
+                      <div class="field-label">ชื่อหลักสูตรบนใบเซอร์</div>
+                      <input type="text" id="in-certTemplate">
+                    </div>
+                    <div style="margin-top:10px;">
+                      <div class="field-label">ผู้ลงนาม</div>
+                      <input type="text" id="in-certSigner">
+                    </div>
+                  </div>
+                  <div>
+                    <div class="cert-preview">
+                      <div class="c-org">🌿 AEC VERSE</div>
+                      <div class="c-title">CERTIFICATE</div>
+                      <div class="c-sub">OF COMPLETION</div>
+                      <div class="c-desc">ขอมอบใบประกาศฉบับนี้ให้แก่</div>
+                      <div class="c-name">(ชื่อผู้ผ่านการทดสอบ)</div>
+                      <div class="c-desc">ได้ผ่านการทดสอบหลักสูตร</div>
+                      <div class="c-course" id="certPvCourse">—</div>
+                      <div class="c-seal"></div>
+                      <div class="c-foot" id="certPvSigner">—</div>
+                    </div>
+                    <button class="btn outline btn-sm" style="width:100%;margin-top:8px;justify-content:center;" onclick="previewCert()">👁️ ดูตัวอย่างเต็ม</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card">
+                <h3><span class="n">5</span>การแจ้งเตือน (Notification)</h3>
+                <div class="notif-grid">
+                  <div>
+                    <div class="opt-row"><div><div class="o-label">แจ้งเตือนผลสอบบนหน้าเว็บ</div></div><div class="toggle" id="tg-notifyWeb"><div class="knob"></div></div></div>
+                    <div class="opt-row" style="border-bottom:none;"><div><div class="o-label">ดาวน์โหลดใบเซอร์อัตโนมัติเมื่อสอบผ่าน</div></div><div class="toggle" id="tg-autoDownloadCert"><div class="knob"></div></div></div>
+                  </div>
+                  <div>
+                    <div class="opt-row"><div><div class="o-label">แจ้งเตือนผ่านอีเมล<span class="soon">ยังไม่พร้อม</span></div><div class="o-sub">ระบบยังไม่ได้ต่อบริการส่งอีเมล เปิดไม่ได้จนกว่าจะตั้งค่าเสร็จ</div></div><div class="toggle disabled" title="ต้องต่อบริการส่งอีเมลก่อน"><div class="knob"></div></div></div>
+                    <div class="opt-row" style="border-bottom:none;"><div><div class="o-label">แนบใบเซอร์ในอีเมล<span class="soon">ยังไม่พร้อม</span></div></div><div class="toggle disabled" title="ต้องต่อบริการส่งอีเมลก่อน"><div class="knob"></div></div></div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="action-bar">
+                <button class="btn outline" onclick="loadAll()">ยกเลิกการแก้ไข</button>
+                <button class="btn outline" onclick="location.href='PublicKnowledge.html'">🧪 ลองทำแบบทดสอบ</button>
+                <button class="btn primary" onclick="saveSettings()">บันทึกการตั้งค่า</button>
+              </div>
+              <div id="setStatus" class="status-line" style="text-align:right;"></div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+renderPortalTopbar('Knowledge Check', '(ตั้งค่าโดยผู้ดูแลระบบ)');
+initUserChip();
+initPortalLiveFeed();
+
+const ADMIN_NAV = [
+  { href: 'Dashboard.html', label: 'Metaverse', icon: '<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>' },
+  { href: 'Avatar.html', label: 'Avatar', icon: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/>' },
+  { href: 'Digitaltwin.html', label: 'Digital Twin', icon: '<path d="M12 2l9 5v10l-9 5-9-5V7l9-5z"/><path d="M3 7l9 5 9-5M12 12v10"/>' },
+  { href: 'Analytics.html', label: 'Analytics', icon: '<path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/>' },
+  { href: 'WorkOrder.html', label: 'Work Order', icon: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 3v2h6V3M9 10h6M9 14h6M9 18h3"/>' },
+  { href: 'Emergency.html', label: 'Emergency', icon: '<path d="M12 3l9 16H3L12 3z"/><path d="M12 10v4M12 17h.01"/>' },
+  { href: 'KnowledgeAdmin.html', label: 'Knowledge Check', icon: '<path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/>' },
+  { href: 'Reports.html', label: 'Reports', icon: '<path d="M14 3H6a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V9z"/><path d="M14 3v6h6M9 13h6M9 17h6"/>' },
+  { href: 'Settings.html', label: 'Settings', icon: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.9 2.9l-.1-.1a1.7 1.7 0 00-1.9-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1-1.6 1.7 1.7 0 00-1.9.3l-.1.1a2 2 0 11-2.9-2.9l.1-.1a1.7 1.7 0 00.3-1.9 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1 1.7 1.7 0 00-.3-1.9l-.1-.1a2 2 0 112.9-2.9l.1.1a1.7 1.7 0 001.9.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.9-.3l.1-.1a2 2 0 112.9 2.9l-.1.1a1.7 1.7 0 00-.3 1.9V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/>' }
+];
+document.getElementById('portal-sidebar').innerHTML = `
+  <div class="sb-logo">
+    <img src="Logo.png" alt="AEC VERSE">
+    <div><b>AEC <span class="verse">VERSE</span></b><span>SMART BIOGAS DIGITAL TWIN</span></div>
+  </div>
+  <nav class="sb-nav">${ADMIN_NAV.map(i => `
+    <div class="nav-item${i.href === 'KnowledgeAdmin.html' ? ' active' : ''}" onclick="location.href='${i.href}'">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${i.icon}</svg><span>${i.label}</span>
+    </div>`).join('')}</nav>
+  <div class="sb-live">
+    <div class="hd"><b>Live Plant Data</b><span class="live"><span class="dt"></span>LIVE</span></div>
+    <div class="row"><span>CH4</span><b id="sbLiveCh4">—</b></div>
+    <div class="row"><span>Flow Rate</span><b id="sbLiveFlow">—</b></div>
+    <div class="row"><span>Efficiency</span><b id="sbLiveEff">—</b></div>
+  </div>`;
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+let token = null, settings = null, bank = [];
+
+// ---------- toggle helper ----------
+// เก็บสถานะไว้ที่ class 'on' ของตัว element เอง อ่านตอนบันทึกทีเดียว
+function bindToggle(id) {
+  const el = $(id);
+  el.addEventListener('click', () => { el.classList.toggle('on'); onSettingsChanged(); });
+}
+const tgVal = id => $(id).classList.contains('on');
+const tgSet = (id, v) => $(id).classList.toggle('on', !!v);
+['tg-enabled', 'tg-randomQuestions', 'tg-shuffleChoices', 'tg-showScore', 'tg-showAnswers',
+ 'tg-showResult', 'tg-saveResult', 'tg-certEnabled', 'tg-notifyWeb', 'tg-autoDownloadCert'].forEach(bindToggle);
+
+// ---------- date/time <-> ISO ----------
+function isoToParts(iso) {
+  if (!iso) return ['', ''];
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return ['', ''];
+  const p = n => String(n).padStart(2, '0');
+  return [`${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`, `${p(d.getHours())}:${p(d.getMinutes())}`];
+}
+function partsToIso(dateStr, timeStr) {
+  if (!dateStr) return '';
+  const d = new Date(`${dateStr}T${timeStr || '00:00'}`);
+  return isNaN(d.getTime()) ? '' : d.toISOString();
+}
+
+function onSettingsChanged() { renderRuleStatus(); renderCertPreview(); }
+
+function renderRuleStatus() {
+  const perQ = document.querySelector('input[name="passRule"][value="perQuestion"]').checked;
+  const score = Number($('in-passingScore').value) || 0;
+  $('ruleStatus').innerHTML = perQ
+    ? `<div class="rs-row"><span class="badge green">ผ่าน</span><span>ถูกทุกข้อ</span></div>
+       <div class="rs-row"><span class="badge red">ไม่ผ่าน</span><span>ผิดตั้งแต่ 1 ข้อขึ้นไป</span></div>`
+    : `<div class="rs-row"><span class="badge green">ผ่าน</span><span>คะแนน ≥ ${score}%</span></div>
+       <div class="rs-row"><span class="badge red">ไม่ผ่าน</span><span>คะแนน &lt; ${score}%</span></div>`;
+}
+function renderCertPreview() {
+  $('certPvCourse').textContent = $('in-certTemplate').value || '—';
+  $('certPvSigner').innerHTML = 'ลงนามโดย<br>' + esc($('in-certSigner').value || '—');
+}
+document.querySelectorAll('input[name="passRule"]').forEach(r => r.addEventListener('change', onSettingsChanged));
+$('in-passingScore').addEventListener('input', renderRuleStatus);
+$('in-certTemplate').addEventListener('input', renderCertPreview);
+$('in-certSigner').addEventListener('input', renderCertPreview);
+// เลือก "เปิดตลอดเวลา" -> ช่องวันที่ถูกปิดใช้งาน (ยังเห็นอยู่แต่กดไม่ได้)
+document.querySelectorAll('input[name="schedMode"]').forEach(r => r.addEventListener('change', () => {
+  $('schedFields').classList.toggle('off', r.value === 'always' && r.checked);
+}));
+
+function renderAvailability(a) {
+  const pill = $('availPill');
+  if (!a) { pill.textContent = '—'; return; }
+  const map = {
+    open: ['badge green', '🟢 เปิดให้ทำอยู่ตอนนี้'],
+    disabled: ['badge red', '🔒 ปิดอยู่'],
+    before: ['badge yellow', '⏳ ยังไม่ถึงเวลาเริ่ม'],
+    after: ['badge yellow', '⌛ เลยเวลาสิ้นสุดแล้ว']
+  };
+  const [cls, text] = map[a.reason] || map.disabled;
+  pill.className = 'avail-pill ' + cls;
+  pill.textContent = text;
+}
+
+// ---------- โหลดค่าทั้งหมด ----------
+async function loadAll() {
+  const s = await fetch('/api/knowledge-settings').then(r => r.json());
+  settings = s;
+  tgSet('tg-enabled', s.enabled);
+  $('in-topic').value = s.topic || '';
+
+  document.querySelector(`input[name="schedMode"][value="${s.scheduleMode === 'range' ? 'range' : 'always'}"]`).checked = true;
+  $('schedFields').classList.toggle('off', s.scheduleMode !== 'range');
+  const [sd, st] = isoToParts(s.startAt); $('in-startDate').value = sd; $('in-startTime').value = st;
+  const [ed, et] = isoToParts(s.endAt); $('in-endDate').value = ed; $('in-endTime').value = et;
+
+  $('in-passingScore').value = s.passingScore;
+  $('in-timeLimit').value = s.timeLimitMin;
+  $('in-questionCount').value = s.questionCount;
+  $('in-maxAttempts').value = s.maxAttempts;
+  ['randomQuestions', 'shuffleChoices', 'showScore', 'showAnswers', 'showResult', 'saveResult',
+   'certEnabled', 'notifyWeb', 'autoDownloadCert'].forEach(k => tgSet('tg-' + k, s[k]));
+
+  document.querySelector(`input[name="passRule"][value="${s.passRule === 'perQuestion' ? 'perQuestion' : 'total'}"]`).checked = true;
+  document.querySelector(`input[name="certRule"][value="${s.certRule === 'passAndTour' ? 'passAndTour' : 'pass'}"]`).checked = true;
+  $('in-certTemplate').value = s.certTemplate || '';
+  $('in-certSigner').value = s.certSigner || '';
+
+  renderAvailability(s.availability);
+  onSettingsChanged();
+  $('setStatus').textContent = '';
+}
+
+async function loadBank() {
+  const res = await fetch('/api/knowledge-questions', { headers: { Authorization: 'Bearer ' + token } });
+  if (!res.ok) { $('qStatus').className = 'status-line err'; $('qStatus').textContent = 'โหลดคลังคำถามไม่สำเร็จ'; return; }
+  bank = await res.json();
+  renderBank();
+}
+
+// ---------- คลังคำถาม ----------
+function renderBank() {
+  $('qCount').textContent = bank.length;
+  $('qbank').innerHTML = bank.map((q, qi) => `
+    <div class="qcard" data-qi="${qi}">
+      <div class="q-top">
+        <input type="text" class="q-text-in" value="${esc(q.q)}" placeholder="พิมพ์คำถาม">
+        <button class="btn-icon del" data-act="delq" title="ลบคำถามนี้">🗑️</button>
+      </div>
+      <div class="q-topic"><input type="text" class="q-topic-in" value="${esc(q.topic || '')}" placeholder="หัวข้อ เช่น PPE"></div>
+      ${q.options.map((o, oi) => `
+        <div class="q-opt">
+          <input type="radio" name="correct-${qi}" data-oi="${oi}"${oi === q.correct ? ' checked' : ''} title="ตั้งเป็นคำตอบที่ถูก">
+          <input type="text" class="q-opt-in" value="${esc(o)}" placeholder="ตัวเลือกที่ ${oi + 1}">
+          <button class="btn-icon del" data-act="delopt" data-oi="${oi}" title="ลบตัวเลือกนี้">✕</button>
+        </div>`).join('')}
+      <button class="btn outline btn-sm" data-act="addopt" style="margin-top:4px;">+ เพิ่มตัวเลือก</button>
+    </div>`).join('') || '<div style="color:var(--text-2);font-size:12px;padding:12px 0;">ยังไม่มีคำถาม กด "+ เพิ่มคำถาม" เพื่อเริ่ม</div>';
+}
+
+// อ่านค่าที่พิมพ์ไว้ในหน้ากลับเข้า bank ก่อนบันทึก/ก่อนวาดใหม่ ไม่งั้นที่พิมพ์จะหาย
+function syncBankFromDom() {
+  document.querySelectorAll('#qbank .qcard').forEach(card => {
+    const qi = Number(card.dataset.qi);
+    if (!bank[qi]) return;
+    bank[qi].q = card.querySelector('.q-text-in').value;
+    bank[qi].topic = card.querySelector('.q-topic-in').value;
+    bank[qi].options = [...card.querySelectorAll('.q-opt-in')].map(i => i.value);
+    const picked = card.querySelector(`input[name="correct-${qi}"]:checked`);
+    bank[qi].correct = picked ? Number(picked.dataset.oi) : 0;
+  });
+}
+
+$('qbank').addEventListener('click', e => {
+  const btn = e.target.closest('[data-act]');
+  if (!btn) return;
+  const card = btn.closest('.qcard');
+  const qi = Number(card.dataset.qi);
+  syncBankFromDom();
+  if (btn.dataset.act === 'delq') {
+    if (!confirm('ลบคำถามข้อนี้?')) return;
+    bank.splice(qi, 1);
+  } else if (btn.dataset.act === 'addopt') {
+    if (bank[qi].options.length >= 6) { alert('ใส่ตัวเลือกได้สูงสุด 6 ตัวเลือกต่อข้อ'); return; }
+    bank[qi].options.push('');
+  } else if (btn.dataset.act === 'delopt') {
+    if (bank[qi].options.length <= 2) { alert('แต่ละข้อต้องมีอย่างน้อย 2 ตัวเลือก'); return; }
+    const oi = Number(btn.dataset.oi);
+    bank[qi].options.splice(oi, 1);
+    if (bank[qi].correct >= bank[qi].options.length) bank[qi].correct = 0;
+    else if (bank[qi].correct > oi) bank[qi].correct--;
+  }
+  renderBank();
+});
+
+window.addQuestion = function () {
+  syncBankFromDom();
+  bank.push({ q: '', options: ['', ''], correct: 0, topic: '' });
+  renderBank();
+  $('qbank').scrollTop = $('qbank').scrollHeight;
+};
+
+window.saveQuestions = async function () {
+  syncBankFromDom();
+  const st = $('qStatus');
+  st.className = 'status-line'; st.textContent = 'กำลังบันทึก...';
+  const res = await fetch('/api/knowledge-questions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+    body: JSON.stringify(bank)
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) { st.className = 'status-line err'; st.textContent = '❌ ' + (body.error || 'บันทึกไม่สำเร็จ'); return; }
+  bank = body.questions;          // ใช้ชุดที่ผ่านการกรองจาก server เป็นหลัก
+  renderBank();
+  st.className = 'status-line ok'; st.textContent = `✅ บันทึกแล้ว ${bank.length} ข้อ`;
+};
+
+// ---------- บันทึกการตั้งค่า ----------
+window.saveSettings = async function () {
+  const st = $('setStatus');
+  const mode = document.querySelector('input[name="schedMode"]:checked').value;
+  const payload = {
+    enabled: tgVal('tg-enabled'),
+    topic: $('in-topic').value,
+    scheduleMode: mode,
+    startAt: mode === 'range' ? partsToIso($('in-startDate').value, $('in-startTime').value) : '',
+    endAt: mode === 'range' ? partsToIso($('in-endDate').value, $('in-endTime').value) : '',
+    passingScore: Number($('in-passingScore').value),
+    timeLimitMin: Number($('in-timeLimit').value),
+    questionCount: Number($('in-questionCount').value),
+    maxAttempts: Number($('in-maxAttempts').value),
+    randomQuestions: tgVal('tg-randomQuestions'),
+    shuffleChoices: tgVal('tg-shuffleChoices'),
+    showScore: tgVal('tg-showScore'),
+    showAnswers: tgVal('tg-showAnswers'),
+    showResult: tgVal('tg-showResult'),
+    saveResult: tgVal('tg-saveResult'),
+    passRule: document.querySelector('input[name="passRule"]:checked').value,
+    certEnabled: tgVal('tg-certEnabled'),
+    certRule: document.querySelector('input[name="certRule"]:checked').value,
+    certTemplate: $('in-certTemplate').value,
+    certSigner: $('in-certSigner').value,
+    notifyWeb: tgVal('tg-notifyWeb'),
+    autoDownloadCert: tgVal('tg-autoDownloadCert')
+  };
+  if (mode === 'range' && payload.startAt && payload.endAt && payload.startAt >= payload.endAt) {
+    st.className = 'status-line err'; st.textContent = '❌ วันที่สิ้นสุดต้องอยู่หลังวันที่เริ่มต้น';
+    return;
+  }
+  st.className = 'status-line'; st.textContent = 'กำลังบันทึก...';
+  const res = await fetch('/api/knowledge-settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+    body: JSON.stringify(payload)
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) { st.className = 'status-line err'; st.textContent = '❌ ' + (body.error || 'บันทึกไม่สำเร็จ'); return; }
+  settings = body.settings;
+  renderAvailability(settings.availability);
+  st.className = 'status-line ok'; st.textContent = '✅ บันทึกแล้ว — มีผลกับผู้ใช้ทุกคนทันที';
+};
+
+window.previewCert = function () {
+  const url = `Certificate.html?name=${encodeURIComponent('(ชื่อผู้ผ่านการทดสอบ)')}` +
+    `&course=${encodeURIComponent($('in-certTemplate').value)}` +
+    `&signer=${encodeURIComponent($('in-certSigner').value)}` +
+    `&score=${encodeURIComponent('100%')}&preview=1`;
+  window.open(url, '_blank');
+};
+
+// ---------- เข้าหน้าได้เฉพาะแอดมิน ----------
+(async function () {
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  if (!session) { location.href = 'Login.html'; return; }
+  token = session.access_token;
+  const role = await fetch('/api/me/role', { headers: { Authorization: 'Bearer ' + token } })
+    .then(r => r.json()).catch(() => ({}));
+  if (!role.isAdmin) { $('notAdmin').classList.remove('hide'); return; }
+  $('adminBody').classList.remove('hide');
+  await loadAll();
+  await loadBank();
+})();
+</script>
+</body>
+</html>

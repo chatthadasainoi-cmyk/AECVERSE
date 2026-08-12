@@ -90,6 +90,24 @@ async function requireAdmin(req, res, next) {
     next();
 }
 
+// ตรวจสิทธิ์แอดมินแบบไม่ต้องใช้ service role key — ยืนยัน token ด้วย anon key แล้วอ่าน
+// app_metadata.role ที่ server เป็นคนกำหนด (ปลอดภัยเท่ากับ requireAdmin)
+// ใช้กับ endpoint ที่ไม่ต้องยุ่งกับบัญชีคนอื่น เช่นการตั้งค่าแบบทดสอบ — จะได้ใช้งานได้
+// แม้เครื่องนั้นยังไม่ได้ตั้ง SUPABASE_SERVICE_ROLE_KEY
+async function requireAdminLite(req, res, next) {
+    const token = (req.headers.authorization || '').replace(/^Bearer /, '');
+    if (!token) return res.status(401).json({ error: 'ไม่พบ token การเข้าสู่ระบบ' });
+    try {
+        const { data, error } = await supabaseVerify.auth.getUser(token);
+        if (error || !data.user) return res.status(401).json({ error: 'Token ไม่ถูกต้องหรือหมดอายุ' });
+        if (!isAdminUser(data.user)) return res.status(403).json({ error: 'บัญชีนี้ไม่มีสิทธิ์ Admin' });
+        req.adminUser = data.user;
+        next();
+    } catch (err) {
+        res.status(401).json({ error: 'ตรวจสอบสิทธิ์ไม่สำเร็จ' });
+    }
+}
+
 app.get('/api/admin/users', requireAdmin, async (req, res) => {
     const { data, error } = await supabaseAdmin.auth.admin.listUsers();
     if (error) return res.status(500).json({ error: error.message });
@@ -227,14 +245,105 @@ async function persistSceneState() {
 // ในเครื่องตัวเองแล้วผู้ใช้คนอื่นไม่เห็นการเปลี่ยนแปลง — ย้ายมาเก็บฝั่ง server จริง
 // ============================================================
 const KNOWLEDGE_SETTINGS_FILE = IS_PRODUCTION ? 'knowledge_settings_v1.json' : 'knowledge_settings_dev.json';
-let knowledgeSettings = { enabled: false, topic: 'ความปลอดภัยเบื้องต้นในโรงงานก๊าซชีวภาพ (Biogas Plant Basic Safety)' };
+const DEFAULT_KNOWLEDGE_SETTINGS = {
+    enabled: false,
+    topic: 'ความปลอดภัยเบื้องต้นในโรงงานก๊าซชีวภาพ (Biogas Plant Basic Safety)',
+
+    // 1. การกำหนดเวลา — 'always' = เปิดตลอด, 'range' = เปิดเฉพาะช่วงที่กำหนด
+    scheduleMode: 'always',
+    startAt: '',   // ISO string
+    endAt: '',
+
+    // 2. การทำแบบทดสอบ
+    passingScore: 70,     // %
+    timeLimitMin: 0,      // 0 = ไม่จำกัดเวลา
+    questionCount: 0,     // 0 = ใช้ทุกข้อในคลัง
+    maxAttempts: 0,       // 0 = ทำได้ไม่จำกัดครั้ง
+    randomQuestions: true,
+    shuffleChoices: true,
+    showScore: true,
+    showAnswers: false,
+
+    // 3. ผลการทำแบบทดสอบ — passRule 'total' = ตัดสินจากคะแนนรวม, 'perQuestion' = ต้องถูกทุกข้อ
+    showResult: true,
+    saveResult: true,
+    passRule: 'total',
+
+    // 4. ใบเซอร์ติฟิเคต — certRule 'pass' = แค่สอบผ่าน, 'passAndTour' = ต้องชม Virtual Tour ด้วย
+    certEnabled: true,
+    certRule: 'pass',
+    certTemplate: 'Basic Safety Certificate',
+    certSigner: 'Super Administrator',
+
+    // 5. การแจ้งเตือน — อีเมลยังไม่รองรับ (ไม่มีบริการส่งอีเมลต่อไว้) จึงไม่มีคีย์อีเมลที่นี่
+    notifyWeb: true,
+    autoDownloadCert: false
+};
+let knowledgeSettings = { ...DEFAULT_KNOWLEDGE_SETTINGS };
+
+// กรองค่าที่รับมาให้อยู่ในขอบเขตที่ใช้งานได้จริงเสมอ — ค่าพิลึกจาก client ทำให้
+// ฝั่งผู้ใช้คำนวณคะแนน/จับเวลาเพี้ยนทั้งระบบ
+function sanitizeKnowledgeSettings(raw, base) {
+    const s = raw && typeof raw === 'object' ? raw : {};
+    const prev = base || DEFAULT_KNOWLEDGE_SETTINGS;
+    const bool = (v, d) => (typeof v === 'boolean' ? v : d);
+    const int = (v, lo, hi, d) => {
+        const n = Math.round(Number(v));
+        return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d;
+    };
+    const iso = v => {
+        if (typeof v !== 'string' || !v.trim()) return '';
+        const d = new Date(v);
+        return isNaN(d.getTime()) ? '' : d.toISOString();
+    };
+    const pick = (v, allowed, d) => (allowed.includes(v) ? v : d);
+    const text = (v, max, d) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : d);
+
+    return {
+        enabled: bool(s.enabled, prev.enabled),
+        topic: text(s.topic, 200, prev.topic),
+        scheduleMode: pick(s.scheduleMode, ['always', 'range'], prev.scheduleMode),
+        startAt: s.startAt === undefined ? prev.startAt : iso(s.startAt),
+        endAt: s.endAt === undefined ? prev.endAt : iso(s.endAt),
+        passingScore: int(s.passingScore, 0, 100, prev.passingScore),
+        timeLimitMin: int(s.timeLimitMin, 0, 240, prev.timeLimitMin),
+        questionCount: int(s.questionCount, 0, 100, prev.questionCount),
+        maxAttempts: int(s.maxAttempts, 0, 99, prev.maxAttempts),
+        randomQuestions: bool(s.randomQuestions, prev.randomQuestions),
+        shuffleChoices: bool(s.shuffleChoices, prev.shuffleChoices),
+        showScore: bool(s.showScore, prev.showScore),
+        showAnswers: bool(s.showAnswers, prev.showAnswers),
+        showResult: bool(s.showResult, prev.showResult),
+        saveResult: bool(s.saveResult, prev.saveResult),
+        passRule: pick(s.passRule, ['total', 'perQuestion'], prev.passRule),
+        certEnabled: bool(s.certEnabled, prev.certEnabled),
+        certRule: pick(s.certRule, ['pass', 'passAndTour'], prev.certRule),
+        certTemplate: text(s.certTemplate, 100, prev.certTemplate),
+        certSigner: text(s.certSigner, 100, prev.certSigner),
+        notifyWeb: bool(s.notifyWeb, prev.notifyWeb),
+        autoDownloadCert: bool(s.autoDownloadCert, prev.autoDownloadCert)
+    };
+}
+
+// "ตอนนี้ทำแบบทดสอบได้ไหม" — รวมทั้งสวิตช์เปิด/ปิด และช่วงเวลาที่ตั้งไว้
+// คำนวณที่ server เพื่อให้ทุกเครื่องตัดสินตรงกัน ไม่ขึ้นกับนาฬิกาเครื่องผู้ใช้
+function knowledgeAvailability(now = Date.now()) {
+    if (!knowledgeSettings.enabled) return { open: false, reason: 'disabled' };
+    if (knowledgeSettings.scheduleMode !== 'range') return { open: true, reason: 'open' };
+    const start = knowledgeSettings.startAt ? Date.parse(knowledgeSettings.startAt) : NaN;
+    const end = knowledgeSettings.endAt ? Date.parse(knowledgeSettings.endAt) : NaN;
+    if (!isNaN(start) && now < start) return { open: false, reason: 'before', startAt: knowledgeSettings.startAt };
+    if (!isNaN(end) && now > end) return { open: false, reason: 'after', endAt: knowledgeSettings.endAt };
+    return { open: true, reason: 'open' };
+}
 
 async function loadKnowledgeSettings() {
     try {
         const res = await fetch(`${SUPABASE_URL}/storage/v1/object/public/models/${KNOWLEDGE_SETTINGS_FILE}?t=${Date.now()}`);
         if (!res.ok) return;
         const s = await res.json();
-        if (s && typeof s === 'object') knowledgeSettings = { enabled: !!s.enabled, topic: s.topic || knowledgeSettings.topic };
+        // ไฟล์เก่ามีแค่ enabled/topic — sanitize จะเติมค่าที่เหลือจาก default ให้เอง
+        if (s && typeof s === 'object') knowledgeSettings = sanitizeKnowledgeSettings(s, DEFAULT_KNOWLEDGE_SETTINGS);
     } catch (err) { console.warn('[KNOWLEDGE] โหลดการตั้งค่าไม่สำเร็จ:', err.message); }
 }
 async function persistKnowledgeSettings() {
@@ -248,15 +357,14 @@ async function persistKnowledgeSettings() {
 }
 loadKnowledgeSettings();
 
-app.get('/api/knowledge-settings', (req, res) => res.json(knowledgeSettings));
-app.post('/api/knowledge-settings', requireAdmin, async (req, res) => {
-    const { enabled, topic } = req.body || {};
-    knowledgeSettings = {
-        enabled: !!enabled,
-        topic: (typeof topic === 'string' && topic.trim()) ? topic.trim().slice(0, 200) : knowledgeSettings.topic
-    };
+// ส่ง availability ไปด้วยเสมอ ฝั่งหน้าเว็บจะได้ไม่ต้องคำนวณช่วงเวลาเองให้เพี้ยนกันคนละนาฬิกา
+app.get('/api/knowledge-settings', (req, res) =>
+    res.json({ ...knowledgeSettings, availability: knowledgeAvailability() }));
+
+app.post('/api/knowledge-settings', requireAdminLite, async (req, res) => {
+    knowledgeSettings = sanitizeKnowledgeSettings(req.body, knowledgeSettings);
     await persistKnowledgeSettings();
-    res.json({ success: true, settings: knowledgeSettings });
+    res.json({ success: true, settings: { ...knowledgeSettings, availability: knowledgeAvailability() } });
 });
 
 // ============================================================
@@ -312,13 +420,165 @@ async function persistKnowledgeQuestions() {
 }
 loadKnowledgeQuestions();
 
-app.get('/api/knowledge-questions', (req, res) => res.json(knowledgeQuestions));
-app.post('/api/knowledge-questions', requireAdmin, async (req, res) => {
+// คลังคำถามฉบับเต็ม (มีเฉลย) — เฉพาะแอดมินเท่านั้น
+// เดิม endpoint นี้เปิดสาธารณะ ใครเปิด DevTools ก็เห็นเฉลยครบทุกข้อ ตัวเลือก
+// "ซ่อนเฉลยหลังสอบ" จึงไม่มีความหมายเลย ตอนนี้ผู้ทำข้อสอบได้รับชุดที่ไม่มีเฉลยแทน
+app.get('/api/knowledge-questions', requireAdminLite, (req, res) => res.json(knowledgeQuestions));
+app.post('/api/knowledge-questions', requireAdminLite, async (req, res) => {
     const clean = sanitizeQuestions(req.body);
     if (!clean) return res.status(400).json({ error: 'ต้องมีคำถามอย่างน้อย 1 ข้อ และแต่ละข้อต้องมีตัวเลือกอย่างน้อย 2 ตัวเลือกที่ไม่ว่าง' });
     knowledgeQuestions = clean;
     await persistKnowledgeQuestions();
     res.json({ success: true, questions: knowledgeQuestions });
+});
+
+// ============================================================
+// KNOWLEDGE CHECK — การทำข้อสอบจริง (ออกชุดข้อสอบ + ตรวจให้คะแนนที่ server)
+// ตรวจที่ server เท่านั้น เพราะการตรวจฝั่ง client แปลว่าผู้ทำแก้คะแนนตัวเองได้
+// และเฉลยต้องหลุดไปอยู่ในเครื่องผู้ทำตั้งแต่ก่อนเริ่มสอบ
+// ============================================================
+const quizPapers = new Map();   // paperId -> { userId, items, startedAt, expiresAt }
+const quizAttempts = new Map(); // userId -> จำนวนครั้งที่ทำไปแล้ว (in-memory)
+const PAPER_GRACE_MS = 5 * 60 * 1000;
+
+async function userFromRequest(req) {
+    const token = (req.headers.authorization || '').replace(/^Bearer /, '');
+    if (!token) return null;
+    try {
+        const { data, error } = await supabaseVerify.auth.getUser(token);
+        return error ? null : data.user;
+    } catch (err) { return null; }
+}
+
+function shuffled(arr) {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+}
+
+// เก็บกวาดชุดข้อสอบที่หมดอายุ ไม่ให้ Map บวมไปเรื่อยๆ
+setInterval(() => {
+    const now = Date.now();
+    for (const [id, p] of quizPapers) if (p.expiresAt < now) quizPapers.delete(id);
+}, 10 * 60 * 1000).unref?.();
+
+app.post('/api/knowledge-quiz/start', async (req, res) => {
+    const user = await userFromRequest(req);
+    if (!user) return res.status(401).json({ error: 'ต้องเข้าสู่ระบบก่อนทำแบบทดสอบ' });
+
+    const isAdmin = isAdminUser(user);
+    const avail = knowledgeAvailability();
+    // แอดมินทดลองทำได้เสมอ เพื่อตรวจข้อสอบก่อนเปิดให้คนอื่น
+    if (!avail.open && !isAdmin) return res.status(403).json({ error: 'ยังไม่เปิดให้ทำแบบทดสอบในขณะนี้', availability: avail });
+
+    // จำนวนครั้ง: ใช้ค่าที่นับไว้ใน memory เป็นหลัก ถ้ายังไม่มีให้ตั้งต้นจาก metadata ของบัญชี
+    // (server รีสตาร์ทแล้วยังนับต่อได้ เพราะฝั่ง client บันทึกค่ากลับเข้าบัญชีทุกครั้ง)
+    if (!quizAttempts.has(user.id)) {
+        const fromMeta = Number(user.user_metadata?.quizAttempts);
+        quizAttempts.set(user.id, Number.isFinite(fromMeta) && fromMeta > 0 ? Math.floor(fromMeta) : 0);
+    }
+    const used = quizAttempts.get(user.id);
+    const max = knowledgeSettings.maxAttempts;
+    if (max > 0 && used >= max && !isAdmin) {
+        return res.status(403).json({ error: `ทำแบบทดสอบครบจำนวนครั้งที่กำหนดแล้ว (${max} ครั้ง)`, attemptsUsed: used, maxAttempts: max });
+    }
+
+    // เลือกข้อ + สลับตัวเลือกตามการตั้งค่า
+    let pool = knowledgeSettings.randomQuestions ? shuffled(knowledgeQuestions) : knowledgeQuestions.slice();
+    const want = knowledgeSettings.questionCount;
+    if (want > 0 && want < pool.length) pool = pool.slice(0, want);
+
+    const items = pool.map(q => {
+        // จับคู่ตัวเลือกกับ index เดิมไว้ก่อนสลับ จะได้ตรวจกลับได้ว่าที่เลือกมาคือข้อไหน
+        const idx = q.options.map((_, i) => i);
+        const order = knowledgeSettings.shuffleChoices ? shuffled(idx) : idx;
+        return { q: q.q, topic: q.topic, options: order.map(i => q.options[i]), order, correct: q.correct };
+    });
+
+    const timeLimitMs = knowledgeSettings.timeLimitMin > 0 ? knowledgeSettings.timeLimitMin * 60000 : 0;
+    const paperId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+    quizPapers.set(paperId, {
+        userId: user.id, items, startedAt: Date.now(),
+        expiresAt: Date.now() + (timeLimitMs || 2 * 60 * 60 * 1000) + PAPER_GRACE_MS
+    });
+
+    res.json({
+        paperId,
+        // ไม่มี correct / order ติดไปกับ client เด็ดขาด
+        questions: items.map(it => ({ q: it.q, topic: it.topic, options: it.options })),
+        timeLimitMin: knowledgeSettings.timeLimitMin,
+        passingScore: knowledgeSettings.passingScore,
+        passRule: knowledgeSettings.passRule,
+        attemptsUsed: used,
+        maxAttempts: max
+    });
+});
+
+app.post('/api/knowledge-quiz/submit', async (req, res) => {
+    const user = await userFromRequest(req);
+    if (!user) return res.status(401).json({ error: 'ต้องเข้าสู่ระบบก่อนส่งคำตอบ' });
+
+    const { paperId, answers } = req.body || {};
+    const paper = quizPapers.get(paperId);
+    if (!paper) return res.status(400).json({ error: 'ชุดข้อสอบหมดอายุหรือไม่ถูกต้อง — กรุณาเริ่มทำใหม่' });
+    if (paper.userId !== user.id) return res.status(403).json({ error: 'ชุดข้อสอบนี้ไม่ใช่ของบัญชีคุณ' });
+    quizPapers.delete(paperId); // ใช้ได้ครั้งเดียว ส่งซ้ำเพื่อไล่เดาคำตอบไม่ได้
+
+    // หมดเวลาแล้วยังส่งมา = ตรวจเท่าที่ตอบทัน แต่ทำเครื่องหมายไว้ว่าหมดเวลา
+    const limitMs = knowledgeSettings.timeLimitMin > 0 ? knowledgeSettings.timeLimitMin * 60000 : 0;
+    const elapsedMs = Date.now() - paper.startedAt;
+    const timedOut = limitMs > 0 && elapsedMs > limitMs + 10000; // เผื่อ latency 10 วิ
+
+    const given = Array.isArray(answers) ? answers : [];
+    const detail = paper.items.map((it, i) => {
+        const picked = Number.isInteger(given[i]) ? given[i] : -1;
+        // ผู้ทำเห็นตัวเลือกที่สลับแล้ว ต้องแปลงกลับเป็น index จริงก่อนเทียบเฉลย
+        const pickedOriginal = picked >= 0 && picked < it.order.length ? it.order[picked] : -1;
+        return {
+            q: it.q, topic: it.topic,
+            correct: pickedOriginal === it.correct,
+            // ตำแหน่งเฉลยในชุดที่ผู้ทำเห็น (ส่งกลับเฉพาะตอนแอดมินเปิด "แสดงเฉลย")
+            correctIndex: it.order.indexOf(it.correct)
+        };
+    });
+
+    const score = detail.filter(d => d.correct).length;
+    const total = detail.length;
+    const percent = total ? Math.round((score / total) * 100) : 0;
+    const passed = knowledgeSettings.passRule === 'perQuestion'
+        ? score === total
+        : percent >= knowledgeSettings.passingScore;
+
+    const used = (quizAttempts.get(user.id) || 0) + 1;
+    quizAttempts.set(user.id, used);
+
+    // ใบเซอร์: ต้องผ่าน และถ้าตั้งเป็น passAndTour ต้องเคยเข้า Virtual Tour ด้วย
+    const tourDone = !!user.user_metadata?.onboardingTasks?.virtualTourVisited;
+    const certEligible = knowledgeSettings.certEnabled && passed &&
+        (knowledgeSettings.certRule !== 'passAndTour' || tourDone);
+
+    res.json({
+        score, total, percent, passed, timedOut,
+        elapsedSec: Math.round(elapsedMs / 1000),
+        attemptsUsed: used,
+        maxAttempts: knowledgeSettings.maxAttempts,
+        // เคารพการตั้งค่าของแอดมิน — ปิด "แสดงคะแนน/ผล" ก็ไม่ส่งรายละเอียดกลับไป
+        showScore: knowledgeSettings.showScore,
+        showResult: knowledgeSettings.showResult,
+        detail: knowledgeSettings.showResult
+            ? detail.map(d => (knowledgeSettings.showAnswers ? d : { q: d.q, topic: d.topic, correct: d.correct }))
+            : [],
+        saveResult: knowledgeSettings.saveResult,
+        certEligible,
+        certBlockedByTour: knowledgeSettings.certEnabled && passed && knowledgeSettings.certRule === 'passAndTour' && !tourDone,
+        topic: knowledgeSettings.topic,
+        certTemplate: knowledgeSettings.certTemplate,
+        certSigner: knowledgeSettings.certSigner,
+        autoDownloadCert: knowledgeSettings.autoDownloadCert
+    });
 });
 
 // ============================================================
