@@ -468,7 +468,7 @@
         window.location.href = 'Login.html';
     }
     initUserChip();
-  guardAdminOnly();
+  guardAdminOnly(['admin','engineer']);
 
     (async function(){
         const SERVER = window.RAILWAY_SERVER_URL || window.location.origin;
