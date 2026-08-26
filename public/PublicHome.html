@@ -237,8 +237,8 @@ window.addEventListener('portal:plant_update', e => {
     deltaTxt(document.getElementById('homeEffDelta'), data.plant.efficiency, prevEff, '%'); prevEff = data.plant.efficiency;
 
     if (data.tank1) {
-        document.getElementById('homeTankPressure').textContent = data.tank1.pressure + ' bar';
-        document.getElementById('homeTankTemp').textContent = data.tank1.temperature + ' °C';
+        document.getElementById('homeTankPressure').textContent = data.tank1.pressure + ' ' + (data.tank1.pressureUnit || 'mbar G');
+        document.getElementById('homeTankTemp').textContent = data.tank1.temperature + ' ' + (data.tank1.temperatureUnit || '°C');
     }
     if (Array.isArray(data.alerts)) {
         const active = data.alerts.filter(a => a.level !== 'normal');
