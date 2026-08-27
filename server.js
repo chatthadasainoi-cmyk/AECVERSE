@@ -769,7 +769,125 @@ function publicState() {
 function rand(min, max) { return min + Math.random() * (max - min); }
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 
-const plant = { ch4Percent: 65.2, flowRate: 125.6, efficiency: 82.4 };
+// ============================================================
+// ทะเบียนเครื่องมือตรวจวัดจริงของโรงงาน
+// อ้างอิงเอกสาร "ทะเบียนรายชื่อเครื่องมือตรวจวัด ที่จะนำขึ้น IDA"
+//   min/max   = ช่วงการใช้งานประจำตามเอกสาร (ไม่ใช่ full scale ของเครื่องมือ)
+//   error     = ค่า ERROR ที่ยอมรับได้ตามเอกสาร
+//   io        = ช่องทางสื่อสารตามเอกสาร
+//   rangeless = เอกสารไม่ได้ระบุช่วงตัวเลขไว้ (power meter ระบุแค่ "ค่าทางไฟฟ้าทั้งหมด"
+//               กับชั้นความแม่นยำ, gas detector ระบุแค่หน้าที่ "ตรวจจับแก๊สรั่ว")
+//               -> ไม่แต่งตัวเลขให้ รายงานเป็นสถานะแทน
+// ============================================================
+const INSTRUMENTS = [
+    { tag: 'TT01', station: 'Biogas', name: 'Cooling Sum 1 Temperature', kind: 'temperature', type: 'Temperature Transmitter', model: 'TSP-08', min: 50, max: 90, unit: '°C', error: '±3%', io: '4-20mA' },
+    { tag: 'TT02', station: 'Biogas', name: 'Cooling Sum 2 Temperature', kind: 'temperature', type: 'Temperature Transmitter', model: 'TSP-08', min: 50, max: 90, unit: '°C', error: '±3%', io: '4-20mA' },
+    { tag: 'TT03', station: 'Biogas', name: 'CSTR1 Temperature', kind: 'temperature', type: 'Temperature Transmitter', model: 'TM-012', min: 30, max: 45, unit: '°C', error: '±3%', io: '4-20mA' },
+    { tag: 'TT04', station: 'Biogas', name: 'CSTR2 Temperature', kind: 'temperature', type: 'Temperature Transmitter', model: 'TM-012', min: 30, max: 45, unit: '°C', error: '±3%', io: '4-20mA' },
+    { tag: 'TT05', station: 'Biogas', name: 'CSTR3 Temperature', kind: 'temperature', type: 'Temperature Transmitter', model: 'TM-012', min: 30, max: 45, unit: '°C', error: '±3%', io: '4-20mA' },
+    { tag: 'TT06', station: 'Biogas', name: 'Mixing Tank Temperature', kind: 'temperature', type: 'Temperature Transmitter', model: 'CA150', min: 30, max: 45, unit: '°C', error: '±3%', io: '4-20mA' },
+    { tag: 'TT07', station: 'Biogas', name: 'Decanter Cake Mixing Tank Temperature', kind: 'temperature', type: 'Temperature Transmitter', model: 'CA150', min: 30, max: 45, unit: '°C', error: '±3%', io: '4-20mA' },
+    { tag: 'TT08', station: 'Biogas', name: 'Mixing MCL Temperature', kind: 'temperature', type: 'Temperature Transmitter', model: 'CA150', min: 30, max: 45, unit: '°C', error: '±3%', io: '4-20mA' },
+    { tag: 'TT09', station: 'Biogas', name: 'Temperature / Gas Chiller → Engine', kind: 'temperature', type: 'Temperature Transmitter', model: 'EURASIA', min: 0, max: 20, unit: '°C', error: '±3.0°C', io: '4-20mA' },
+
+    { tag: 'LT01', station: 'Biogas', name: 'Level Transmitter Cooling Sum1', kind: 'level', type: 'Ultrasonic Level Transmitter', model: '-', min: 0, max: 10.5, unit: 'm³', error: '±5%', io: '4-20mA' },
+    { tag: 'LT02', station: 'Biogas', name: 'Level Transmitter Cooling Sum2', kind: 'level', type: 'Ultrasonic Level Transmitter', model: '-', min: 0, max: 10.5, unit: 'm³', error: '±0.05%', io: '4-20mA' },
+    { tag: 'LT03', station: 'Biogas', name: 'Level Transmitter Mixing Tank', kind: 'level', type: 'Radar Level Sensor', model: 'Micropilot FMR20', min: 0, max: 26.88, unit: 'm³', error: '±0.05%', io: '4-20mA' },
+    { tag: 'LT04', station: 'Biogas', name: 'Level Transmitter Mixing CakeTank', kind: 'level', type: 'Radar Level Sensor', model: 'Micropilot FMR20', min: 0, max: 30, unit: 'm³', error: '±0.05%', io: '4-20mA' },
+    { tag: 'LT05', station: 'Biogas', name: 'Level Transmitter Mixing MCL', kind: 'level', type: 'Radar Level Sensor', model: 'Micropilot FMR20', min: 0, max: 62, unit: 'm³', error: '±5%', io: '4-20mA' },
+
+    { tag: 'FM01', station: 'Biogas', name: 'Cooling → Mixing', kind: 'flow', type: 'Megnatic Flow 4"', model: 'PROMAG E', min: 10, max: 20, unit: 'm³/hr', error: '±5%', io: '4-20mA' },
+    { tag: 'FM02', station: 'Biogas', name: 'Mixing Tank → CSTR 1', kind: 'flow', type: 'Megnatic Flow 4"', model: 'PROMAG E', min: 10, max: 20, unit: 'm³/hr', error: '±5%', io: '4-20mA' },
+    { tag: 'FM03', station: 'Biogas', name: 'Mixing Tank → CSTR 2', kind: 'flow', type: 'Megnatic Flow 4"', model: 'PROMAG E', min: 10, max: 20, unit: 'm³/hr', error: '±5%', io: '4-20mA' },
+    { tag: 'FM08', station: 'Biogas', name: 'Mixing Tank → CSTR 3', kind: 'flow', type: 'Megnatic Flow 4"', model: 'PROMAG E', min: 10, max: 20, unit: 'm³/hr', error: '±5%', io: '4-20mA' },
+    { tag: 'FM04', station: 'Biogas', name: 'Effluent', kind: 'flow', type: 'Megnatic Flow 4"', model: 'PROMAG E', min: 10, max: 20, unit: 'm³/hr', error: '±5%', io: '4-20mA' },
+    { tag: 'FM05', station: 'Biogas', name: 'Decanter Mixing Tank → CSTR 3', kind: 'flow', type: 'Megnatic Flow 4"', model: 'PROMAG E', min: 10, max: 20, unit: 'm³/hr', error: '±5%', io: '4-20mA' },
+    { tag: 'FM06', station: 'Biogas', name: 'Effluent → Decanter Mixing Tank', kind: 'flow', type: 'Megnatic Flow 6"', model: '-', min: 10, max: 20, unit: 'm³/hr', error: '±5%', io: '4-20mA' },
+    { tag: 'FM09', station: 'Biogas', name: 'MCL → Post 1', kind: 'flow', type: 'Megnatic Flow 4"', model: 'PROMAG E', min: 10, max: 20, unit: 'm³/hr', error: '±5%', io: '4-20mA' },
+    { tag: 'FM07', station: 'Biogas', name: 'Gas Flow / Gas Blower → Engine', kind: 'gasflow', type: 'Thermal Mass 12"', model: 'PROLINE T-mass 65', min: 0, max: 1500, unit: 'Nm³/hr', error: '±1%', io: '4-20mA' },
+
+    { tag: 'PT01', station: 'Biogas', name: 'Pressure / Gas Blower → Engine', kind: 'pressure', type: 'Pressure Transmitter', model: 'ADZ-SML-10.0', min: 90, max: 110, unit: 'mbar G', error: '±10%', io: '4-20mA' },
+    { tag: 'PT02', station: 'Biogas', name: 'Pressure / Gas Chiller → Engine', kind: 'pressure', type: 'Pressure Transmitter', model: 'ADZ-SML-10.0', min: 90, max: 110, unit: 'mbar G', error: '±10%', io: '4-20mA' },
+    { tag: 'PG01', station: 'Biogas', name: 'Pressure Gauge / Gas Chiller → Engine', kind: 'pressure', type: 'Pressure Gauge', model: 'Winter', min: 90, max: 110, unit: 'mbar G', error: '±10%', io: '4-20mA' },
+
+    { tag: 'GA02-CH4', station: 'Biogas', name: 'Gas Analyzer (Online) — CH₄', kind: 'ch4', type: 'Gas Analyzer (Online)', model: 'Biogas3000', min: 40, max: 70, unit: '%', error: '±0.5%', io: '4-20mA' },
+    { tag: 'GA02-H2S', station: 'Biogas', name: 'Gas Analyzer (Online) — H₂S', kind: 'h2s', type: 'Gas Analyzer (Online)', model: 'Biogas3000', min: 1, max: 3000, unit: 'ppm', error: '±100 ppm', io: '4-20mA' },
+
+    { tag: 'CSTR-1-ROOF', station: 'CSTR-1', name: 'Rooflevel CSTR', kind: 'rooflevel', type: 'Level', model: '-', min: 0, max: 5500, unit: 'mm', error: '-', io: '4-20mA' },
+    { tag: 'CSTR-2-ROOF', station: 'CSTR-2', name: 'Rooflevel CSTR', kind: 'rooflevel', type: 'Level', model: '-', min: 0, max: 5500, unit: 'mm', error: '-', io: '4-20mA' },
+    { tag: 'CSTR-3-ROOF', station: 'CSTR-3', name: 'Rooflevel CSTR', kind: 'rooflevel', type: 'Level', model: '-', min: 0, max: 5500, unit: 'mm', error: '-', io: '4-20mA' },
+
+    { tag: 'GD-CSTR-1', station: 'CSTR-1', name: 'GAS Detecter', kind: 'gasdetect', type: 'GAS Detecter', model: 'Crowcon Gasmaster', rangeless: true, purpose: 'ตรวจจับแก๊สรั่ว', error: '-', io: 'Modbus RTU RS485' },
+    { tag: 'GD-CSTR-2', station: 'CSTR-2', name: 'GAS Detecter', kind: 'gasdetect', type: 'GAS Detecter', model: 'Crowcon Gasmaster', rangeless: true, purpose: 'ตรวจจับแก๊สรั่ว', error: '-', io: 'Modbus RTU RS485' },
+    { tag: 'GD-CSTR-3', station: 'CSTR-3', name: 'GAS Detecter', kind: 'gasdetect', type: 'GAS Detecter', model: 'Crowcon Gasmaster', rangeless: true, purpose: 'ตรวจจับแก๊สรั่ว', error: '-', io: 'Modbus RTU RS485' },
+
+    { tag: '52A', station: 'Biogas', name: '52A Meter', kind: 'power', type: 'Power meter', model: 'GE PQM2', rangeless: true, purpose: 'ค่าทางไฟฟ้าทั้งหมด', error: '0.05%', io: 'Modbus RTU RS485' },
+    { tag: '52B-1', station: 'Biogas', name: '52B Meter', kind: 'power', type: 'Power meter', model: 'Socomce Diris40', rangeless: true, purpose: 'ค่าทางไฟฟ้าทั้งหมด', error: '0.5%', io: 'Modbus RTU RS485' },
+    { tag: '52B-2', station: 'Biogas', name: '52B Meter', kind: 'power', type: 'Power meter', model: 'Socomce Diris41', rangeless: true, purpose: 'ค่าทางไฟฟ้าทั้งหมด', error: '0.5%', io: 'Modbus RTU RS485' },
+    { tag: 'ENGINE-1', station: 'Biogas', name: 'Engine No1', kind: 'power', type: 'Power meter', model: '-', rangeless: true, purpose: 'ค่าทางไฟฟ้าทั้งหมด', error: '0.5%', io: 'Modbus RTU RS485' },
+    { tag: 'ENGINE-2', station: 'Biogas', name: 'Engine No2', kind: 'power', type: 'Power meter', model: '-', rangeless: true, purpose: 'ค่าทางไฟฟ้าทั้งหมด', error: '0.5%', io: 'Modbus RTU RS485' },
+    { tag: 'ENGINE-ROOM', station: 'Biogas', name: 'Engine room', kind: 'power', type: 'Power meter', model: 'Lovato DMG6', rangeless: true, purpose: 'ค่าทางไฟฟ้าทั้งหมด', error: '0.5%', io: 'Modbus RTU RS485' },
+    { tag: 'BIOGAS-ROOM', station: 'Biogas', name: 'Biogas room', kind: 'power', type: 'Power meter', model: 'Shneider PM5350', rangeless: true, purpose: 'ค่าทางไฟฟ้าทั้งหมด', error: '0.5%', io: 'Modbus RTU RS485' },
+    { tag: 'PEA-IN', station: 'Biogas', name: 'Incomming (PEA)', kind: 'power', type: 'TOU', model: 'EDMI MK6N GENIUS', rangeless: true, purpose: 'ค่าทางไฟฟ้าทั้งหมด', error: '0.05%', io: 'Modbus TCP/IP' },
+    { tag: 'VSPP-OUT', station: 'Biogas', name: 'Outgoeing (VSPP)', kind: 'power', type: 'TOU', model: 'EDMI MK6N GENIUS', rangeless: true, purpose: 'ค่าทางไฟฟ้าทั้งหมด', error: '0.05%', io: 'Modbus TCP/IP' },
+
+    { tag: 'PALM-GEN', station: 'โรงปาล์ม', name: 'Gen Turbine', kind: 'power', type: 'Power meter', model: 'Shneider PM5350', rangeless: true, purpose: 'ค่าทางไฟฟ้าทั้งหมด', error: '0.5%', io: 'Modbus RTU RS485', note: 'ไม่มี Diagram SCADA' },
+    { tag: 'PALM-EFB3', station: 'โรงปาล์ม', name: 'EFB Press No. 3', kind: 'power', type: 'Power meter', model: 'Lovato DMG6', rangeless: true, purpose: 'ค่าทางไฟฟ้าทั้งหมด', error: '0.5%', io: 'Modbus RTU RS485', note: 'ไม่มี Diagram SCADA' },
+    { tag: 'PALM-SCREW3', station: 'โรงปาล์ม', name: 'Screw Press No.3', kind: 'power', type: 'Power meter', model: 'Lovato DMG6', rangeless: true, purpose: 'ค่าทางไฟฟ้าทั้งหมด', error: '0.5%', io: 'Modbus RTU RS485', note: 'ไม่มี Diagram SCADA' },
+    { tag: 'PALM-DIG3', station: 'โรงปาล์ม', name: 'Digister No.3', kind: 'power', type: 'Power meter', model: 'Lovato DMG6', rangeless: true, purpose: 'ค่าทางไฟฟ้าทั้งหมด', error: '0.5%', io: 'Modbus RTU RS485', note: 'ไม่มี Diagram SCADA' }
+];
+
+// ค่าที่อ่านได้ล่าสุดของแต่ละ tag — เดินแบบ random walk อยู่ในช่วงใช้งานประจำตามเอกสาร
+// เริ่มต้นตรงกลางช่วง แล้วค่อยแกว่ง ไม่ใช่สุ่มใหม่ทุก tick (จะได้ดูเป็นสัญญาณจริง)
+const readings = {};
+INSTRUMENTS.forEach(ins => {
+    if (ins.rangeless) {
+        readings[ins.tag] = { status: 'normal' };
+    } else {
+        const mid = (ins.min + ins.max) / 2;
+        const span = ins.max - ins.min;
+        readings[ins.tag] = { value: mid + rand(-span * 0.15, span * 0.15), step: span * 0.02, excursion: 0, excursionHigh: false };
+    }
+});
+const instrumentByTag = Object.fromEntries(INSTRUMENTS.map(i => [i.tag, i]));
+const readValue = tag => (readings[tag] ? readings[tag].value : null);
+
+// เดินค่าทุกตัวไป 1 tick — ปกติแกว่งอยู่ในช่วงใช้งานประจำและถูกดึงกลับเข้ากลางเบาๆ
+//
+// มี "excursion" เป็นครั้งคราวด้วย (ค่าไต่ออกนอกช่วงชั่วคราวแล้วกลับเข้าที่เดิม)
+// ถ้าไม่มีส่วนนี้ ค่าจะอยู่ในช่วงตลอดเวลา แปลว่าการแจ้งเตือน "นอกช่วงใช้งาน"
+// จะไม่มีวันทำงานเลย — กลายเป็นโค้ดที่ไม่เคยถูกใช้จริงและไม่มีใครรู้ว่าเสียหรือเปล่า
+const EXCURSION_CHANCE = 0.004;   // ต่อเครื่องมือ ต่อ tick (4 วิ) ~ เฉลี่ยหลักสิบนาทีต่อครั้งทั้งระบบ
+const EXCURSION_TICKS = [8, 20];  // อยู่นอกช่วงนานกี่ tick ก่อนกลับเข้าที่
+
+function stepInstruments() {
+    for (const ins of INSTRUMENTS) {
+        if (ins.rangeless) continue;
+        const r = readings[ins.tag];
+        const mid = (ins.min + ins.max) / 2;
+        const span = ins.max - ins.min;
+
+        if (r.excursion > 0) {
+            r.excursion--;
+            // ไต่ออกไปทางขอบที่เลือกไว้ ให้เลยขอบไปได้สูงสุด ~12% ของช่วง
+            const target = r.excursionHigh ? ins.max + span * 0.12 : ins.min - span * 0.12;
+            r.value = clamp(r.value + (target - r.value) * 0.25 + rand(-r.step, r.step),
+                ins.min - span * 0.2, ins.max + span * 0.2);
+            continue;
+        }
+        if (Math.random() < EXCURSION_CHANCE) {
+            r.excursion = Math.round(rand(EXCURSION_TICKS[0], EXCURSION_TICKS[1]));
+            r.excursionHigh = Math.random() < 0.5;
+        }
+        r.value = clamp(r.value + rand(-r.step, r.step) + (mid - r.value) * 0.04, ins.min, ins.max);
+    }
+}
+
+// ค่าหลักที่หน้าเว็บใช้ ไม่ได้ตั้งเองแล้ว แต่ "อ่านจากเครื่องมือจริง" ตามทะเบียน
+//   CH4      <- GA02 (Gas Analyzer)
+//   flowRate <- FM07 (Thermal Mass วัดก๊าซเข้าเครื่องยนต์)
+//   efficiency = ค่าคำนวณ ไม่มีเครื่องมือวัดในทะเบียน -> ทำเครื่องหมาย derived ไว้
+const plant = { ch4Percent: 55, flowRate: 750, efficiency: 82.4 };
 
 // rate = ต่อ tick (4s) ใช้แค่ทำให้ตัวเลขขยับให้เห็น real-time บนหน้าจอ
 // dailyRate = ต่อวัน ใช้คำนวณ "วันที่เหลือก่อนถึงกำหนดบำรุงรักษา" ให้สมจริง
@@ -842,24 +960,68 @@ function computePlantSnapshot() {
 
     const t1 = equipment['TANK-01'];
     const alerts = [];
-    if (t1.pressure > 2.8) alerts.push({ tag: 'TANK-01 Overpressure', level: 'critical' });
-    if (t1.temperature > 43) alerts.push({ tag: 'TANK-01 Temp Drift', level: 'warning' });
-    if (t1.ph < 6.8 || t1.ph > 7.6) alerts.push({ tag: 'TANK-01 pH Drift', level: 'warning' });
+
+    // ---- รายการค่าที่อ่านได้ของทุกเครื่องมือในทะเบียน ----
+    // เกณฑ์เตือน: ใช้ "ช่วงการใช้งานประจำ" ตามเอกสารเป็นตัวตัดสิน
+    //   ออกนอกช่วง          -> warning
+    //   ออกนอกช่วงเกิน 10%  -> critical
+    const instruments = INSTRUMENTS.map(ins => {
+        const base = {
+            tag: ins.tag, station: ins.station, name: ins.name, kind: ins.kind,
+            type: ins.type, model: ins.model, error: ins.error, io: ins.io
+        };
+        if (ins.note) base.note = ins.note;
+        if (ins.rangeless) {
+            return { ...base, rangeless: true, purpose: ins.purpose, status: readings[ins.tag].status };
+        }
+        const v = readValue(ins.tag);
+        const span = ins.max - ins.min;
+        const margin = span * 0.1;
+        let status = 'normal';
+        if (v < ins.min - margin || v > ins.max + margin) status = 'critical';
+        else if (v < ins.min || v > ins.max) status = 'warning';
+        const decimals = span >= 500 ? 0 : span >= 50 ? 1 : 2;
+        const out = {
+            ...base, value: Number(v.toFixed(decimals)), unit: ins.unit,
+            min: ins.min, max: ins.max, status
+        };
+        if (status !== 'normal') {
+            alerts.push({ tag: `${ins.tag} ${ins.name} นอกช่วงใช้งาน (${out.value} ${ins.unit})`, level: status === 'critical' ? 'critical' : 'warning' });
+        }
+        return out;
+    });
+
     equipmentList.filter(e => e.risk === 'critical').forEach(e => alerts.push({ tag: `${e.id} Imminent Failure Risk`, level: 'critical' }));
     equipmentList.filter(e => e.risk === 'high').forEach(e => alerts.push({ tag: `${e.id} High Wear`, level: 'warning' }));
     if (!alerts.length) alerts.push({ tag: 'All Systems Normal', level: 'normal' });
 
+    const pt01 = instrumentByTag['PT01'];
+    const tt03 = instrumentByTag['TT03'];
     return {
         plant: {
             ch4Percent: Math.round(plant.ch4Percent * 10) / 10,
             flowRate: Math.round(plant.flowRate * 10) / 10,
-            efficiency: Math.round(plant.efficiency * 10) / 10
+            efficiency: Math.round(plant.efficiency * 10) / 10,
+            // บอกหน้าเว็บว่าค่าไหนมาจากเครื่องมือจริง ค่าไหนคำนวณเอา
+            sources: { ch4Percent: 'GA02-CH4', flowRate: 'FM07', efficiency: 'derived' },
+            units: { ch4Percent: '%', flowRate: instrumentByTag['FM07'].unit }
         },
         tank1: {
-            pressure: Math.round(t1.pressure * 100) / 100,
+            pressure: Math.round(t1.pressure * 10) / 10,
+            pressureUnit: pt01.unit,          // 'mbar G' ตามเอกสาร (เดิม hardcode เป็น bar)
             temperature: Math.round(t1.temperature * 10) / 10,
+            temperatureUnit: tt03.unit,
             ph: Math.round(t1.ph * 100) / 100,
-            level: Math.round(t1.level)
+            level: Math.round(t1.level),
+            levelUnit: instrumentByTag['CSTR-1-ROOF'].unit,
+            sources: { pressure: 'PT01', temperature: 'TT03', level: 'CSTR-1-ROOF', ph: 'ไม่มีในทะเบียน' }
+        },
+        instruments,
+        instrumentSummary: {
+            total: instruments.length,
+            measured: instruments.filter(i => !i.rangeless).length,
+            statusOnly: instruments.filter(i => i.rangeless).length,
+            outOfRange: instruments.filter(i => i.status === 'warning' || i.status === 'critical').length
         },
         equipment: equipmentList,
         alerts,
@@ -869,15 +1031,27 @@ function computePlantSnapshot() {
 }
 
 function stepPlantSimulation() {
-    plant.ch4Percent = clamp(plant.ch4Percent + rand(-0.4, 0.4), 55, 72);
-    plant.flowRate = clamp(plant.flowRate + rand(-2, 2), 90, 160);
-    plant.efficiency = clamp(plant.efficiency + rand(-0.5, 0.5), 70, 92);
+    stepInstruments();
 
+    // ค่าหลักอ่านจากเครื่องมือจริงตามทะเบียน แทนการสุ่มช่วงที่ตั้งเอง
+    plant.ch4Percent = readValue('GA02-CH4');
+    plant.flowRate = readValue('FM07');
+    // ไม่มีเครื่องมือวัด "ประสิทธิภาพ" ในทะเบียน — คำนวณจาก CH4 เทียบกับช่วงใช้งานประจำ
+    // (40% -> ~70 คะแนน, 70% -> ~92 คะแนน) แล้วทำเครื่องหมาย derived ไว้ให้หน้าเว็บรู้
+    const ch4Ins = instrumentByTag['GA02-CH4'];
+    const ch4Norm = (plant.ch4Percent - ch4Ins.min) / (ch4Ins.max - ch4Ins.min);
+    plant.efficiency = clamp(70 + ch4Norm * 22, 60, 95);
+
+    // TANK-01 ยังคงไว้เพื่อความเข้ากันได้กับหน้าเดิม แต่ผูกกับ CSTR-1 ของจริงแล้ว
+    //   อุณหภูมิ  <- TT03 (CSTR1 Temperature)
+    //   ความดัน   <- PT01 หน่วย mbar G ตามเอกสาร (ไม่ใช่ bar ที่เคยแต่งไว้)
+    //   ระดับ     <- CSTR-1 Rooflevel (mm)
     const t1 = equipment['TANK-01'];
-    t1.pressure = clamp(t1.pressure + rand(-0.05, 0.05), 1.5, 3.2);
-    t1.temperature = clamp(t1.temperature + rand(-0.3, 0.3), 32, 45);
+    t1.temperature = readValue('TT03');
+    t1.pressure = readValue('PT01');
+    t1.level = readValue('CSTR-1-ROOF');
+    // pH ไม่มีเครื่องมือวัดในทะเบียน — คงการจำลองเดิมไว้และทำเครื่องหมายว่าไม่ได้มาจากทะเบียน
     t1.ph = clamp(t1.ph + rand(-0.03, 0.03), 6.5, 7.8);
-    t1.level = clamp(t1.level + rand(-15, 15), 900, 1600);
 
     Object.values(equipment).forEach(e => {
         e.wear = clamp(e.wear + e.rate + rand(-0.03, 0.03), 0, 100);

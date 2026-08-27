@@ -532,10 +532,10 @@
                     '</div>' +
                     '<div class="card-head"><h3 style="font-size:12.5px;">TANK-01 Status</h3></div>' +
                     '<table><tbody>' +
-                    '<tr><td>Pressure</td><td class="strong">' + fmt(d.tank1.pressure, 2) + ' bar</td></tr>' +
+                    '<tr><td>Pressure</td><td class="strong">' + fmt(d.tank1.pressure, 1) + ' ' + (d.tank1.pressureUnit || 'mbar G') + '</td></tr>' +
                     '<tr><td>Temperature</td><td class="strong">' + fmt(d.tank1.temperature) + ' °C</td></tr>' +
                     '<tr><td>pH</td><td class="strong">' + fmt(d.tank1.ph, 2) + '</td></tr>' +
-                    '<tr><td>Level</td><td class="strong">' + Math.round(d.tank1.level).toLocaleString() + ' m³</td></tr>' +
+                    '<tr><td>Level</td><td class="strong">' + Math.round(d.tank1.level).toLocaleString() + ' ' + (d.tank1.levelUnit || 'mm') + '</td></tr>' +
                     '</tbody></table>';
             },
             equipment(d){
