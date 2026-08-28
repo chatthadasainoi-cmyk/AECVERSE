@@ -1131,9 +1131,19 @@ io.on('connection', socket => {
     });
 
     // ---------- WATCHER: รับ state อย่างเดียว ไม่มีตัวละคร ----------
+    // "ไม่มีตัวละคร" ไม่เท่ากับ "ไม่มีสิทธิ์" — หน้า Digital Twin ฝัง index.html?mode=viewer
+    // ซึ่งต่อเข้ามาแบบ watcher แอดมินที่เปิดหน้านั้นจึงเคยถูกส่ง isAdmin:false และไม่มี role
+    // เลยทำให้ปุ่มแก้ไขข้อมูล/กำหนด Type/ปักจุด ถูกซ่อนหมด ทั้งที่ฝั่ง server อนุญาตอยู่แล้ว
+    // (canEditData/canManageModel อ่านจาก socket.data.user ไม่ได้สนว่าเป็น player หรือ watcher)
     if (!isPlayer) {
-        console.log(`[+watcher] ${socket.id}`);
-        socket.emit('self_init', { self: null, others: [], isAdmin: false, ...publicState() });
+        console.log(`[+watcher] ${socket.id}${user ? ` <${user.email}> (${userRole(user)})` : ' (ไม่ได้ล็อกอิน)'}`);
+        socket.emit('self_init', {
+            self: null,
+            others: [],
+            isAdmin: isAdminUser(user),
+            role: userRole(user),   // watcher ที่ไม่ได้ล็อกอินจะได้ 'user' อยู่แล้ว
+            ...publicState()
+        });
         socket.emit('plant_update', computePlantSnapshot());
     } else {
         // ---------- PLAYER: หนึ่งบัญชี = หนึ่งตัวละคร ----------
