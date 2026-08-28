@@ -48,6 +48,17 @@ camera.position.set(0, 6, 12);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 renderer.setSize(canvasContainer.clientWidth, canvasContainer.clientHeight);
+
+// ============================================================
+// การแสดงสีให้ถูกต้อง — สำคัญกับโมเดล glTF ทุกตัว
+//
+// glTF เก็บสีเป็น sRGB แต่ค่าเริ่มต้นของ three.js r128 คือ LinearEncoding
+// ถ้าไม่ตั้งตรงนี้ โมเดลทุกตัวจะออกมามืดกว่าความเป็นจริง
+// วัดจริงกับโมเดลโรงงานในแสงชุดนี้: ความสว่างเฉลี่ยของภาพ 162.1 -> 184.1 จาก 255
+// ยิ่งโมเดลที่วัสดุสีเข้ม ผลยิ่งชัด (เคยวัดได้ 6.3 -> 22.1 กับโมเดลที่วัสดุเกือบดำทั้งตัว)
+// ============================================================
+renderer.outputEncoding = THREE.sRGBEncoding;
+
 canvasContainer.appendChild(renderer.domElement);
 
 const controls = new THREE.OrbitControls(camera, renderer.domElement);
@@ -103,6 +114,7 @@ const skyDome = new THREE.Mesh(
 );
 skyDome.frustumCulled = false;
 scene.add(skyDome);
+
 
 // หมายเหตุ: เดิมมี "จานพื้นสีเข้ม" (รัศมี 80) + กริด 60x60 วางไว้เป็นพื้น
 // แต่มันสร้างขอบวงกลมชัดๆ ล้อมฉากไว้เหมือนกำแพงกั้น พอเปลี่ยนเป็นท้องฟ้าแล้วยิ่งเห็นขอบชัด
