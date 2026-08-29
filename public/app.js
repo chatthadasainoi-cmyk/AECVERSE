@@ -3321,6 +3321,14 @@ function maybeAutoOpenChat() {
     if (localStorage.getItem('aec_chat_autoopen') === 'off') return;
     if (Date.now() - chatClosedByUserAt < CHAT_AUTOOPEN_SNOOZE_MS) return;
     toggleChatPanel(true);
+    // เด้งขึ้นมาเฉยๆ กลางฉาก 3D ที่มีของเยอะ ตากวาดไม่เจอ — กะพริบขอบให้รู้ว่ามีอะไรเพิ่งโผล่
+    const overlay = $('chat-overlay');
+    if (overlay) {
+        overlay.classList.remove('chat-just-opened');
+        void overlay.offsetWidth;            // บังคับ reflow ไม่งั้นเติม class ซ้ำแล้ว animation ไม่เล่นใหม่
+        overlay.classList.add('chat-just-opened');
+        setTimeout(() => overlay.classList.remove('chat-just-opened'), 1400);
+    }
 }
 function openChatInput() {
     if (VIEWER_MODE) return;
@@ -3628,7 +3636,10 @@ function getVoicePeer(peerId) {
     const pc = new RTCPeerConnection(VOICE_RTC_CONFIG);
     // กติกา "perfect negotiation": ฝ่าย polite ยอมถอยเมื่อ offer ชนกันกลางอากาศ
     const entry = {
-        pc, polite: String(mpMyId) > String(peerId), makingOffer: false,
+        // perfect negotiation ต้องมีฝ่าย polite "ฝ่ายเดียว" เท่านั้น ถ้าคำนวณจาก id ที่ยังไม่มีค่า
+        // (voice_signal มาถึงก่อน self_init) จะกลายเป็น polite ทั้งคู่หรือไม่ polite ทั้งคู่ = ต่อไม่ติดถาวร
+        pc, polite: String(mpMyId || (mpSocket && mpSocket.id) || '') > String(peerId), makingOffer: false,
+        stuckSince: 0, rebuilds: 0,
         audioEl: null, pendingCandidates: [],
         queue: Promise.resolve(), // คิวประมวลผลสัญญาณของคู่นี้ — กันสัญญาณทับกันกลาง await
         negotiated: false, announced: false
@@ -3719,6 +3730,11 @@ function closeVoicePeer(peerId) {
 // ก็ตายถาวรจนกว่าจะรีเฟรชหน้า ซึ่งตรงกับอาการ "รีเข้าแล้วได้ยินอีกคน"
 // ตัวนี้ไล่ตรวจทุก 4 วิ แล้วรื้อสายที่ตายทิ้งสร้างใหม่ให้เอง
 const VOICE_REPAIR_MS = 4000;
+// สายที่ต่อไม่สำเร็จภายในเวลานี้ถือว่าค้าง ต้องรื้อสร้างใหม่
+// (connectionState ค้างที่ 'new'/'connecting' ได้ตลอดกาลเมื่อ offer หรือ answer หายกลางทาง
+//  มันจะไม่กลายเป็น 'failed' ให้จับ ตัวซ่อมเดิมจึงมองข้ามไปเลย = ไม่ได้ยินคนนั้นจนกว่าจะรีเฟรช)
+const VOICE_STUCK_MS = 12000;
+const VOICE_MAX_REBUILDS = 3;   // รื้อสร้างซ้ำไม่จำกัดไม่ช่วยอะไร ถ้าเครือข่ายปิดกั้นจริงต้องใช้ TURN
 function repairVoiceLinks() {
     if (!mpSocket || !mpSocket.connected) return;
     Object.keys(remoteAvatars).forEach(peerId => {
@@ -3729,11 +3745,26 @@ function repairVoiceLinks() {
         if (!entry) { connectVoiceTo(peerId); return; }
 
         const st = entry.pc.connectionState;
-        if (st === 'failed' || st === 'closed') {
-            console.warn(`[VOICE] สายกับ ${peerId} ตาย (${st}) — สร้างใหม่`);
+        const rebuild = why => {
+            if (entry.rebuilds >= VOICE_MAX_REBUILDS) {
+                if (!entry.gaveUp) {
+                    entry.gaveUp = true;
+                    const who = mpPlayerNames[peerId] || 'ผู้เล่น';
+                    mpAppendChat({ name: '🎙️ ระบบ', color: '#ef4444', text: `ต่อสายเสียงกับ ${who} ไม่สำเร็จหลังลอง ${VOICE_MAX_REBUILDS} ครั้ง — เครือข่ายฝั่งใดฝั่งหนึ่งปิดกั้นการต่อตรง ต้องใช้ TURN server ถึงจะคุยกันได้` });
+                }
+                return;
+            }
+            const n = entry.rebuilds + 1;
+            console.warn(`[VOICE] สายกับ ${peerId} ${why} — สร้างใหม่ (ครั้งที่ ${n})`);
             closeVoicePeer(peerId);
-            connectVoiceTo(peerId);
-            return;
+            connectVoiceTo(peerId).rebuilds = n;
+        };
+        if (st === 'failed' || st === 'closed') { rebuild(`ตาย (${st})`); return; }
+        if (st === 'connected') { entry.stuckSince = 0; entry.rebuilds = 0; entry.gaveUp = false; }
+        else {
+            // 'new' / 'connecting' / 'disconnected' — ยังไม่ถึงกับพัง แต่ถ้าค้างนานเกินไปก็คือไม่ได้ยินอยู่ดี
+            if (!entry.stuckSince) entry.stuckSince = Date.now();
+            else if (Date.now() - entry.stuckSince > VOICE_STUCK_MS) { rebuild(`ค้างที่ '${st}' เกิน ${VOICE_STUCK_MS / 1000} วิ`); return; }
         }
         // ต่อติดแล้วแต่เสียงไม่เล่น (โดน autoplay บล็อก) — ลองสั่งเล่นซ้ำ
         if (entry.audioEl && entry.audioEl.paused && entry.audioEl.srcObject) tryPlayRemoteAudio(entry.audioEl);
