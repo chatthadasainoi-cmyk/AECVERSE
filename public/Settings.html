@@ -619,6 +619,13 @@
                                 <input type="checkbox" id="cv-chat-enabled" style="width:16px;height:16px;accent-color:var(--blue);">
                             </label>
                             <label style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;">
+                              <div>
+                                <div style="font-weight:600;font-size:12.5px;">เปิดหน้าต่างแชทให้อัตโนมัติ</div>
+                                <div style="color:var(--text-2);font-size:11px;margin-top:2px;">เด้งหน้าต่างแชทขึ้นมาเองเมื่อมีคนพิมพ์ข้อความเข้ามา — ข้อความแจ้งเตือนจากระบบจะไม่เด้ง และถ้าคุณกดปิดหน้าต่างเอง จะพักไม่เด้งซ้ำ 30 วินาที</div>
+                              </div>
+                              <input type="checkbox" id="cv-chat-autoopen" style="width:16px;height:16px;accent-color:var(--blue);">
+                            </label>
+                            <label style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;">
                                 <div>
                                     <div style="font-weight:600;font-size:12.5px;">เสียงพูดคุย (Voice Chat)</div>
                                     <div style="color:var(--text-2);font-size:11px;margin-top:2px;">คุยเสียงกับผู้เล่นในโลกแบบ P2P (กด V เพื่อเปิด/ปิดไมค์)</div>
@@ -1028,6 +1035,7 @@
         // ---------- Chat & Voice settings (localStorage — โลก 3D อ่านค่าพวกนี้) ----------
         (function () {
             const chatCb = document.getElementById('cv-chat-enabled');
+            const autoOpenCb = document.getElementById('cv-chat-autoopen');
             const voiceCb = document.getElementById('cv-voice-enabled');
             const volRange = document.getElementById('cv-voice-volume');
             const volVal = document.getElementById('cv-volume-val');
@@ -1035,6 +1043,7 @@
 
             chatCb.checked = localStorage.getItem('aec_chat_enabled') !== 'off';
             voiceCb.checked = localStorage.getItem('aec_voice_enabled') !== 'off';
+            autoOpenCb.checked = localStorage.getItem('aec_chat_autoopen') !== 'off';
             const savedVol = parseInt(localStorage.getItem('aec_voice_volume') ?? '80', 10);
             volRange.value = isNaN(savedVol) ? 80 : savedVol;
             volVal.textContent = volRange.value + '%';
@@ -1047,6 +1056,7 @@
             }
             chatCb.addEventListener('change', () => { localStorage.setItem('aec_chat_enabled', chatCb.checked ? 'on' : 'off'); saved(); });
             voiceCb.addEventListener('change', () => { localStorage.setItem('aec_voice_enabled', voiceCb.checked ? 'on' : 'off'); saved(); });
+            autoOpenCb.addEventListener('change', () => { localStorage.setItem('aec_chat_autoopen', autoOpenCb.checked ? 'on' : 'off'); saved(); });
             volRange.addEventListener('input', () => { volVal.textContent = volRange.value + '%'; });
             volRange.addEventListener('change', () => { localStorage.setItem('aec_voice_volume', volRange.value); saved(); });
         })();
