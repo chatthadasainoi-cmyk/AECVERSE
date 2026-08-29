@@ -296,6 +296,20 @@ h3, h4 { margin: 0 0 10px 0; font-size: 13px; font-weight: 700; color: var(--tex
     z-index: 40;
     overflow: hidden;
 }
+/* แชทเด้งขึ้นมาเองเพราะมีคนทัก — กะพริบขอบสั้นๆ ให้ตาจับได้ว่ามีของใหม่โผล่มา
+   ใช้เฉพาะตอนระบบเปิดให้เอง ตอนผู้ใช้กดเปิดเองไม่ต้องกะพริบ (เขารู้อยู่แล้วว่ากดอะไร) */
+#chat-overlay.chat-just-opened { animation: chatJustOpened 1.4s ease-out; }
+@keyframes chatJustOpened {
+    0%   { border-color: var(--blue); box-shadow: 0 0 0 3px var(--blue-soft), 0 12px 32px rgba(0,0,0,.5); transform: translateY(6px); }
+    18%  { border-color: var(--blue); box-shadow: 0 0 0 6px var(--blue-soft), 0 12px 32px rgba(0,0,0,.5); transform: translateY(0); }
+    60%  { border-color: var(--blue); box-shadow: 0 0 0 3px var(--blue-soft), 0 12px 32px rgba(0,0,0,.5); }
+    100% { border-color: var(--border); box-shadow: none; transform: translateY(0); }
+}
+/* เคารพผู้ใช้ที่ตั้งค่าเครื่องว่าไม่เอาภาพเคลื่อนไหว */
+@media (prefers-reduced-motion: reduce) {
+    #chat-overlay.chat-just-opened { animation: none; border-color: var(--blue); }
+}
+
 .chat-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--border-soft); flex-shrink: 0; }
 .chat-title { display: flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 700; color: var(--text-0); }
 .chat-title svg { color: var(--blue); }
