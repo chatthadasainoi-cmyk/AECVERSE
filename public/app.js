@@ -2975,7 +2975,10 @@ function updateMpUI() {
     }).join('');
     renderVoiceMixer(); // รายชื่อเปลี่ยน -> แผงปรับเสียงต้องตามด้วย
 }
-function mpAppendChat(msg) {
+// opts.fromPerson = true เฉพาะข้อความที่ "คนจริงพิมพ์เข้ามา" เท่านั้น
+// ข้อความจากระบบ (แจ้งเข้า/ออกเขต, เตือน PPE, สถานะไมค์ ฯลฯ) มีเยอะมากและส่วนใหญ่ไม่เร่งด่วน
+// ถ้าเด้งแชทขึ้นมาทุกครั้งจะกวนกลางงานจนใช้ไม่ได้ จึงให้เด้งเฉพาะข้อความจากคน
+function mpAppendChat(msg, opts) {
     const log = $('chat-log');
     if (!log) return;
     const d = document.createElement('div');
@@ -2994,6 +2997,7 @@ function mpAppendChat(msg) {
     if (overlay && overlay.style.display === 'none') {
         chatUnread++;
         updateChatUnreadBadge();
+        if (opts && opts.fromPerson) maybeAutoOpenChat();
     }
 }
 // ชื่อผู้เล่นล็อกตามบัญชีที่ล็อกอิน — ไม่มี setMyName/set_name อีกต่อไป
@@ -3205,7 +3209,11 @@ async function initMultiplayer() {
         mpAppendChat({ name: 'ระบบ', color: '#ffaa00', text: `✏️ "${data.name}" ถูกแก้ไขแล้ว` });
     });
 
-    mpSocket.on('chat_message', msg => mpAppendChat(msg));
+    mpSocket.on('chat_message', msg => {
+        // ข้อความของตัวเองที่เซิร์ฟเวอร์สะท้อนกลับมา ไม่ต้องเด้งหน้าต่างใส่ตัวเอง
+        const fromPerson = !!msg && msg.id !== mpSocket.id;
+        mpAppendChat(msg, { fromPerson });
+    });
 
     // ---------- sync การล้าง type ----------
     mpSocket.on('type_cleared', data => {
@@ -3262,6 +3270,8 @@ async function initMultiplayer() {
         if (micOn) {
             if (micStream) micStream.getAudioTracks().forEach(t => { t.enabled = false; });
             micOn = false;
+            clearTimeout(micSilenceTimer);
+            stopMicMeter();   // เดิมหลุดการเชื่อมต่อแล้วแถบระดับเสียงยังวิ่งอยู่ ทั้งที่ไมค์ปิดไปแล้ว
             updateMicHudButton();
             updateVoiceIndicator();
         }
@@ -3284,15 +3294,33 @@ function updateChatUnreadBadge() {
     b.style.display = chatUnread > 0 ? 'flex' : 'none';
     b.innerText = chatUnread > 9 ? '9+' : chatUnread;
 }
+// ผู้ใช้เพิ่งปิดหน้าต่างแชทไปเองเมื่อไหร่ — ถ้าเด้งกลับขึ้นมาทันทีจะกลายเป็นแย่งกับผู้ใช้
+// จึงพักการเปิดอัตโนมัติไว้ช่วงหนึ่งหลังผู้ใช้กดปิด
+const CHAT_AUTOOPEN_SNOOZE_MS = 30000;
+let chatClosedByUserAt = 0;
+
 function toggleChatPanel(force) {
     const overlay = $('chat-overlay');
     if (!overlay) return;
+    const wasOpen = overlay.style.display !== 'none';
     const show = force !== undefined ? force : overlay.style.display === 'none';
     overlay.style.display = show ? 'flex' : 'none';
     if (show) {
         chatUnread = 0; updateChatUnreadBadge();
         const log = $('chat-log'); if (log) log.scrollTop = log.scrollHeight;
+    } else if (wasOpen) {
+        chatClosedByUserAt = Date.now();
     }
+}
+
+// เปิดหน้าต่างแชทให้เอง เมื่อมี "คน" พิมพ์เข้ามาตอนหน้าต่างปิดอยู่
+// ตั้งใจไม่โฟกัสช่องพิมพ์ เพราะจะไปแย่งคีย์บอร์ดจากงานที่ผู้ใช้ทำค้างไว้ (เดิน WASD, พิมพ์ในช่องค้นหา)
+function maybeAutoOpenChat() {
+    if (VIEWER_MODE) return;                                        // โหมดจอฉาย ไม่ควรมี UI เด้ง
+    if (localStorage.getItem('aec_chat_enabled') === 'off') return; // ปิดแชทไว้ทั้งระบบ
+    if (localStorage.getItem('aec_chat_autoopen') === 'off') return;
+    if (Date.now() - chatClosedByUserAt < CHAT_AUTOOPEN_SNOOZE_MS) return;
+    toggleChatPanel(true);
 }
 function openChatInput() {
     if (VIEWER_MODE) return;
@@ -3815,17 +3843,55 @@ async function acquireMicStream() {
     }
 }
 
+// track ของไมค์ "ตาย" ได้ทั้งที่ตัวแปร micStream ยังไม่เป็น null เช่น ถอดหูฟัง,
+// Windows ยึดอุปกรณ์ไปให้โปรแกรมอื่น, หรือเครื่อง sleep แล้วตื่น
+// เดิมเราสั่ง t.enabled = true ทับ track ที่ตายแล้ว -> ปุ่มเขียว ระบบขึ้นว่า "ไมค์เปิดแล้ว"
+// แต่ไม่มีเสียงออกไปหาใครเลย = อาการ "บางทีก็ไม่ติด"
+function micStreamIsDead(stream) {
+    if (!stream) return true;
+    const tracks = stream.getAudioTracks();
+    return tracks.length === 0 || tracks.every(t => t.readyState !== 'live');
+}
+// ทิ้ง stream เดิมให้สะอาด (คืนอุปกรณ์ให้ระบบ) ก่อนขอตัวใหม่
+function dropMicStream() {
+    if (!micStream) return;
+    try { micStream.getTracks().forEach(t => { t.onended = null; t.stop(); }); }
+    catch (err) { console.warn('[VOICE] ปิด stream เดิมไม่สำเร็จ:', err); }
+    micStream = null;
+    micDeviceInUse = '';
+}
+// อุปกรณ์หลุด "ระหว่างเปิดไมค์อยู่" ต้องรู้ทันที ไม่ใช่ปล่อยให้พูดต่อโดยไม่มีใครได้ยิน
+function watchMicTrack(stream) {
+    if (!stream) return;
+    stream.getAudioTracks().forEach(t => {
+        t.onended = () => {
+            if (!micOn) return;
+            console.warn('[VOICE] track ไมค์จบเอง (อุปกรณ์หลุด/ถูกยึด)');
+            micOn = false;
+            stopMicMeter();
+            dropMicStream();
+            updateMicHudButton();
+            updateVoiceIndicator();
+            if (mpSocket && mpSocket.connected) mpSocket.emit('voice_state', { micOn: false });
+            mpAppendChat({ name: '🎙️ ระบบ', color: '#ef4444', text: 'ไมโครโฟนหลุดจากระบบ (ถูกถอด หรือโปรแกรมอื่นยึดไป) — ปิดไมค์ให้แล้ว กด V เพื่อเปิดใหม่' });
+        };
+    });
+}
+
 // ---------- มาตรวัดระดับเสียงไมค์ ----------
 // สำคัญกว่าที่คิด: ถ้าไม่มีตัวนี้ ผู้ใช้แยกไม่ออกเลยว่า "ไมค์ไม่ทำงาน" หรือ
 // "ไมค์ทำงานแต่ปลายทางไม่ได้ยิน" ซึ่งเป็นคนละปัญหาและแก้คนละทาง
 let micMeterCtx = null, micMeterAnalyser = null, micMeterRaf = 0;
+let micMeterPeakSeen = 0;   // พีคสูงสุดที่วัดได้ตั้งแต่เปิดไมค์รอบนี้ (ให้ตัวเฝ้าเงียบใช้)
 function startMicMeter(stream) {
     stopMicMeter();
+    micMeterPeakSeen = 0;
     try {
         const Ctx = window.AudioContext || window.webkitAudioContext;
         if (!Ctx) return;
         micMeterCtx = new Ctx();
-        micMeterCtx.resume?.();
+        // context ที่ยังหลับอยู่จะอ่านได้ 0 ตลอด ผู้ใช้จะนึกว่าไมค์พังทั้งที่ไม่พัง
+        micMeterCtx.resume?.().catch(err => console.warn('[VOICE] ปลุก AudioContext ไม่สำเร็จ:', err));
         const src = micMeterCtx.createMediaStreamSource(stream);
         micMeterAnalyser = micMeterCtx.createAnalyser();
         micMeterAnalyser.fftSize = 512;
@@ -3837,6 +3903,7 @@ function startMicMeter(stream) {
             micMeterAnalyser.getByteTimeDomainData(buf);
             let peak = 0;
             for (let i = 0; i < buf.length; i++) peak = Math.max(peak, Math.abs(buf[i] - 128));
+            if (peak > micMeterPeakSeen) micMeterPeakSeen = peak;
             const level = Math.min(1, (peak / 128) * 2.2); // ขยายหน่อยให้เห็นการขยับตอนพูดเบาๆ
             if (bar) bar.style.transform = `scaleX(${level.toFixed(3)})`;
         };
@@ -3854,7 +3921,17 @@ function stopMicMeter() {
     if (bar) bar.style.transform = 'scaleX(0)';
 }
 
+// กันกดซ้ำระหว่างรอหน้าต่างขออนุญาตไมค์ (ค้างเป็นวินาที ผู้ใช้กด V หรือคลิกปุ่มซ้ำได้ง่ายมาก)
+// เดิมสองครั้งวิ่งซ้อนกัน เปิด stream สองตัว ตัวหนึ่งค้างไม่ถูกปิด แล้วสถานะปุ่มหลุดจากสถานะจริง
+let micBusy = false;
+let micSilenceTimer = 0;
 async function toggleMic() {
+    if (micBusy) return;
+    micBusy = true;
+    try { await toggleMicInner(); }
+    finally { micBusy = false; }
+}
+async function toggleMicInner() {
     if (VIEWER_MODE) return;
     if (!voicePrefs.voiceEnabled) {
         mpAppendChat({ name: '🎙️ ระบบ', color: '#f59e0b', text: 'ระบบเสียงถูกปิดไว้ — เปิดได้ที่ Settings → Chat & Voice' });
@@ -3869,12 +3946,15 @@ async function toggleMic() {
             // เดิม stream ถูก cache ไว้ตลอด ทำให้เลือกไมค์ตัวใหม่ที่หน้า Settings แล้ว
             // ไม่มีผลจนกว่าจะรีเฟรชหน้า — ตอนนี้ถ้าตัวเลือกเปลี่ยน จะขอ stream ใหม่ให้
             const wanted = window.AecWorldPrefs ? AecWorldPrefs.getMicDeviceId() : '';
-            if (micStream && wanted !== micDeviceInUse) {
-                micStream.getTracks().forEach(t => t.stop());
-                micStream = null;
+            if (micStream && wanted !== micDeviceInUse) dropMicStream();
+            // stream ที่ cache ไว้อาจตายไปแล้วตั้งแต่ตอนปิดไมค์ ต้องเช็คก่อนเสมอ
+            if (micStreamIsDead(micStream)) {
+                if (micStream) console.warn('[VOICE] stream เดิมตายแล้ว — ขอไมค์ใหม่');
+                dropMicStream();
             }
             const isNewStream = !micStream;
             if (isNewStream) micStream = await acquireMicStream();
+            watchMicTrack(micStream);
 
             if (isNewStream) {
                 // peer ที่มีอยู่แล้ว: ถ้ายังไม่เคยมี track ของเราให้ addTrack (จะ negotiate ใหม่เอง)
@@ -3905,9 +3985,17 @@ async function toggleMic() {
     updateVoiceIndicator();
 
     if (!micOn) {
+        clearTimeout(micSilenceTimer);
         mpAppendChat({ name: '🎙️ ระบบ', color: '#9aa7b8', text: 'ปิดไมค์แล้ว' });
         return;
     }
+    // "เปิดติดแต่ไม่มีเสียงเข้า" เป็นคนละปัญหากับ "เปิดไม่ติด" และแก้คนละทาง
+    // ถ้าไม่บอก ผู้ใช้จะเหมารวมว่าไมค์พังแล้วแก้ผิดจุด
+    clearTimeout(micSilenceTimer);
+    micSilenceTimer = setTimeout(() => {
+        if (!micOn || micMeterPeakSeen > 2) return;
+        mpAppendChat({ name: '🎙️ ระบบ', color: '#f59e0b', text: 'ไมค์เปิดอยู่แต่ยังไม่มีเสียงเข้ามาเลย — เช็คว่าปุ่ม mute ที่ตัวไมค์ปิดอยู่ หรือระดับอินพุตใน Windows เป็น 0 (Settings → System → Sound → Input)' });
+    }, 5000);
     // เดิมบอกว่า "ผู้เล่นทุกคนได้ยินคุณ" เสมอ ทั้งที่อาจไม่มีใครอยู่ในโลกเลย
     // ผู้ใช้จึงเข้าใจว่าไมค์พัง ทั้งที่จริงๆ แค่ไม่มีคนฟัง
     const listeners = Object.keys(remoteAvatars).length;
