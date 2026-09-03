@@ -167,7 +167,13 @@ window.AecPanelSections = (function () {
     });
     sync();
     const mo = new MutationObserver(sync);
-    built.forEach(({ content }) => mo.observe(content, { attributes: true, attributeFilter: ['style', 'class'], childList: true, subtree: true }));
+    built.forEach(({ content }) => {
+      mo.observe(content, { attributes: true, attributeFilter: ['style', 'class'], childList: true, subtree: true });
+      // ติ๊ก checkbox เปลี่ยนแค่ property .checked ไม่แตะ attribute — MutationObserver จึงไม่เห็นเลย
+      // ตัวเลขบนหัวแถบเคยค้างที่ค่าตอนโหลดตลอดเพราะเหตุนี้ ต้องดัก event ตรงๆ (change/input bubble ขึ้นมาถึงตรงนี้)
+      content.addEventListener('change', sync);
+      content.addEventListener('input', sync);
+    });
     // สิทธิ์มาถึงช้ากว่า DOM — กวาดซ้ำอีกสองสามรอบตอนเริ่ม เผื่อ observer ยังไม่ทันเห็นการเปลี่ยน
     [200, 800, 2500].forEach(ms => setTimeout(sync, ms));
     return sync;

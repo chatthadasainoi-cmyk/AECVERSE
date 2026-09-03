@@ -29,7 +29,7 @@ function hexToRgb(hex) {
 const VIEWER_MODE = new URLSearchParams(window.location.search).get('mode') === 'viewer';
 if (VIEWER_MODE) {
     // watcher ดูอย่างเดียว: ไม่มีตัวละคร ไม่มีแชท/ไมค์ (server ก็บล็อกอยู่แล้ว — ซ่อน UI ให้ตรงกัน)
-    ['multiplayer-panel', 'mobile-controls-container', 'hud-multiplayer', 'hud-reset-camera', 'freelook-btn', 'hud-jump', 'hud-voice', 'hud-chat', 'chat-overlay']
+    ['multiplayer-panel', 'mobile-controls-container', 'hud-multiplayer', 'hud-reset-camera', 'freelook-btn', 'hud-jump', 'hud-voice', 'hud-chat', 'chat-overlay', 'view-dock']
         .forEach(id => { const el = $(id); if (el) el.style.display = 'none'; });
 }
 
@@ -2540,6 +2540,12 @@ const safetyLayers = {
     lightning: localStorage.getItem('aec_layer_lightning') !== 'off',
     tags: localStorage.getItem('aec_layer_tags') !== 'off'
 };
+// ช่องติ๊กใน index.html เขียน checked ไว้ตายตัวทั้ง 5 ตัว แต่สถานะจริงอ่านจาก localStorage
+// ถ้าผู้ใช้เคยปิดชั้นไหนไว้ พอกลับเข้ามาจะเห็นช่องติ๊กอยู่ทั้งที่ชั้นนั้นปิด — ต้องซิงก์ให้ตรงกันตั้งแต่แรก
+Object.entries(safetyLayers).forEach(([key, on]) => {
+    const cb = $('layer-' + key);
+    if (cb) cb.checked = !!on;
+});
 window.setSafetyLayer = function (key, on) {
     safetyLayers[key] = !!on;
     localStorage.setItem('aec_layer_' + key, on ? 'on' : 'off');
@@ -4548,12 +4554,27 @@ function setViewMode(mode) {
     controls.enabled = (mode === 'third') && !lobbyActive;
     if (isFreeLook && mode !== 'third') isFreeLook = false; // Free Look ใช้ร่วมกับสองโหมดนี้ไม่ได้
     applyCameraForViewMode();
+    syncViewDock();
     mpAppendChat({
         name: '🎥 มุมกล้อง', color: '#22d3ee',
         text: mode === 'first' ? 'มุมมองบุคคลที่หนึ่ง' : (mode === 'top' ? 'มุมมองจากด้านบน' : 'มุมมอง 3D ตามหลังตัวละคร')
     });
 }
 window.setViewMode = setViewMode;
+
+// ---------- ไอคอนสลับมุมกล้องมุมขวาบนของฉาก ----------
+// ไฮไลต์ตัวที่ใช้อยู่เสมอ ไม่ว่าจะถูกสั่งจากไอคอนนี้ จากแท็บบนหน้าแม่ (postMessage)
+// หรือจากโค้ดอื่น — จึงเรียกจากใน setViewMode ไม่ใช่จากตัวจัดการคลิก
+function syncViewDock() {
+    document.querySelectorAll('#view-dock .view-dock-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.view === viewMode);
+        b.setAttribute('aria-pressed', String(b.dataset.view === viewMode));
+    });
+}
+document.querySelectorAll('#view-dock .view-dock-btn').forEach(btn => {
+    btn.addEventListener('click', () => setViewMode(btn.dataset.view));
+});
+syncViewDock();
 
 // รับคำสั่งสลับมุมกล้องจากหน้าที่ฝัง iframe นี้ไว้ (Dashboard)
 window.addEventListener('message', e => {
