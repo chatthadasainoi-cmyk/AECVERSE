@@ -338,7 +338,10 @@ window.AecTypeInteractions = (function () {
   };
 
   // ══════════════════════════════════════════════════════════
-  // ส่วนแสดงผล
+  // ส่วนแสดงผล — แถบพับเก็บได้ (accordion)
+  // ทุกหัวข้อยุบไว้เป็นแถบบรรทัดเดียว กดไอคอนลูกศรถึงจะกางข้อมูลออกมา
+  // ผู้ใช้จึงเจอข้อความทีละก้อน ไม่ใช่กำแพงตัวอักษรทั้งหน้าตั้งแต่เปิด
+  // ตอนเปิดจะกางเฉพาะแถบที่ต้อง "ลงมือทำ" กับผลลัพธ์ ที่เหลือยุบหมด
   // ══════════════════════════════════════════════════════════
   const esc = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const shuffle = arr => { const a = arr.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
@@ -351,91 +354,125 @@ window.AecTypeInteractions = (function () {
       #ati-overlay{position:fixed;inset:0;background:rgba(4,7,12,.78);backdrop-filter:blur(6px);
         -webkit-backdrop-filter:blur(6px);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;}
       #ati-card{background:var(--panel,#0e131c);border:1px solid var(--border,#1c2531);border-radius:14px;
-        width:min(620px,100%);max-height:calc(100vh - 32px);overflow-y:auto;
+        width:min(560px,100%);max-height:calc(100vh - 32px);overflow-y:auto;
         box-shadow:0 24px 64px rgba(0,0,0,.6);font-size:13px;color:var(--text-0,#eef2f7);}
-      .ati-head{display:flex;align-items:flex-start;gap:10px;padding:16px 18px 12px;
+      .ati-head{display:flex;align-items:center;gap:10px;padding:13px 15px;
         border-bottom:1px solid var(--border-soft,#161d29);position:sticky;top:0;background:var(--panel,#0e131c);z-index:2;}
-      .ati-head .ati-ic{font-size:22px;line-height:1.2;flex-shrink:0;}
-      .ati-head h3{margin:0;font-size:14.5px;font-weight:800;line-height:1.45;}
-      .ati-head .ati-part{font-size:10.5px;color:var(--text-2,#657182);margin-top:3px;font-weight:600;}
-      .ati-x{margin-left:auto;background:none;border:none;color:var(--text-2,#657182);font-size:18px;
+      .ati-head .ati-ic{font-size:19px;line-height:1;flex-shrink:0;}
+      .ati-head h3{margin:0;font-size:13.5px;font-weight:800;line-height:1.4;}
+      .ati-head .ati-part{font-size:10px;color:var(--text-2,#657182);margin-top:2px;font-weight:600;}
+      .ati-x{margin-left:auto;background:none;border:none;color:var(--text-2,#657182);font-size:17px;
         cursor:pointer;padding:0 2px;line-height:1;flex-shrink:0;}
       .ati-x:hover{color:var(--text-0,#eef2f7);}
-      .ati-body{padding:16px 18px 18px;}
-      .ati-principle{background:var(--blue-soft,rgba(59,130,246,.14));border:1px solid rgba(59,130,246,.28);
-        border-radius:10px;padding:11px 13px;font-size:12.5px;line-height:1.7;color:var(--text-1,#9aa7b8);margin-bottom:16px;}
-      .ati-principle b{color:#8fb8ff;display:block;font-size:10px;letter-spacing:.5px;
-        text-transform:uppercase;margin-bottom:5px;font-weight:800;}
-      .ati-sec{font-size:10px;letter-spacing:.5px;text-transform:uppercase;font-weight:800;
-        color:var(--text-2,#657182);margin:0 0 9px;}
-      .ati-ctl{margin-bottom:14px;}
+      .ati-body{padding:12px 15px 15px;}
+
+      /* ---------- แถบพับเก็บ ---------- */
+      .ati-bar{border:1px solid var(--border,#1c2531);border-radius:10px;margin-bottom:7px;
+        background:var(--panel-2,#111826);overflow:hidden;}
+      .ati-bar-h{display:flex;align-items:center;gap:9px;padding:11px 12px;cursor:pointer;
+        user-select:none;font-size:12.5px;font-weight:700;line-height:1.4;color:var(--text-0,#eef2f7);
+        background:none;border:none;width:100%;text-align:left;font-family:inherit;}
+      .ati-bar-h .bi{font-size:14px;flex-shrink:0;line-height:1;}
+      .ati-bar-h .bt{flex:1;min-width:0;}
+      .ati-bar-h .bs{font-size:10.5px;color:var(--text-2,#657182);font-weight:600;
+        white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:46%;}
+      .ati-bar-h .chev{flex-shrink:0;color:var(--text-2,#657182);font-size:10px;transition:transform .18s;}
+      .ati-bar.open>.ati-bar-h .chev{transform:rotate(180deg);}
+      .ati-bar-c{display:none;padding:2px 12px 12px;font-size:12.5px;line-height:1.7;color:var(--text-1,#9aa7b8);}
+      .ati-bar.open>.ati-bar-c{display:block;}
+      .ati-bar.tone-ok{border-color:rgba(34,197,94,.4);background:var(--green-soft,rgba(34,197,94,.13));}
+      .ati-bar.tone-ok>.ati-bar-h{color:var(--green,#22c55e);}
+      .ati-bar.tone-warn{border-color:rgba(245,158,11,.4);background:var(--yellow-soft,rgba(245,158,11,.13));}
+      .ati-bar.tone-warn>.ati-bar-h{color:var(--yellow,#f59e0b);}
+      .ati-bar.tone-bad{border-color:rgba(239,68,68,.45);background:var(--red-soft,rgba(239,68,68,.13));}
+      .ati-bar.tone-bad>.ati-bar-h{color:var(--red,#ef4444);}
+      .ati-bar.tone-info{border-color:rgba(59,130,246,.3);background:var(--blue-soft,rgba(59,130,246,.11));}
+      .ati-bar.tone-info>.ati-bar-h{color:#8fb8ff;}
+
+      /* ---------- ตัวควบคุม ---------- */
+      .ati-ctl{margin-bottom:13px;}
+      .ati-ctl:last-child{margin-bottom:2px;}
       .ati-ctl .ati-lab{display:flex;justify-content:space-between;align-items:baseline;gap:8px;
-        font-size:12px;font-weight:600;margin-bottom:6px;}
+        font-size:12px;font-weight:600;margin-bottom:6px;color:var(--text-0,#eef2f7);}
       .ati-ctl .ati-val{font-family:"Sora",sans-serif;font-weight:800;color:var(--blue,#3b82f6);flex-shrink:0;}
       .ati-ctl .ati-hint{font-size:10.5px;color:var(--text-2,#657182);margin-top:4px;line-height:1.5;}
       .ati-ctl input[type=range]{width:100%;accent-color:var(--blue,#3b82f6);}
-      .ati-ctl select{width:100%;background:var(--panel-2,#111826);border:1px solid var(--border,#1c2531);
+      .ati-ctl select{width:100%;background:var(--panel,#0e131c);border:1px solid var(--border,#1c2531);
         border-radius:8px;padding:9px 11px;color:var(--text-0,#eef2f7);font-size:12.5px;font-family:inherit;}
       .ati-sw{display:flex;align-items:center;justify-content:space-between;gap:10px;cursor:pointer;
-        background:var(--panel-2,#111826);border:1px solid var(--border,#1c2531);border-radius:9px;padding:10px 12px;}
-      .ati-sw .knobwrap{position:relative;width:40px;height:22px;border-radius:12px;background:#26303e;
+        background:var(--panel,#0e131c);border:1px solid var(--border,#1c2531);border-radius:9px;
+        padding:10px 12px;font-size:12px;font-weight:600;color:var(--text-0,#eef2f7);}
+      .ati-sw .knobwrap{position:relative;width:38px;height:21px;border-radius:12px;background:#26303e;
         border:1px solid var(--border,#1c2531);flex-shrink:0;transition:background .15s;}
       .ati-sw.on .knobwrap{background:var(--blue,#3b82f6);border-color:var(--blue,#3b82f6);}
-      .ati-sw .knob{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;
+      .ati-sw .knob{position:absolute;top:2px;left:2px;width:15px;height:15px;border-radius:50%;
         background:#fff;transition:left .15s;}
-      .ati-sw.on .knob{left:20px;}
-      .ati-reads{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin:4px 0 14px;}
-      .ati-read{background:var(--panel-2,#111826);border:1px solid var(--border,#1c2531);border-radius:9px;padding:9px 11px;}
-      .ati-read .r-l{font-size:10px;color:var(--text-2,#657182);font-weight:700;letter-spacing:.3px;}
-      .ati-read .r-v{font-size:13px;font-weight:800;font-family:"Sora",sans-serif;margin-top:3px;}
+      .ati-sw.on .knob{left:19px;}
+
+      /* ---------- ค่าที่อ่านได้ ---------- */
+      .ati-reads{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:7px;}
+      .ati-read{background:var(--panel,#0e131c);border:1px solid var(--border,#1c2531);border-radius:8px;padding:8px 10px;}
+      .ati-read .r-l{font-size:9.5px;color:var(--text-2,#657182);font-weight:700;letter-spacing:.3px;}
+      .ati-read .r-v{font-size:12.5px;font-weight:800;font-family:"Sora",sans-serif;margin-top:3px;color:var(--text-0,#eef2f7);}
       .ati-read.ok .r-v{color:var(--green,#22c55e);}
       .ati-read.warn .r-v{color:var(--yellow,#f59e0b);}
       .ati-read.bad .r-v{color:var(--red,#ef4444);}
-      .ati-verdict{border-radius:10px;padding:13px 15px;border:1px solid;line-height:1.7;}
-      .ati-verdict .v-t{font-weight:800;font-size:13px;margin-bottom:5px;display:flex;align-items:center;gap:7px;}
-      .ati-verdict .v-w{font-size:12.5px;color:var(--text-1,#9aa7b8);}
-      .ati-verdict.ok{background:var(--green-soft,rgba(34,197,94,.14));border-color:rgba(34,197,94,.35);}
-      .ati-verdict.ok .v-t{color:var(--green,#22c55e);}
-      .ati-verdict.warn{background:var(--yellow-soft,rgba(245,158,11,.14));border-color:rgba(245,158,11,.35);}
-      .ati-verdict.warn .v-t{color:var(--yellow,#f59e0b);}
-      .ati-verdict.bad{background:var(--red-soft,rgba(239,68,68,.14));border-color:rgba(239,68,68,.4);}
-      .ati-verdict.bad .v-t{color:var(--red,#ef4444);}
-      .ati-step{display:flex;align-items:flex-start;gap:10px;width:100%;text-align:left;
-        background:var(--panel-2,#111826);border:1px solid var(--border,#1c2531);border-radius:9px;
-        padding:11px 13px;margin-bottom:7px;cursor:pointer;color:var(--text-1,#9aa7b8);
-        font-size:12.5px;font-family:inherit;line-height:1.55;}
-      .ati-step:hover:not(:disabled){border-color:#33475e;color:var(--text-0,#eef2f7);}
+
+      /* ---------- ขั้นตอน / ตัวเลือก ---------- */
+      .ati-step,.ati-item{display:flex;align-items:flex-start;gap:9px;width:100%;text-align:left;
+        background:var(--panel,#0e131c);border:1px solid var(--border,#1c2531);border-radius:9px;
+        padding:10px 12px;margin-bottom:6px;cursor:pointer;color:var(--text-1,#9aa7b8);
+        font-size:12.5px;font-family:inherit;line-height:1.5;}
+      .ati-step:hover:not(:disabled),.ati-item:hover:not(.locked){border-color:#33475e;color:var(--text-0,#eef2f7);}
       .ati-step:disabled{cursor:default;}
-      .ati-step .s-n{width:20px;height:20px;border-radius:50%;background:#1e2734;color:var(--text-2,#657182);
-        font-size:10.5px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;}
+      .ati-step .s-n{width:19px;height:19px;border-radius:50%;background:#1e2734;color:var(--text-2,#657182);
+        font-size:10px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;}
       .ati-step.done{background:var(--green-soft,rgba(34,197,94,.14));border-color:rgba(34,197,94,.35);color:var(--text-0,#eef2f7);}
       .ati-step.done .s-n{background:var(--green,#22c55e);color:#04210f;}
       .ati-step.miss{background:var(--red-soft,rgba(239,68,68,.14));border-color:rgba(239,68,68,.4);}
-      .ati-step .s-why{display:block;font-size:11.5px;color:var(--text-2,#657182);margin-top:5px;line-height:1.6;}
-      .ati-item{display:flex;align-items:flex-start;gap:10px;width:100%;text-align:left;
-        background:var(--panel-2,#111826);border:1px solid var(--border,#1c2531);border-radius:9px;
-        padding:11px 13px;margin-bottom:7px;cursor:pointer;color:var(--text-1,#9aa7b8);
-        font-size:12.5px;font-family:inherit;line-height:1.55;}
-      .ati-item:hover:not(.locked){border-color:#33475e;color:var(--text-0,#eef2f7);}
+      .ati-step .s-why,.ati-item .i-why{display:block;font-size:11.5px;color:var(--text-2,#657182);
+        margin-top:5px;line-height:1.6;}
       .ati-item.locked{cursor:default;}
-      .ati-item .box{width:17px;height:17px;border-radius:5px;border:1.5px solid var(--text-2,#657182);
-        flex-shrink:0;margin-top:1px;display:flex;align-items:center;justify-content:center;font-size:11px;}
+      .ati-item .box{width:16px;height:16px;border-radius:5px;border:1.5px solid var(--text-2,#657182);
+        flex-shrink:0;margin-top:1px;display:flex;align-items:center;justify-content:center;font-size:10px;}
       .ati-item.single .box{border-radius:50%;}
       .ati-item.picked{border-color:var(--blue,#3b82f6);background:var(--blue-soft,rgba(59,130,246,.14));color:var(--text-0,#eef2f7);}
       .ati-item.picked .box{border-color:var(--blue,#3b82f6);background:var(--blue,#3b82f6);color:#fff;}
       .ati-item.right{border-color:rgba(34,197,94,.45);background:var(--green-soft,rgba(34,197,94,.14));}
       .ati-item.wrong{border-color:rgba(239,68,68,.45);background:var(--red-soft,rgba(239,68,68,.14));}
-      .ati-item .i-why{display:block;font-size:11.5px;color:var(--text-2,#657182);margin-top:6px;line-height:1.6;}
-      .ati-btn{background:var(--blue,#3b82f6);border:none;border-radius:9px;padding:10px 18px;color:#fff;
-        font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit;}
+
+      .ati-btn{background:var(--blue,#3b82f6);border:none;border-radius:9px;padding:9px 16px;color:#fff;
+        font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;}
       .ati-btn:disabled{opacity:.45;cursor:default;}
       .ati-btn.ghost{background:transparent;border:1px solid var(--border,#1c2531);color:var(--text-1,#9aa7b8);}
-      .ati-row{display:flex;gap:8px;align-items:center;margin-top:14px;flex-wrap:wrap;}
-      .ati-note{font-size:10.5px;color:var(--text-2,#657182);margin-top:14px;line-height:1.6;
-        border-top:1px solid var(--border-soft,#161d29);padding-top:11px;}
-      @media (max-width:560px){ .ati-reads{grid-template-columns:1fr 1fr;} }
+      .ati-row{display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap;}
+      @media (max-width:560px){ .ati-reads{grid-template-columns:1fr 1fr;} .ati-bar-h .bs{display:none;} }
+      @media (prefers-reduced-motion: reduce){ .ati-bar-h .chev{transition:none;} }
     `;
     document.head.appendChild(s);
+  }
+
+  // สร้างแถบพับเก็บ 1 อัน — คืน element ให้ผู้เรียกไปเติม/แก้เนื้อในทีหลังได้
+  function makeBar({ id, icon, label, sub = '', tone = '', open = false }) {
+    const el = document.createElement('div');
+    el.className = 'ati-bar' + (tone ? ' tone-' + tone : '') + (open ? ' open' : '');
+    el.dataset.bar = id;
+    el.innerHTML = `<button class="ati-bar-h" type="button" aria-expanded="${open}">
+        <span class="bi">${icon}</span><span class="bt"></span><span class="bs"></span><span class="chev">▼</span>
+      </button><div class="ati-bar-c"></div>`;
+    const head = el.querySelector('.ati-bar-h');
+    el.querySelector('.bt').textContent = label;
+    el.querySelector('.bs').textContent = sub;
+    head.addEventListener('click', () => {
+      const nowOpen = !el.classList.contains('open');
+      el.classList.toggle('open', nowOpen);
+      head.setAttribute('aria-expanded', String(nowOpen));
+    });
+    el.setLabel = t => { el.querySelector('.bt').textContent = t; };
+    el.setSub = t => { el.querySelector('.bs').textContent = t; };
+    el.setTone = t => { el.className = 'ati-bar' + (t ? ' tone-' + t : '') + (el.classList.contains('open') ? ' open' : ''); };
+    el.content = el.querySelector('.ati-bar-c');
+    return el;
   }
 
   // ---------- sim ----------
@@ -443,7 +480,12 @@ window.AecTypeInteractions = (function () {
     const state = {};
     def.controls.forEach(c => { state[c.id] = c.value; });
 
-    const ctlHtml = def.controls.map(c => {
+    const tryBar = makeBar({ id: 'try', icon: '🎛️', label: 'ลองปรับค่า', sub: def.controls.length + ' ค่า', open: true });
+    const readBar = makeBar({ id: 'read', icon: '📊', label: 'ผลที่เกิดขึ้น', open: true });
+    const vBar = makeBar({ id: 'verdict', icon: '⏳', label: 'กำลังคำนวณ...', sub: 'กดดูเหตุผล', tone: 'info' });
+    body.append(tryBar, readBar, vBar);
+
+    tryBar.content.innerHTML = def.controls.map(c => {
       if (c.type === 'range') return `<div class="ati-ctl">
           <div class="ati-lab"><span>${esc(c.label)}</span><span class="ati-val" data-val="${c.id}"></span></div>
           <input type="range" data-ctl="${c.id}" min="${c.min}" max="${c.max}" step="${c.step}" value="${c.value}">
@@ -455,29 +497,33 @@ window.AecTypeInteractions = (function () {
       return `<div class="ati-ctl"><div class="ati-lab"><span>${esc(c.label)}</span></div>
           <select data-ctl="${c.id}">${c.options.map(o => `<option value="${esc(o.v)}"${o.v === c.value ? ' selected' : ''}>${esc(o.label)}</option>`).join('')}</select></div>`;
     }).join('');
-
-    body.innerHTML = `<p class="ati-sec">ลองปรับค่าดู</p>${ctlHtml}
-      <p class="ati-sec" style="margin-top:18px;">ผลที่เกิดขึ้น</p>
-      <div class="ati-reads" data-reads></div><div data-verdict></div>`;
+    readBar.content.innerHTML = '<div class="ati-reads" data-reads></div>';
 
     const paint = () => {
       def.controls.forEach(c => {
         if (c.type !== 'range') return;
-        const el = body.querySelector(`[data-val="${c.id}"]`);
+        const el = tryBar.querySelector(`[data-val="${c.id}"]`);
         if (el) el.textContent = num(state[c.id], 2) + (c.unit || '');
       });
-      body.querySelector('[data-reads]').innerHTML = def.readouts(state)
+      const reads = def.readouts(state);
+      readBar.content.querySelector('[data-reads]').innerHTML = reads
         .map(r => `<div class="ati-read ${r.tone || ''}"><div class="r-l">${esc(r.label)}</div><div class="r-v">${esc(r.value)}</div></div>`).join('');
+      // สรุปค่าสำคัญไว้บนหัวแถบ จะได้รู้ผลโดยไม่ต้องกางออกมาดู
+      const key = reads.find(r => r.tone === 'bad') || reads.find(r => r.tone === 'warn') || reads[reads.length - 1];
+      readBar.setSub(key ? key.value : '');
       const v = def.verdict(state);
-      body.querySelector('[data-verdict]').innerHTML =
-        `<div class="ati-verdict ${v.tone}"><div class="v-t">${v.tone === 'ok' ? '✅' : v.tone === 'warn' ? '⚠️' : '🛑'} ${esc(v.title)}</div><div class="v-w">${esc(v.why)}</div></div>`;
+      vBar.setTone(v.tone);
+      vBar.querySelector('.bi').textContent = v.tone === 'ok' ? '✅' : v.tone === 'warn' ? '⚠️' : '🛑';
+      vBar.setLabel(v.title);
+      vBar.setSub('กดดูเหตุผล');
+      vBar.content.textContent = v.why;
     };
 
-    body.querySelectorAll('input[type=range][data-ctl]').forEach(el =>
+    tryBar.querySelectorAll('input[type=range][data-ctl]').forEach(el =>
       el.addEventListener('input', () => { state[el.dataset.ctl] = parseFloat(el.value); paint(); }));
-    body.querySelectorAll('select[data-ctl]').forEach(el =>
+    tryBar.querySelectorAll('select[data-ctl]').forEach(el =>
       el.addEventListener('change', () => { state[el.dataset.ctl] = el.value; paint(); }));
-    body.querySelectorAll('.ati-sw[data-ctl]').forEach(el => {
+    tryBar.querySelectorAll('.ati-sw[data-ctl]').forEach(el => {
       const flip = () => { state[el.dataset.ctl] = !state[el.dataset.ctl]; el.classList.toggle('on', state[el.dataset.ctl]); paint(); };
       el.addEventListener('click', flip);
       el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(); } });
@@ -489,35 +535,44 @@ window.AecTypeInteractions = (function () {
   function renderSequence(def, body) {
     let idx = 0;
     const order = shuffle(def.steps);
-    const draw = (msg) => {
+    const stepBar = makeBar({ id: 'steps', icon: '🔢', label: 'เรียงลำดับให้ถูก', open: true });
+    const msgBar = makeBar({ id: 'msg', icon: '💡', label: 'กดขั้นตอนที่ต้องทำก่อน', sub: '', tone: 'info' });
+    body.append(stepBar, msgBar);
+
+    const draw = (wrongOf) => {
       const done = idx >= def.steps.length;
-      body.innerHTML = `<p class="ati-sec">เรียงลำดับให้ถูก — กดทีละขั้นตามลำดับที่ต้องทำจริง (${idx}/${def.steps.length})</p>
-        <div data-steps></div><div data-msg></div>
-        <div class="ati-row"><button class="ati-btn ghost" data-reset>เริ่มใหม่</button></div>`;
-      body.querySelector('[data-steps]').innerHTML = order.map(st => {
+      stepBar.setSub(idx + '/' + def.steps.length);
+      stepBar.content.innerHTML = order.map(st => {
         const at = def.steps.findIndex(x => x.id === st.id);
         const isDone = at < idx;
         return `<button class="ati-step${isDone ? ' done' : ''}" data-id="${st.id}"${isDone || done ? ' disabled' : ''}>
-            <span class="s-n">${isDone ? '✓' : at < idx ? '' : '?'}</span>
+            <span class="s-n">${isDone ? '✓' : at + 1 <= idx ? '' : '?'}</span>
             <span><span>${esc(st.label)}</span>${isDone ? `<span class="s-why">${esc(st.why)}</span>` : ''}</span></button>`;
-      }).join('');
+      }).join('') + `<div class="ati-row"><button class="ati-btn ghost" data-reset>เริ่มใหม่</button></div>`;
+
       if (done) {
-        body.querySelector('[data-msg]').innerHTML =
-          `<div class="ati-verdict ok"><div class="v-t">✅ เรียงครบถูกต้องทั้งหมด</div><div class="v-w">ลำดับนี้คือลำดับที่ใช้จริงหน้างาน แต่ละขั้นเปิดทางให้ขั้นถัดไปทำได้อย่างปลอดภัย ข้ามขั้นไหนก็ทำให้ขั้นหลังจากนั้นไม่มีความหมาย</div></div>`;
-      } else if (msg) {
-        body.querySelector('[data-msg]').innerHTML =
-          `<div class="ati-verdict bad"><div class="v-t">🛑 ยังไม่ถึงขั้นนี้</div><div class="v-w">${esc(msg)}</div></div>`;
+        msgBar.setTone('ok'); msgBar.querySelector('.bi').textContent = '✅';
+        msgBar.setLabel('เรียงครบถูกต้องทั้งหมด'); msgBar.setSub('กดดูสรุป');
+        msgBar.content.textContent = 'ลำดับนี้คือลำดับที่ใช้จริงหน้างาน แต่ละขั้นเปิดทางให้ขั้นถัดไปทำได้อย่างปลอดภัย ข้ามขั้นไหนก็ทำให้ขั้นหลังจากนั้นไม่มีความหมาย';
+        msgBar.classList.add('open');
+      } else if (wrongOf) {
+        msgBar.setTone('bad'); msgBar.querySelector('.bi').textContent = '🛑';
+        msgBar.setLabel('ยังไม่ถึงขั้นนี้'); msgBar.setSub('กดดูเหตุผล');
+        msgBar.content.textContent = `ก่อนจะถึงขั้นนั้น ต้องทำ "${wrongOf.label}" ให้เสร็จก่อน — ${wrongOf.why}`;
+        msgBar.classList.add('open');
+      } else {
+        msgBar.setTone('info'); msgBar.querySelector('.bi').textContent = '💡';
+        msgBar.setLabel(idx === 0 ? 'กดขั้นตอนที่ต้องทำก่อน' : 'ถูกต้อง — ทำขั้นต่อไป');
+        msgBar.setSub(''); msgBar.content.textContent = 'แต่ละขั้นที่กดถูกจะบอกเหตุผลว่าทำไมต้องอยู่ตรงนั้น';
       }
-      body.querySelectorAll('.ati-step[data-id]:not([disabled])').forEach(btn =>
+
+      stepBar.content.querySelectorAll('.ati-step[data-id]:not([disabled])').forEach(btn =>
         btn.addEventListener('click', () => {
           const want = def.steps[idx];
           if (btn.dataset.id === want.id) { idx++; draw(null); }
-          else {
-            btn.classList.add('miss');
-            draw(`ก่อนจะถึงขั้นนั้น ต้องทำ "${want.label}" ให้เสร็จก่อน — ${want.why}`);
-          }
+          else { btn.classList.add('miss'); draw(want); }
         }));
-      const rs = body.querySelector('[data-reset]');
+      const rs = stepBar.content.querySelector('[data-reset]');
       if (rs) rs.addEventListener('click', () => { idx = 0; draw(null); });
     };
     draw(null);
@@ -527,13 +582,13 @@ window.AecTypeInteractions = (function () {
   function renderChoice(def, body) {
     const picked = new Set();
     let checked = false;
+    const pickBar = makeBar({ id: 'pick', icon: '☑️', label: def.prompt, open: true });
+    const msgBar = makeBar({ id: 'msg', icon: '💡', label: 'เลือกแล้วกดตรวจคำตอบ', tone: 'info' });
+    body.append(pickBar, msgBar);
+
     const draw = () => {
-      body.innerHTML = `<p class="ati-sec">${esc(def.prompt)}</p><div data-items></div>
-        <div class="ati-row">
-          <button class="ati-btn" data-check${(picked.size === 0 || checked) ? ' disabled' : ''}>ตรวจคำตอบ</button>
-          <button class="ati-btn ghost" data-reset>ลองใหม่</button>
-        </div><div data-msg></div>`;
-      body.querySelector('[data-items]').innerHTML = def.items.map(it => {
+      pickBar.setSub(checked ? 'ตรวจแล้ว' : picked.size ? 'เลือก ' + picked.size : '');
+      pickBar.content.innerHTML = def.items.map(it => {
         const on = picked.has(it.id);
         let cls = 'ati-item' + (def.multi ? '' : ' single');
         if (checked) cls += ' locked' + ((on === !!it.correct) ? ' right' : ' wrong');
@@ -541,22 +596,35 @@ window.AecTypeInteractions = (function () {
         return `<button class="${cls}" data-id="${it.id}"${checked ? ' disabled' : ''}>
             <span class="box">${on ? (def.multi ? '✓' : '●') : ''}</span>
             <span><span>${esc(it.label)}</span>${checked ? `<span class="i-why">${(on === !!it.correct) ? '✅ ' : '❌ '}${esc(it.why)}</span>` : ''}</span></button>`;
-      }).join('');
+      }).join('') + `<div class="ati-row">
+          <button class="ati-btn" data-check${(picked.size === 0 || checked) ? ' disabled' : ''}>ตรวจคำตอบ</button>
+          <button class="ati-btn ghost" data-reset>ลองใหม่</button></div>`;
+
       if (checked) {
         const allRight = def.items.every(it => picked.has(it.id) === !!it.correct);
-        body.querySelector('[data-msg]').innerHTML = allRight
-          ? `<div class="ati-verdict ok" style="margin-top:12px;"><div class="v-t">✅ ถูกทั้งหมด</div><div class="v-w">เลือกได้ครบและไม่เลือกตัวลวงเลย</div></div>`
-          : `<div class="ati-verdict warn" style="margin-top:12px;"><div class="v-t">⚠️ ยังไม่ครบถูกทุกข้อ</div><div class="v-w">อ่านคำอธิบายใต้แต่ละข้อดู เหตุผลสำคัญกว่าคำตอบ — ของจริงหน้างานจะไม่มีตัวเลือกให้กด</div></div>`;
+        msgBar.setTone(allRight ? 'ok' : 'warn');
+        msgBar.querySelector('.bi').textContent = allRight ? '✅' : '⚠️';
+        msgBar.setLabel(allRight ? 'ถูกทั้งหมด' : 'ยังไม่ครบถูกทุกข้อ');
+        msgBar.setSub('กดดูสรุป');
+        msgBar.content.textContent = allRight
+          ? 'เลือกได้ครบและไม่เลือกตัวลวงเลย เหตุผลของแต่ละข้ออยู่ใต้ตัวเลือกด้านบน'
+          : 'อ่านคำอธิบายใต้แต่ละข้อดู เหตุผลสำคัญกว่าคำตอบ — ของจริงหน้างานจะไม่มีตัวเลือกให้กด';
+        msgBar.classList.add('open');
+      } else {
+        msgBar.setTone('info'); msgBar.querySelector('.bi').textContent = '💡';
+        msgBar.setLabel('เลือกแล้วกดตรวจคำตอบ'); msgBar.setSub('');
+        msgBar.content.textContent = def.multi ? 'เลือกได้มากกว่าหนึ่งข้อ' : 'เลือกได้ข้อเดียว';
       }
-      body.querySelectorAll('.ati-item[data-id]:not([disabled])').forEach(btn =>
+
+      pickBar.content.querySelectorAll('.ati-item[data-id]:not([disabled])').forEach(btn =>
         btn.addEventListener('click', () => {
           const id = btn.dataset.id;
           if (!def.multi) { picked.clear(); picked.add(id); }
           else if (picked.has(id)) picked.delete(id); else picked.add(id);
           draw();
         }));
-      body.querySelector('[data-check]').addEventListener('click', () => { checked = true; draw(); });
-      body.querySelector('[data-reset]').addEventListener('click', () => { picked.clear(); checked = false; draw(); });
+      pickBar.content.querySelector('[data-check]').addEventListener('click', () => { checked = true; draw(); });
+      pickBar.content.querySelector('[data-reset]').addEventListener('click', () => { picked.clear(); checked = false; draw(); });
     };
     draw();
   }
@@ -583,18 +651,24 @@ window.AecTypeInteractions = (function () {
           <div><h3>${esc(def.title)}</h3>${partName ? `<div class="ati-part">📦 ${esc(partName)}</div>` : ''}</div>
           <button class="ati-x" data-close aria-label="ปิด">✕</button>
         </div>
-        <div class="ati-body">
-          <div class="ati-principle"><b>หลักการทำงาน</b>${esc(def.principle)}</div>
-          <div data-slot></div>
-          <div class="ati-note">${def.note ? esc(def.note) + ' · ' : ''}บทเรียนนี้ใช้ค่าตัวอย่างเชิงการสอน ไม่ใช่ค่าออกแบบจริงของโรงงาน — ก่อนปฏิบัติงานจริงให้ยึดตามคู่มือและใบอนุญาตทำงานของหน้างานเสมอ</div>
-        </div>
+        <div class="ati-body" data-slot></div>
       </div>`;
     document.body.appendChild(ov);
-
     const slot = ov.querySelector('[data-slot]');
+
+    // แถบหลักการทำงาน — ยุบไว้ก่อน คนที่รู้อยู่แล้วจะได้ข้ามไปลองเล่นเลย
+    const pBar = makeBar({ id: 'principle', icon: '📘', label: 'หลักการทำงาน', sub: 'กดอ่าน', tone: 'info' });
+    pBar.content.textContent = def.principle;
+    slot.appendChild(pBar);
+
     if (def.kind === 'sim') renderSim(def, slot);
     else if (def.kind === 'sequence') renderSequence(def, slot);
     else renderChoice(def, slot);
+
+    const nBar = makeBar({ id: 'note', icon: 'ℹ️', label: 'ที่มาของตัวเลข', sub: 'กดอ่าน' });
+    nBar.content.textContent = (def.note ? def.note + ' · ' : '') +
+      'บทเรียนนี้ใช้ค่าตัวอย่างเชิงการสอน ไม่ใช่ค่าออกแบบจริงของโรงงาน — ก่อนปฏิบัติงานจริงให้ยึดตามคู่มือและใบอนุญาตทำงานของหน้างานเสมอ';
+    slot.appendChild(nBar);
 
     ov.querySelector('[data-close]').addEventListener('click', close);
     ov.addEventListener('click', e => { if (e.target === ov) close(); });
