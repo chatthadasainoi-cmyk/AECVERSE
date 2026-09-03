@@ -106,6 +106,57 @@ button{font-family:inherit;}
 .col-toggle-left { left: 0; border-left: none; border-radius: 0 8px 8px 0; }
 .col-toggle-right { right: 0; border-right: none; border-radius: 8px 0 0 8px; }
 
+/* ---------- สลับมุมกล้อง — ไอคอนลอยมุมขวาบนของฉาก 3D ---------- */
+#view-dock {
+    position: absolute;
+    top: 12px; right: 12px;
+    display: flex; gap: 3px;
+    padding: 3px;
+    background: rgba(11, 15, 23, 0.72);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(28, 37, 49, 0.9);
+    border-radius: 10px;
+    z-index: 36;
+}
+.view-dock-btn {
+    position: relative;
+    width: 32px; height: 32px;
+    display: flex; align-items: center; justify-content: center;
+    background: none; border: none; border-radius: 7px;
+    color: var(--text-2); cursor: pointer; padding: 0;
+    transition: background .14s, color .14s;
+}
+.view-dock-btn:hover { background: rgba(255,255,255,.06); color: var(--text-0); }
+.view-dock-btn.active { background: var(--blue-soft); color: var(--blue); }
+.view-dock-btn:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
+
+/* คำอธิบายตอนเอาเมาส์ชี้ — กางลงซ้ายเสมอเพื่อไม่ให้ล้นขอบขวาของจอ */
+.view-dock-btn::after {
+    content: attr(data-tip);
+    position: absolute;
+    top: calc(100% + 8px); right: 0;
+    width: max-content; max-width: 230px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 11px; font-weight: 500; line-height: 1.55;
+    color: var(--text-1); text-align: left;
+    box-shadow: 0 10px 28px rgba(0,0,0,.5);
+    opacity: 0; visibility: hidden;
+    transform: translateY(-4px);
+    transition: opacity .14s, transform .14s, visibility .14s;
+    pointer-events: none;
+    z-index: 2;
+}
+.view-dock-btn:hover::after,
+.view-dock-btn:focus-visible::after { opacity: 1; visibility: visible; transform: translateY(0); }
+@media (prefers-reduced-motion: reduce) { .view-dock-btn::after { transition: none; } }
+/* จอแคบ/จอสัมผัส: ไม่มี hover จริง คำอธิบายจะค้างติดนิ้ว จึงไม่ต้องแสดง */
+@media (hover: none) { .view-dock-btn::after { display: none; } }
+@media (max-width: 720px) { #view-dock { top: 8px; right: 8px; } .view-dock-btn { width: 29px; height: 29px; } }
+
 /* ---------- empty state ตอนยังไม่มีโมเดลในฉาก ---------- */
 #canvas-empty-hint {
     position: absolute;

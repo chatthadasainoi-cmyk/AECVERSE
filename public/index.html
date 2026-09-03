@@ -302,6 +302,21 @@
   <div id="center-col">
     <div id="canvas-container">
 
+
+        <!-- สลับมุมกล้อง — ลอยมุมขวาบนของจอ 3D เอาเมาส์ชี้แล้วมีคำอธิบายขึ้น
+             เดิมอยู่บนหน้าแม่นอก iframe ต้องละสายตาออกจากฉากไปหา -->
+        <div id="view-dock" role="group" aria-label="สลับมุมกล้อง">
+            <button class="view-dock-btn active" data-view="third" data-tip="มุมมอง 3D — กล้องลอยตามหลังตัวละคร ลากเมาส์หมุนดูรอบตัวได้" aria-label="มุมมอง 3D">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l9 5v10l-9 5-9-5V7l9-5z"/><path d="M3 7l9 5 9-5M12 12v10"/></svg>
+            </button>
+            <button class="view-dock-btn" data-view="top" data-tip="มุมมองจากด้านบน — มองลงมาเห็นผังทั้งโรงงาน เลื่อนล้อเมาส์เพื่อซูม (วงเขตปลอดภัยแสดงเฉพาะมุมนี้)" aria-label="มุมมองจากด้านบน">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="12" cy="12" r="2.6"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>
+            </button>
+            <button class="view-dock-btn" data-view="first" data-tip="มุมมองบุคคลที่หนึ่ง — มองผ่านสายตาตัวละครเอง เหมือนยืนอยู่ในโรงงานจริง" aria-label="มุมมองบุคคลที่หนึ่ง">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M1.7 12S5 5.5 12 5.5 22.3 12 22.3 12 19 18.5 12 18.5 1.7 12 1.7 12z"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+        </div>
+
         <!-- ปุ่มเก็บ/ดึงแผงข้าง — กดซ่อนแผงซ้าย/ขวาเพื่อให้จอ 3D โล่งเต็มที่ -->
         <button id="toggle-left-col" class="col-toggle col-toggle-left" onclick="toggleSideCol('left')" title="ซ่อน/แสดงแผงเครื่องมือซ้าย">◂</button>
         <button id="toggle-right-col" class="col-toggle col-toggle-right" onclick="toggleSideCol('right')" title="ซ่อน/แสดงรายการชิ้นส่วน">▸</button>
