@@ -4420,7 +4420,74 @@ async function startWorld() {
         lobby.classList.add('lobby-hidden');
         setTimeout(() => { lobby.style.display = 'none'; }, 600);
     }
+
+    // เข้าเต็มจอ — ต้องขอในจังหวะที่ยังนับเป็นการกดของผู้ใช้อยู่ (เรียกจากตัวจัดการคลิกนี้)
+    // ถ้าถูกปฏิเสธ (นโยบายเบราว์เซอร์/iframe ไม่อนุญาต) ก็ยังเดินชมได้ตามปกติ แค่ไม่เต็มจอ
+    tourMode = true;
+    try { await requestTourFullscreen(); }
+    catch (err) {
+        console.warn('[TOUR] เข้าเต็มจอไม่สำเร็จ:', err);
+        mpAppendChat({ name: '🖥️ ระบบ', color: '#f59e0b', text: 'เบราว์เซอร์ไม่อนุญาตให้เข้าโหมดเต็มจอ — เดินชมได้ตามปกติ กด "จบการเยี่ยมชม" เพื่อไปทำแบบทดสอบ' });
+    }
+    setTourChrome();
+    if (!isFullscreen()) $('tour-exit')?.classList.add('on');   // ไม่ได้เต็มจอก็ยังต้องมีทางจบการเยี่ยมชม
 }
+// ============================================================
+// โหมดเยี่ยมชมเต็มจอ — กด "เริ่มสำรวจ" แล้วเข้าเต็มจอ จบแล้วออกทางปุ่มซ้ายบน
+// ซึ่งพาไปทำแบบทดสอบหลังเยี่ยมชม (post-test) ต่อทันที
+//
+// ⚠️ เบราว์เซอร์ทุกตัวห้ามหน้าเว็บบล็อก Esc / F11 ออกจากเต็มจอ (เป็นข้อกำหนดด้าน
+// ความปลอดภัย เว็บจะดักจับหน้าจอผู้ใช้ไว้ไม่ได้) และการขอเข้าเต็มจอใหม่ต้องมาจาก
+// การกดของผู้ใช้เท่านั้น สั่งเองไม่ได้ — เราจึงทำได้แค่ "รู้ว่าหลุดออกมาแล้ว"
+// แล้วถามต่อว่าจะกลับเข้าไปดูต่อ หรือไปทำแบบทดสอบเลย
+// ============================================================
+let tourMode = false;                    // อยู่ในรอบเยี่ยมชมที่เริ่มจากปุ่ม start หรือยัง
+const QUIZ_AFTER_TOUR = 'PublicKnowledge.html?phase=post';
+
+const isFullscreen = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+
+function requestTourFullscreen() {
+    const el = document.documentElement;
+    const fn = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (!fn) return Promise.reject(new Error('เบราว์เซอร์นี้ไม่รองรับโหมดเต็มจอ'));
+    return Promise.resolve(fn.call(el, { navigationUI: 'hide' }));
+}
+
+function setTourChrome() {
+    const on = tourMode && isFullscreen();
+    $('tour-exit')?.classList.toggle('on', on);
+    if (on) dismissTourPrompt();
+}
+
+// ผู้ใช้กดกลับเข้าเต็มจอเอง — นับเป็น user gesture จึงขอ fullscreen ได้
+window.resumeTourFullscreen = function () {
+    dismissTourPrompt();
+    requestTourFullscreen().catch(err => console.warn('[TOUR] กลับเข้าเต็มจอไม่สำเร็จ:', err));
+};
+window.dismissTourPrompt = function () { $('tour-left-fs')?.classList.remove('on'); };
+
+// จบการเยี่ยมชม -> ออกจากเต็มจอแล้วไปหน้าแบบทดสอบ
+// โลก 3D อยู่ใน iframe (same-origin) จึงต้องพาทั้งหน้าไป ไม่ใช่เปลี่ยนแค่ใน iframe
+window.exitTourToQuiz = async function () {
+    tourMode = false;
+    dismissTourPrompt();
+    try { if (isFullscreen()) await (document.exitFullscreen || document.webkitExitFullscreen).call(document); }
+    catch (err) { console.warn('[TOUR] ออกจากเต็มจอไม่สำเร็จ:', err); }
+    try {
+        const top = window.top || window;
+        top.location.href = new URL(QUIZ_AFTER_TOUR, top.location.href).href;
+    } catch (err) {
+        window.location.href = QUIZ_AFTER_TOUR;   // ถูกบล็อกด้วย cross-origin -> เปลี่ยนเฉพาะเฟรมนี้
+    }
+};
+
+['fullscreenchange', 'webkitfullscreenchange'].forEach(ev =>
+    document.addEventListener(ev, () => {
+        setTourChrome();
+        // หลุดออกจากเต็มจอเองระหว่างยังอยู่ในรอบเยี่ยมชม -> ถามว่าจะทำอะไรต่อ
+        if (tourMode && !isFullscreen()) $('tour-left-fs')?.classList.add('on');
+    }));
+
 $('lobby-start')?.addEventListener('click', startWorld);
 $('lobby-nickname')?.addEventListener('keydown', e => { if (e.key === 'Enter') startWorld(); });
 

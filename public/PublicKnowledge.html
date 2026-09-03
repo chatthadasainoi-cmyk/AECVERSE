@@ -56,6 +56,9 @@ input::placeholder{color:var(--text-2);}
 .topic-banner{display:flex;align-items:center;gap:10px;background:var(--blue-soft);border:1px solid rgba(59,130,246,0.3);border-radius:9px;padding:10px 14px;margin-bottom:16px;}
 .topic-banner .tb-label{font-size:10px;color:var(--text-2);font-weight:700;text-transform:uppercase;letter-spacing:.4px;}
 .topic-banner .tb-title{font-size:13px;font-weight:800;color:#8fb8ff;}
+.phase-badge{flex-shrink:0;font-size:10.5px;font-weight:800;padding:5px 11px;border-radius:20px;white-space:nowrap;}
+.phase-badge.pre{background:var(--yellow-soft);color:var(--yellow);border:1px solid rgba(245,158,11,.4);}
+.phase-badge.post{background:var(--green-soft);color:var(--green);border:1px solid rgba(34,197,94,.4);}
 
 .admin-panel{border:1px dashed rgba(245,158,11,0.4);background:var(--yellow-soft);border-radius:10px;padding:14px;margin-bottom:16px;}
 .admin-panel .ap-title{font-size:11.5px;font-weight:800;color:var(--yellow);display:flex;align-items:center;gap:6px;margin-bottom:10px;}
@@ -117,10 +120,12 @@ input::placeholder{color:var(--text-2);}
 
               <div class="topic-banner">
                 <span style="font-size:16px;">📘</span>
-                <div>
+                <div style="flex:1;min-width:0;">
                   <div class="tb-label">หัวข้อการอบรม</div>
                   <div class="tb-title" id="topicBanner">—</div>
                 </div>
+                <!-- รอบของแบบทดสอบ มาจาก ?phase= บน URL (ปุ่มจบการเยี่ยมชมในโลก 3D ส่ง phase=post มา) -->
+                <span id="phaseBadge" class="phase-badge hide"></span>
               </div>
 
               <div id="stepLocked" class="hide">
@@ -266,6 +271,21 @@ function renderAdminSidebarForKnowledgeCheck() {
 
   // paper = ชุดข้อสอบรอบนี้ที่ server ออกให้ (ไม่มีเฉลยติดมา)
   let paper = null, current = 0, answers = [];
+
+  // รอบของแบบทดสอบ อ่านจาก ?phase= — 'pre' ก่อนเข้าชม, 'post' หลังเข้าชม
+  // (ปุ่ม "จบการเยี่ยมชม" ในโลก 3D พามาที่ ?phase=post) ไม่ระบุ = ใช้ข้อสอบทั้งคลัง
+  const quizPhase = (() => {
+    const p = new URLSearchParams(location.search).get('phase');
+    return (p === 'pre' || p === 'post') ? p : '';
+  })();
+  const PHASE_LABEL = { pre: '📝 แบบทดสอบก่อนเข้าชม', post: '🎓 แบบทดสอบหลังเข้าชม' };
+  (function showPhaseBadge() {
+    const el = document.getElementById('phaseBadge');
+    if (!el || !quizPhase) return;
+    el.textContent = PHASE_LABEL[quizPhase];
+    el.classList.add(quizPhase);
+    el.classList.remove('hide');
+  })();
   let timerId = null, deadline = 0;
   let lastResult = null;
 
@@ -386,7 +406,11 @@ function renderAdminSidebarForKnowledgeCheck() {
     err.textContent = '';
     if (!session) { err.textContent = 'ต้องเข้าสู่ระบบก่อนทำแบบทดสอบ'; return; }
     try {
-      const res = await fetch('/api/knowledge-quiz/start', { method: 'POST', headers: authHeaders() });
+      const res = await fetch('/api/knowledge-quiz/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ phase: quizPhase })
+      });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         err.textContent = body.error || 'เริ่มทำแบบทดสอบไม่สำเร็จ';
@@ -395,6 +419,8 @@ function renderAdminSidebarForKnowledgeCheck() {
         return;
       }
       paper = body;
+      // คลังยังไม่ได้ติ๊กข้อไหนไว้สำหรับรอบนี้ — server ใช้ทั้งคลังแทน บอกให้ผู้ทำรู้ด้วย
+      if (body.phaseNote) err.textContent = 'ℹ️ ' + body.phaseNote;
       current = 0;
       answers = new Array(paper.questions.length).fill(null);
       $('stepIntro').classList.add('hide');

@@ -394,11 +394,15 @@ function sanitizeQuestions(list) {
         const options = Array.isArray(item.options) ? item.options.map(o => String(o || '').trim()).filter(Boolean) : [];
         if (options.length < 2) continue;
         const correct = Number.isInteger(item.correct) && item.correct >= 0 && item.correct < options.length ? item.correct : 0;
+        // phase = ข้อนี้ใช้กับรอบไหน: ก่อนเข้าชม / หลังเข้าชม / ทั้งสองรอบ
+        // ค่าเดิมในคลังที่ยังไม่มีฟิลด์นี้ถือเป็น 'both' เพื่อไม่ให้ข้อสอบเดิมหายไปจากทุกรอบ
+        const phase = ['pre', 'post', 'both'].includes(item.phase) ? item.phase : 'both';
         clean.push({
             q: item.q.trim().slice(0, 500),
             options: options.slice(0, 6).map(o => o.slice(0, 200)),
             correct,
-            topic: String(item.topic || '').trim().slice(0, 100) || 'ทั่วไป'
+            topic: String(item.topic || '').trim().slice(0, 100) || 'ทั่วไป',
+            phase
         });
     }
     return clean.length ? clean : null;
@@ -490,8 +494,19 @@ app.post('/api/knowledge-quiz/start', async (req, res) => {
         return res.status(403).json({ error: `ทำแบบทดสอบครบจำนวนครั้งที่กำหนดแล้ว (${max} ครั้ง)`, attemptsUsed: used, maxAttempts: max });
     }
 
+    // รอบของแบบทดสอบ — 'pre' ก่อนเข้าชม, 'post' หลังเข้าชม, ไม่ระบุ = ใช้ทุกข้อ
+    const phase = ['pre', 'post'].includes(req.body && req.body.phase) ? req.body.phase : '';
+    let bank = knowledgeQuestions;
+    let phaseNote = '';
+    if (phase) {
+        const picked = knowledgeQuestions.filter(q => q.phase === phase || q.phase === 'both');
+        // คลังยังไม่ได้ติ๊กข้อไหนไว้สำหรับรอบนี้เลย -> ใช้ทั้งคลังแทนการปล่อยให้ข้อสอบว่าง
+        if (picked.length) bank = picked;
+        else phaseNote = 'ยังไม่มีข้อสอบที่กำหนดไว้สำหรับรอบนี้ ระบบจึงใช้ข้อสอบทั้งคลังแทน';
+    }
+
     // เลือกข้อ + สลับตัวเลือกตามการตั้งค่า
-    let pool = knowledgeSettings.randomQuestions ? shuffled(knowledgeQuestions) : knowledgeQuestions.slice();
+    let pool = knowledgeSettings.randomQuestions ? shuffled(bank) : bank.slice();
     const want = knowledgeSettings.questionCount;
     if (want > 0 && want < pool.length) pool = pool.slice(0, want);
 
@@ -517,7 +532,9 @@ app.post('/api/knowledge-quiz/start', async (req, res) => {
         passingScore: knowledgeSettings.passingScore,
         passRule: knowledgeSettings.passRule,
         attemptsUsed: used,
-        maxAttempts: max
+        maxAttempts: max,
+        phase,          // ให้หน้าแบบทดสอบรู้ว่ากำลังทำรอบไหน จะได้ขึ้นป้ายบอกผู้ทำ
+        phaseNote
     });
 });
 

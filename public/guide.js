@@ -1,5 +1,7 @@
 /* ============================================================
-   AEC VERSE — คู่มือการใช้งานในแอป (กด "❓ วิธีใช้" ที่แถบล่างของโลก 3D)
+   AEC VERSE — คู่มือการใช้งานในแอป
+   เปิดได้จากปุ่ม "❓ วิธีใช้" ที่แถบล่าง หรือปุ่มกลม "?" เล็กๆ มุมซ้ายล่างของฉาก 3D
+   (ปุ่มกลมเคยอยู่มุมขวาบนแต่ไปทับกับไอคอนสลับมุมกล้อง จึงย้ายลงมุมซ้ายล่างและทำให้จางลง)
    อธิบายทีละแผงว่าปุ่มไหนทำอะไร พร้อม "ตัวอย่างปุ่มจริง" วางไว้ข้างคำอธิบาย
    (วาดด้วย CSS ชุดเดียวกับปุ่มจริง จึงหน้าตาตรงกันเสมอแม้ในอนาคตจะแก้สไตล์)
 
@@ -121,6 +123,22 @@ window.AecGuide = (function () {
       ]
     },
     {
+      id: 'tour', icon: '🖥️', title: 'รอบเยี่ยมชมเต็มจอ',
+      intro: 'กด "เริ่มสำรวจ" ที่หน้าล็อบบี้แล้วระบบจะเข้าโหมดเต็มจอให้ เพื่อให้เห็นโรงงานเต็มตาโดยไม่มีอย่างอื่นมารบกวน',
+      highlight: 'ดูครบแล้วกดปุ่มแดงมุมซ้ายบน ระบบจะพาไปทำแบบทดสอบหลังเข้าชม (Post-test) ต่อทันที',
+      video: null,
+      items: [
+        { btn: '▶ เริ่มสำรวจ', style: 'primary',
+          desc: 'ใส่ชื่อเล่นแล้วกดเริ่ม ระบบจะเข้าโหมดเต็มจอให้เอง ถ้าเบราว์เซอร์ไม่อนุญาต (บางเครื่องหรือบางการตั้งค่า) ก็ยังเดินชมได้ตามปกติ แค่ไม่เต็มจอ และยังมีปุ่มจบการเยี่ยมชมให้กดเหมือนเดิม' },
+        { btn: 'จบการเยี่ยมชม', style: 'danger',
+          desc: 'ปุ่มแดงมุมซ้ายบน — ออกจากเต็มจอแล้วพาไปหน้าแบบทดสอบหลังเข้าชมทันที ใช้ปุ่มนี้เมื่อดูครบแล้ว' },
+        { btn: 'ถ้ากด Esc หรือ F11 ออกเอง', style: 'ghost',
+          desc: 'เบราว์เซอร์ทุกตัวห้ามหน้าเว็บบล็อกสองปุ่มนี้ (เป็นข้อกำหนดด้านความปลอดภัย เว็บจะกักหน้าจอผู้ใช้ไว้ไม่ได้) พอหลุดออกมา ระบบจะขึ้นแถบถามให้เลือกว่าจะ "กลับไปดูต่อ" หรือ "ไปทำแบบทดสอบ" เลย' },
+        { btn: '? (มุมซ้ายล่างของฉาก)', style: 'ghost',
+          desc: 'ปุ่มกลมเล็กจางๆ มุมซ้ายล่าง — เปิดคู่มือนี้ ตั้งใจให้ไม่เด่นเพราะเป็นตัวช่วย ไม่ใช่ของที่ต้องใช้ตลอดเวลา เอาเมาส์ชี้จะมีชื่อขึ้น' }
+      ]
+    },
+    {
       id: 'chat', icon: '💬', title: 'หน้าต่างแชท',
       intro: 'คุยกันด้วยข้อความในโลก 3D — กด / (หรือ ฝ) เพื่อพิมพ์ กดปุ่ม 💬 ที่แถบล่างเพื่อเปิด/ปิดหน้าต่าง',
       highlight: 'ไม่ต้องกลัวพลาดข้อความ — เวลามีคนพิมพ์เข้ามาตอนหน้าต่างแชทปิดอยู่ ระบบจะเปิดหน้าต่างขึ้นมาให้เอง',
@@ -232,13 +250,21 @@ window.AecGuide = (function () {
          จำเป็นเพราะแถบปุ่มด้านล่าง (#keybind-hud) ถูกซ่อนทั้งแถบบนจอเล็กแนวนอน
          ถ้าไม่มีปุ่มนี้ ผู้ใช้มือถือที่ติ๊ก "ไม่ต้องแสดงอีก" จะเปิดคู่มือกลับมาไม่ได้เลย
          วางไว้ใน #canvas-container จึงไม่ทับแผงข้างซ้าย/ขวาไม่ว่าจอกว้างแค่ไหน */
-      .agd-fab{position:absolute;top:10px;right:10px;z-index:40;
-        width:34px;height:34px;border-radius:50%;cursor:pointer;
+      .agd-fab{position:absolute;bottom:12px;left:12px;z-index:34;
+        width:26px;height:26px;border-radius:50%;cursor:pointer;
         display:flex;align-items:center;justify-content:center;
-        background:rgba(14,19,28,.85);border:1px solid #1c2531;color:#9aa7b8;
-        font-size:15px;font-weight:800;font-family:inherit;
+        background:rgba(14,19,28,.7);border:1px solid #1c2531;color:#657182;
+        font-size:12px;font-weight:800;font-family:inherit;opacity:.6;
+        transition:opacity .15s,color .15s,border-color .15s;
         backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);}
-      .agd-fab:hover{color:#eef2f7;border-color:#33475e;background:rgba(28,37,49,.92);}
+      .agd-fab:hover,.agd-fab:focus-visible{opacity:1;color:#eef2f7;border-color:#33475e;background:rgba(28,37,49,.92);}
+      /* คำอธิบายตอนชี้ — กางขึ้นทางขวา ไม่ให้ล้นขอบซ้าย/ล่างของฉาก */
+      .agd-fab::after{content:'คู่มือการใช้งาน';position:absolute;bottom:calc(100% + 7px);left:0;
+        white-space:nowrap;background:#111826;border:1px solid #1c2531;border-radius:7px;
+        padding:5px 9px;font-size:10.5px;font-weight:600;color:#9aa7b8;
+        opacity:0;visibility:hidden;transition:opacity .14s,visibility .14s;pointer-events:none;}
+      .agd-fab:hover::after,.agd-fab:focus-visible::after{opacity:1;visibility:visible;}
+      @media (hover:none){ .agd-fab::after{display:none;} .agd-fab{opacity:.85;} }
       @media (max-width:760px){
         .agd-body{flex-direction:column;}
         .agd-nav{width:auto;display:flex;gap:6px;overflow-x:auto;border-right:none;border-bottom:1px solid #1c2531;}
