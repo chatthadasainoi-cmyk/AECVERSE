@@ -1335,12 +1335,15 @@ function applyHighlight(uuid) {
     });
 }
 
-function selectPart(mesh, method) {
+// opts.force = true -> "วาดป้ายใหม่" ไม่ใช่ "สลับเปิด/ปิด"
+// จำเป็นเมื่อข้อมูลของชิ้นที่เลือกอยู่เปลี่ยนไป (เช่นเพิ่งกำหนด type ให้มัน) เพราะกติกา
+// toggle ด้านล่างจะไปปิดป้ายทิ้งแทนที่จะรีเฟรช ทำให้ดูเหมือน "กด type แล้วไม่เปลี่ยน"
+function selectPart(mesh, method, opts) {
     if (!mesh || !factoryModel) return;
     if (isEditingActive()) return; // ห้ามสลับชิ้นส่วนระหว่างแก้ไขข้อมูลค้างอยู่
 
     // REQ 6: "ชี้ซ้ำ" ที่จุดเดิม -> ปิดป้าย (toggle)
-    if (selection.uuid === mesh.uuid) { deselectPart(); return; }
+    if (!(opts && opts.force) && selection.uuid === mesh.uuid) { deselectPart(); return; }
 
     selection.uuid = mesh.uuid;
     // ป้ายที่เปิดจากการ "เดินชน" เท่านั้นที่ควรปิดอัตโนมัติเมื่อเดินออกห่าง (checkAutoDeselect) —
@@ -1358,6 +1361,17 @@ function selectPart(mesh, method) {
     const walkBtn = $('btn-walk-to');
     if (walkBtn) walkBtn.style.display = avatarModel ? 'inline-flex' : 'none'; // มีเฉพาะโหมด Metaverse ที่มี avatar
 }
+
+// เปิดบทเรียน "ลองใช้งาน" ของ type ที่ชิ้นส่วนนี้เป็นอยู่
+// ผูกกับ type ไม่ใช่กับชิ้นส่วน — กำหนด type ให้ชิ้นไหนก็ได้บทเรียนของ type นั้นทันที
+function openTypeInteraction() {
+    if (!window.AecTypeInteractions) return;
+    const mesh = selection.uuid && factoryModel ? factoryModel.getObjectByProperty('uuid', selection.uuid) : null;
+    const typeKey = mesh ? (resolveTypeKey(mesh, mesh.name) || 'default') : 'default';
+    const data = workflowDatabase[selection.key] || workflowDatabase.default;
+    AecTypeInteractions.open(typeKey, data.name || (mesh && mesh.name) || '');
+}
+window.openTypeInteraction = openTypeInteraction;
 
 function deselectPart() {
     selection.uuid = null;
@@ -1617,9 +1631,14 @@ function closeTypeSelector() {
     typeSelectorTargetMesh = null;
 }
 function assignMeshType(typeKey) {
-    if (!typeSelectorTargetMesh) return;
-    const uuid = typeSelectorTargetMesh.uuid;
-    const nameKey = typeSelectorTargetMesh._original3DName || typeSelectorTargetMesh.name || uuid;
+    // ⚠️ closeTypeSelector() ล้าง typeSelectorTargetMesh เป็น null — เดิมโค้ดครึ่งหลังของ
+    // ฟังก์ชันนี้ยังอ้างตัวแปรนั้นต่อ จึงโยน TypeError กลางคัน ผลคือ selectPart ได้ null
+    // (ป้ายไม่รีเฟรช) และ emit ไป server ไม่เคยถูกเรียก — ต้องไปกด "แก้ไขข้อมูล" แล้วบันทึก
+    // ซ้ำอีกทีของถึงจะเปลี่ยนจริง จับ mesh ไว้เป็นตัวแปรท้องถิ่นตั้งแต่ต้นแล้วใช้ตัวนี้ตลอด
+    const target = typeSelectorTargetMesh;
+    if (!target) return;
+    const uuid = target.uuid;
+    const nameKey = target._original3DName || target.name || uuid;
 
     userDefinedTypes[uuid] = typeKey;
     userDefinedTypes[nameKey] = typeKey;
@@ -1629,15 +1648,7 @@ function assignMeshType(typeKey) {
     workflowDatabase[uuid] = record;
     workflowDatabase[nameKey] = record;
 
-    buildProximityTags();
-    buildPPEZones();
-    closeTypeSelector();
-    selectPart(typeSelectorTargetMesh, '🏷️ กำหนดประเภทด้วยตนเอง');
-
-    const listItem = $(`mesh-item-${uuid}`);
-    const opt = TYPE_OPTIONS.find(o => o.key === typeKey);
-    if (listItem) listItem.innerText = `${opt?.icon || '🏭'} ${typeSelectorTargetMesh.name || typeKey}`;
-
+    // ส่งให้ server ก่อนงานหน้าจอเสมอ — ถ้า UI ส่วนใดพังจะได้ไม่พาการซิงก์ตกไปด้วย
     if (mpSocket && mpSocket.connected) {
         mpSocket.emit('workflow_update', {
             key: nameKey, name: record.name, desc: record.desc, steps: record.steps,
@@ -1645,7 +1656,16 @@ function assignMeshType(typeKey) {
             targetUuid: uuid, assignedTypeKey: typeKey
         });
     }
-    mpAppendChat({ name: '🏷️ ระบบ', color: '#00ffff', text: `กำหนด "${typeSelectorTargetMesh.name || uuid.slice(0, 8)}" เป็น "${opt?.label || typeKey}"` });
+
+    buildProximityTags();
+    buildPPEZones();
+    closeTypeSelector();
+    selectPart(target, '🏷️ กำหนดประเภทด้วยตนเอง', { force: true });
+
+    const opt = TYPE_OPTIONS.find(o => o.key === typeKey);
+    const listItem = $(`mesh-item-${uuid}`);
+    if (listItem) listItem.innerText = `${opt?.icon || '🏭'} ${target.name || typeKey}`;
+    mpAppendChat({ name: '🏷️ ระบบ', color: '#00ffff', text: `กำหนด "${target.name || uuid.slice(0, 8)}" เป็น "${opt?.label || typeKey}"` });
 }
 function clearMeshType() {
     if (!typeSelectorTargetMesh) return;
@@ -1660,9 +1680,12 @@ function clearMeshType() {
     const listItem = $(`mesh-item-${uuid}`);
     if (listItem) listItem.innerText = `${getIconForType(resolveTypeKey(typeSelectorTargetMesh))} ${typeSelectorTargetMesh.name || nameKey}`;
     if (mpSocket && mpSocket.connected) mpSocket.emit('type_clear', { key: nameKey });
+    const target = typeSelectorTargetMesh;
     closeTypeSelector();
     buildProximityTags();
     buildPPEZones();
+    // ล้าง type แล้วป้ายที่เปิดค้างอยู่ต้องกลับไปเป็นข้อมูลกลาง ไม่ใช่ค้างข้อมูลเดิม
+    if (target && selection.uuid === target.uuid) selectPart(target, '🏷️ ล้างประเภทแล้ว', { force: true });
 }
 $('type-selector-overlay')?.addEventListener('click', function (e) { if (e.target === this) closeTypeSelector(); });
 window.openTypeSelector = openTypeSelector;
