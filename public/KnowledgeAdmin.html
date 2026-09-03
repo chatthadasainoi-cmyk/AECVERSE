@@ -76,6 +76,15 @@ select{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xmlns=
 .qcard .q-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:8px;}
 .qcard .q-text{font-size:12.5px;font-weight:600;line-height:1.5;flex:1;}
 .qcard .q-topic{margin-bottom:8px;}
+/* ข้อนี้ใช้ในรอบไหน — ก่อนเข้าชม / หลังเข้าชม / ทั้งสองรอบ */
+.qcard .q-phase{display:flex;align-items:center;gap:6px;margin-bottom:9px;flex-wrap:wrap;}
+.qcard .q-phase .qp-l{font-size:10px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.4px;margin-right:2px;}
+.qcard .q-phase label{display:flex;align-items:center;gap:5px;cursor:pointer;
+  font-size:11px;font-weight:600;color:var(--text-1);
+  background:var(--panel);border:1px solid var(--border);border-radius:20px;padding:4px 10px;}
+.qcard .q-phase label:hover{border-color:#33475e;color:var(--text-0);}
+.qcard .q-phase input{accent-color:var(--blue);width:13px;height:13px;margin:0;}
+.qcard .q-phase label:has(input:checked){border-color:var(--blue);background:var(--blue-soft);color:#8fb8ff;}
 .qcard .q-opt{display:flex;align-items:center;gap:8px;margin-bottom:6px;}
 .qcard .q-opt input[type=radio]{accent-color:var(--blue);width:14px;height:14px;flex-shrink:0;}
 .qcard .q-opt input[type=text]{padding:6px 9px;font-size:12px;}
@@ -422,6 +431,11 @@ function renderBank() {
         <button class="btn-icon del" data-act="delq" title="ลบคำถามนี้">🗑️</button>
       </div>
       <div class="q-topic"><input type="text" class="q-topic-in" value="${esc(q.topic || '')}" placeholder="หัวข้อ เช่น PPE"></div>
+      <div class="q-phase">
+        <span class="qp-l">ใช้ในรอบ</span>
+        ${[['both', 'ทั้งสองรอบ'], ['pre', 'ก่อนเข้าชม (Pre-test)'], ['post', 'หลังเข้าชม (Post-test)']].map(([v, t]) =>
+          `<label><input type="radio" name="phase-${qi}" class="q-phase-in" value="${v}"${(q.phase || 'both') === v ? ' checked' : ''}>${t}</label>`).join('')}
+      </div>
       ${q.options.map((o, oi) => `
         <div class="q-opt">
           <input type="radio" name="correct-${qi}" data-oi="${oi}"${oi === q.correct ? ' checked' : ''} title="ตั้งเป็นคำตอบที่ถูก">
@@ -442,6 +456,8 @@ function syncBankFromDom() {
     bank[qi].options = [...card.querySelectorAll('.q-opt-in')].map(i => i.value);
     const picked = card.querySelector(`input[name="correct-${qi}"]:checked`);
     bank[qi].correct = picked ? Number(picked.dataset.oi) : 0;
+    const ph = card.querySelector(`input[name="phase-${qi}"]:checked`);
+    bank[qi].phase = ph ? ph.value : 'both';
   });
 }
 
@@ -469,7 +485,7 @@ $('qbank').addEventListener('click', e => {
 
 window.addQuestion = function () {
   syncBankFromDom();
-  bank.push({ q: '', options: ['', ''], correct: 0, topic: '' });
+  bank.push({ q: '', options: ['', ''], correct: 0, topic: '', phase: 'both' });
   renderBank();
   $('qbank').scrollTop = $('qbank').scrollHeight;
 };

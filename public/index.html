@@ -317,6 +317,21 @@
             </button>
         </div>
 
+        <!-- ออกจากโหมดเต็มจอ — โผล่เฉพาะตอนอยู่เต็มจอ กดแล้วไปทำแบบทดสอบหลังเยี่ยมชม -->
+        <button id="tour-exit" type="button" onclick="exitTourToQuiz()" aria-label="จบการเยี่ยมชมและไปทำแบบทดสอบ">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/></svg>
+            <span>จบการเยี่ยมชม</span>
+        </button>
+
+        <!-- ผู้ใช้กด Esc / F11 ออกจากเต็มจอเอง — เบราว์เซอร์ห้ามเว็บบล็อกปุ่มพวกนี้
+             จึงถามต่อว่าจะกลับเข้าไปดูต่อ หรือไปทำแบบทดสอบเลย -->
+        <div id="tour-left-fs" role="dialog" aria-live="polite">
+            <span class="tlf-text">ออกจากโหมดเต็มจอแล้ว — จบการเยี่ยมชมหรือยัง</span>
+            <button type="button" class="tlf-btn tlf-ghost" onclick="resumeTourFullscreen()">กลับไปดูต่อ</button>
+            <button type="button" class="tlf-btn tlf-go" onclick="exitTourToQuiz()">ไปทำแบบทดสอบ</button>
+            <button type="button" class="tlf-x" onclick="dismissTourPrompt()" aria-label="ปิด">✕</button>
+        </div>
+
         <!-- ปุ่มเก็บ/ดึงแผงข้าง — กดซ่อนแผงซ้าย/ขวาเพื่อให้จอ 3D โล่งเต็มที่ -->
         <button id="toggle-left-col" class="col-toggle col-toggle-left" onclick="toggleSideCol('left')" title="ซ่อน/แสดงแผงเครื่องมือซ้าย">◂</button>
         <button id="toggle-right-col" class="col-toggle col-toggle-right" onclick="toggleSideCol('right')" title="ซ่อน/แสดงรายการชิ้นส่วน">▸</button>
