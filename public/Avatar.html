@@ -143,9 +143,10 @@ a{color:inherit;text-decoration:none;} button{font-family:inherit;}
             </button>
             <div style="font-size:10.5px;color:var(--text-2);line-height:1.6;margin-bottom:12px;">
               เลือกทรงผม รูปหน้า สีผิว และเสื้อผ้าได้เอง ทำเสร็จแล้วร่างจะเข้ามาอยู่ในรายการนี้ทันที
-              และเดินได้เหมือนร่างอื่น · เก็บได้สูงสุด 5 ร่าง
+              และเดินได้เหมือนร่างอื่น เก็บไว้ได้ไม่จำกัดจำนวน
             </div>
-            <div id="personal-avatars"></div>
+            <div id="avatar-groups"></div>
+            <div id="personal-avatars" hidden></div>
             <div class="model-option" data-model="character" onclick="selectModel('character')">
               <div class="mo-icon">🧍</div>
               <div>
@@ -294,6 +295,63 @@ COLORS.forEach(c => {
 // ร่างที่นำเข้าเพิ่ม — เติมรายการจากทะเบียนบน server
 // (ปุ่มนำเข้าเห็นเฉพาะพนักงาน เพราะร่างที่เพิ่มเข้ามาทุกคนเลือกใช้ได้)
 // ============================================================
+
+// ---------- จัดร่างเป็นหัวข้อพับเก็บได้ ----------
+// รายการร่างยาวขึ้นเรื่อยๆ ตามที่สร้าง/นำเข้า ถ้าเรียงต่อกันหมดจะกลายเป็นกำแพงยาว
+// แบ่งเป็นหัวข้อใหญ่ที่กดย่อได้ กางเฉพาะที่อยากดู และหัวข้อบอกจำนวนไว้ให้เห็นโดยไม่ต้องกาง
+let avatarGroups = null;
+
+function buildAvatarGroups() {
+  if (avatarGroups || !window.AecCollapseGroup) return;
+  const host = document.getElementById('avatar-groups');
+  const card = host && host.parentElement;
+  if (!card) return;
+  const builtin = [...card.querySelectorAll(':scope > .model-option[data-model]')];
+  const importBox = document.getElementById('avatar-import-box');
+  avatarGroups = AecCollapseGroup.build(host, [
+    { key:'mine', icon:'✨', label:'ร่างของฉัน', open:true, nodes:[],
+      empty:'ยังไม่มีร่างของตัวเอง — กดปุ่มด้านบนเพื่อสร้าง หรืออัปโหลดไฟล์ .glb' },
+    { key:'builtin', icon:'🧍', label:'ร่างสำเร็จรูป', open:false, nodes:builtin },
+    { key:'shared', icon:'📚', label:'ร่างที่นำเข้าไว้ให้ทุกคนใช้', open:false, nodes:[],
+      empty:'ยังไม่มีร่างกลาง' },
+    { key:'upload', icon:'⬆️', label:'นำเข้าไฟล์ .glb เอง', open:false, nodes:[importBox] }
+  ], { storeKey: 'aec_avatar_groups' });
+  // ย้ายที่วางร่างส่วนตัว/ร่างกลางเข้าไปในกลุ่มของมัน แล้วเปิดให้แสดงผลตามปกติ
+  const mine = avatarGroups.find(g => g.key === 'mine');
+  const shared = avatarGroups.find(g => g.key === 'shared');
+  const pBox = document.getElementById('personal-avatars');
+  const iBox = document.getElementById('imported-avatars');
+  if (mine && pBox) { pBox.hidden = false; mine.body.insertBefore(pBox, mine.body.firstChild); }
+  if (shared && iBox) shared.body.insertBefore(iBox, shared.body.firstChild);
+  // กล่องนำเข้าถูกซ่อนไว้จนกว่าจะรู้ว่าเป็นพนักงาน — ในกลุ่มนี้ให้แสดงเสมอ
+  // ตัวหัวข้อกลุ่มจะถูกซ่อน/แสดงตามสิทธิ์แทน
+  if (importBox) importBox.style.display = '';
+}
+
+// นับจำนวนในหัวข้อใหม่หลังรายการเปลี่ยน
+function refreshAvatarGroups() {
+  if (!avatarGroups) return;
+  const pBox = document.getElementById('personal-avatars');
+  const iBox = document.getElementById('imported-avatars');
+  const mine = avatarGroups.find(g => g.key === 'mine');
+  const shared = avatarGroups.find(g => g.key === 'shared');
+  // นับจากรายการจริงข้างใน ไม่ใช่จำนวนกล่องที่ครอบอยู่
+  if (mine) mine.el.querySelector('.cg-n').textContent = String(pBox ? pBox.children.length : 0);
+  if (shared) shared.el.querySelector('.cg-n').textContent = String(iBox ? iBox.children.length : 0);
+  [mine, shared].forEach(g => {
+    if (!g) return;
+    const box = g.key === 'mine' ? pBox : iBox;
+    let ph = g.body.querySelector(':scope > .cg-empty');
+    const n = box ? box.children.length : 0;
+    if (!n) {
+      if (!ph) { ph = document.createElement('div'); ph.className = 'cg-empty'; g.body.appendChild(ph); }
+      ph.textContent = g.key === 'mine'
+        ? 'ยังไม่มีร่างของตัวเอง — กดปุ่มด้านบนเพื่อสร้าง หรืออัปโหลดไฟล์ .glb'
+        : 'ยังไม่มีร่างกลาง';
+    } else if (ph) ph.remove();
+  });
+}
+
 let personalAvatars = [];
 
 function renderPersonalAvatars() {
@@ -433,8 +491,10 @@ async function loadAvatarCatalog() {
   importedAvatars = cat.imported || [];
   personalAvatars = cat.personal || [];
   [...importedAvatars, ...personalAvatars].forEach(a => knownAvatarIds.add(a.id));
+  buildAvatarGroups();
   renderImportedAvatars();
   renderPersonalAvatars();
+  refreshAvatarGroups();
 }
 
 // ฟอร์มนำเข้า
@@ -643,6 +703,7 @@ const pvClock = new THREE.Clock();
 
 loadSavedConfig();
 </script>
+<script src="collapse-group.js"></script>
 <script src="app-config.js"></script>
 <script src="avatar-import.js"></script>
 <script src="notifications.js"></script>

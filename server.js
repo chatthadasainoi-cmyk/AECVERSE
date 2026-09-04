@@ -865,7 +865,6 @@ app.get('/api/avatars/resolve', (req, res) => {
 
 // นำเข้าร่าง — ร่างส่วนตัวใครก็สร้างได้ (เป็นตัวละครของตัวเอง)
 // ร่างกลางที่ทุกคนเลือกใช้ได้ ต้องเป็นพนักงานเท่านั้น
-const MAX_PERSONAL_AVATARS = 5;   // กันคนเดียวปั้นรัวจนทะเบียนบวม
 app.post('/api/avatars', async (req, res) => {
     const user = await userFromRequest(req);
     if (!user) return res.status(401).json({ error: 'ต้องเข้าสู่ระบบก่อน' });
@@ -882,9 +881,6 @@ app.post('/api/avatars', async (req, res) => {
     });
     if (!clean) {
         return res.status(400).json({ error: 'ข้อมูลร่างไม่ถูกต้อง — ไฟล์ต้องอัปโหลดขึ้นที่เก็บของระบบก่อน' });
-    }
-    if (personal && avatarCatalog.filter(a => a.ownerId === user.id).length >= MAX_PERSONAL_AVATARS) {
-        return res.status(429).json({ error: `เก็บร่างของตัวเองได้สูงสุด ${MAX_PERSONAL_AVATARS} ร่าง — ลบร่างเก่าออกก่อน` });
     }
     if (BUILTIN_AVATARS.some(b => b.id === clean.id) || avatarCatalog.some(a => a.id === clean.id)) {
         return res.status(409).json({ error: 'มีร่างชื่อนี้อยู่แล้ว' });
