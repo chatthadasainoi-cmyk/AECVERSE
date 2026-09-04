@@ -16,6 +16,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<!-- ต้องมาก่อนสคริปต์ในหน้า เพราะหน้านี้เรียกใช้ทะเบียนร่างตั้งแต่ตอนเปิด -->
+<script src="avatar-import.js"></script>
 <style>
 #avatar-preview{width:100%;height:520px;border-radius:10px;background:var(--bg-0);border:1px solid var(--border-soft);overflow:hidden;position:relative;}
 #avatar-preview canvas{display:block;}
@@ -56,6 +58,8 @@
 
           <div class="card">
             <div class="section-label">เลือกร่างตัวละคร</div>
+            <!-- ร่างที่ผู้ใช้คนนี้สร้างเอง — คนอื่นไม่เห็นในรายการนี้ แต่เห็นตอนอยู่ในโลก 3D -->
+            <div id="my-avatars"></div>
             <div class="model-option" data-model="character" onclick="selectModel('character')">
               <div class="mo-icon">🧍</div>
               <div><div class="mo-name">Character 1</div><div class="mo-desc">ตัวละคร 3D สมจริงพร้อมแอนิเมชันเดิน</div></div>
@@ -131,12 +135,49 @@ COLORS.forEach(c => {
   swatchBox.appendChild(s);
 });
 
+// ร่างที่นำเข้า/สร้างเอง — เดิมหน้านี้รู้จักแต่ร่างที่ฝังไว้ในโค้ด
+// ร่างที่ผู้ใช้สร้างเองจึงถูกปัดทิ้งทุกครั้งที่เปิดหน้า และพรีวิวขึ้นเป็นร่างบล็อก
+let importedAvatars = [], personalAvatars = [];
+const knownAvatarIds = new Set(['engineer', 'character', 'ch22', 'ch07', 'remy']);
+const avatarUrlById = id => {
+  const a = [...importedAvatars, ...personalAvatars].find(x => x.id === id);
+  return a ? a.url : null;
+};
+
+function renderCatalogAvatars() {
+  const box = document.getElementById('my-avatars');
+  if (!box) return;
+  const esc = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  box.innerHTML = [...personalAvatars, ...importedAvatars].map(a => `
+    <div class="model-option" data-model="${esc(a.id)}" onclick="selectModel('${esc(a.id)}')">
+      <div class="mo-icon">${a.ownerId ? '✨' : (a.rigged ? '🧍' : '🗿')}</div>
+      <div><div class="mo-name">${esc(a.name)}</div><div class="mo-desc">${a.ownerId ? 'ร่างของคุณเอง' : 'ร่างที่นำเข้าไว้ให้ทุกคนใช้'}${a.rigged ? '' : ' · ไม่มีโครงกระดูก Mixamo จึงยืนนิ่ง'}</div></div>
+    </div>`).join('');
+  refreshOptionUI();
+}
+
+async function loadAvatarCatalog() {
+  if (!window.AecAvatarImport) return;
+  const cat = await AecAvatarImport.list();
+  importedAvatars = cat.imported || [];
+  personalAvatars = cat.personal || [];
+  [...importedAvatars, ...personalAvatars].forEach(a => knownAvatarIds.add(a.id));
+  renderCatalogAvatars();
+}
+
+// ทะเบียนมาทางเน็ต แต่ค่าที่บันทึกไว้อ่านได้เร็วกว่า ถ้าไม่รอกันจะตัดสินตอนที่ยัง
+// รู้จักแต่ร่างพื้นฐาน แล้วเด้งกลับร่างเริ่มต้นทั้งที่ผู้ใช้เลือกร่างของตัวเองไว้
+const avatarCatalogReady = loadAvatarCatalog().catch(err => {
+  console.warn('[AVATAR] โหลดทะเบียนร่างไม่สำเร็จ', err);
+});
+
 async function loadSavedConfig(){
+  await avatarCatalogReady;
   try {
     const { data: { session } } = await supabaseClient.auth.getSession();
     const saved = session?.user?.user_metadata?.avatar;
     if (saved) {
-      if (['engineer', 'character', 'ch22', 'ch07', 'remy'].includes(saved.model)) selected.model = saved.model;
+      if (knownAvatarIds.has(saved.model)) selected.model = saved.model;
       if (['catwalk', 'walking'].includes(saved.anim)) selected.anim = saved.anim;
       if (typeof saved.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(saved.color)) selected.color = saved.color;
     }
@@ -214,6 +255,8 @@ function buildEngineerPreview(color){
 
 let pvAvatar = null, pvMixer = null, pvWalkAction = null, pvIdleAction = null, pvWalking = false;
 const PV_MODEL_FILES = { character: 'avatars/character.glb', ch22: 'avatars/ch22.glb', ch07: 'avatars/ch07.glb', remy: 'avatars/remy.glb' };
+// ร่างที่นำเข้าไม่ได้อยู่ในรายการข้างบน ต้องถามทะเบียนต่อ ไม่งั้นพรีวิวตกไปเป็นร่างบล็อก
+const pvUrlFor = id => PV_MODEL_FILES[id] || (typeof avatarUrlById === 'function' ? avatarUrlById(id) : null);
 const PV_ANIM_FILES = { catwalk: 'avatars/walk_anim.glb', walking: 'avatars/walking_anim.glb' };
 const pvCache = {};
 function pvLoad(url){
@@ -237,9 +280,10 @@ let pvBuildSeq = 0; // กันการกดสลับเร็วๆ แ�
 async function rebuildPreviewAvatar(){
   const seq = ++pvBuildSeq;
   const container = new THREE.Group();
-  if (PV_MODEL_FILES[selected.model]) {
+  const pvUrl = pvUrlFor(selected.model);
+  if (pvUrl) {
     try {
-      const [charGltf, animGltf] = await Promise.all([pvLoad(PV_MODEL_FILES[selected.model]), pvLoad(PV_ANIM_FILES[selected.anim] || PV_ANIM_FILES.catwalk)]);
+      const [charGltf, animGltf] = await Promise.all([pvLoad(pvUrl), pvLoad(PV_ANIM_FILES[selected.anim] || PV_ANIM_FILES.catwalk)]);
       if (seq !== pvBuildSeq) return; // มีการเลือกใหม่ระหว่างโหลด — ทิ้งผลนี้
       const visual = charGltf.scene;
       visual.rotation.y = 0;
