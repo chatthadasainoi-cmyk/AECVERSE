@@ -25,13 +25,15 @@ async function initUserChip(){
 // เรียกจากหน้าฝั่งแอดมินเท่านั้น (Dashboard/Analytics/WorkOrder/Emergency/Reports/
 // Settings/Digitaltwin/Avatar เวอร์ชันแอดมิน) — user ทั่วไปที่หลุดเข้ามาทาง URL ตรงๆ
 // (ไม่ได้ผ่าน RoleRedirect ตอน login) จะถูกเด้งกลับไปพอร์ทัลของตัวเองแทน
-async function guardAdminOnly(){
+// allowRoles: หน้าไหนที่ engineer เข้าได้ด้วย (เช่น ใบสั่งงาน) ส่ง ['admin','engineer'] มา
+async function guardAdminOnly(allowRoles){
+  const allowed = Array.isArray(allowRoles) && allowRoles.length ? allowRoles : ['admin'];
   const { data: { session } } = await supabaseClient.auth.getSession();
   if (!session) { window.location.href = 'Login.html'; return; }
   try {
     const res = await fetch('/api/me/role', { headers: { Authorization: 'Bearer ' + session.access_token } });
     const body = await res.json().catch(() => ({}));
-    if (!res.ok || !body.isAdmin) window.location.href = 'PublicHome.html';
+    if (!res.ok || !allowed.includes(body.role)) window.location.href = 'PublicHome.html';
   } catch (err) {
     // เช็คสิทธิ์ไม่ได้ (เช่น server สะดุดชั่วคราว) — ปล่อยผ่านไปก่อน ดีกว่าเด้ง admin จริงออกจากหน้าตัวเอง
   }
