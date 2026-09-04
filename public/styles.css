@@ -139,6 +139,17 @@ button{font-family:inherit;}
 }
 #tour-exit:hover span, #tour-exit:focus-visible span { max-width: 150px; opacity: 1; margin-left: 7px; }
 #tour-exit:focus-visible { outline: 2px solid var(--red); outline-offset: 2px; }
+/* กด Esc ตอนถูกล็อกไว้ -> สะกิดปุ่มให้เห็นว่าทางออกอยู่ตรงนี้ */
+#tour-exit.nudge { animation: tourExitNudge .7s ease-out; }
+@keyframes tourExitNudge {
+    0%, 100% { transform: translateX(0); }
+    20% { transform: translateX(-3px); background: rgba(239,68,68,.3); border-color: rgba(239,68,68,.7); color: #fff; }
+    45% { transform: translateX(3px); background: rgba(239,68,68,.3); border-color: rgba(239,68,68,.7); color: #fff; }
+    70% { transform: translateX(-2px); }
+}
+@media (prefers-reduced-motion: reduce) {
+    #tour-exit.nudge { animation: none; background: rgba(239,68,68,.3); border-color: rgba(239,68,68,.7); color: #fff; }
+}
 /* จอสัมผัสไม่มี hover — กางข้อความไว้เลยจะได้รู้ว่าปุ่มนี้ทำอะไร */
 @media (hover: none) { #tour-exit span { max-width: 150px; opacity: 1; margin-left: 7px; } }
 @media (prefers-reduced-motion: reduce) { #tour-exit, #tour-exit span { transition: none; } }
