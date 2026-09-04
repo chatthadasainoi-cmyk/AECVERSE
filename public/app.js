@@ -504,7 +504,16 @@ const WALK_ANIM_FILES = {
 const importedAvatarFiles = {};
 const avatarCatalogReady = (async () => {
     try {
-        const res = await fetch('/api/avatars');
+        // ส่ง token ไปด้วย ไม่งั้น server ไม่รู้ว่าเป็นใคร แล้วไม่คืนร่างส่วนตัวของเรามา
+        // (ร่างที่ตัวเองสร้างจะหายไปจากโลก 3D ทั้งที่บันทึกสำเร็จแล้ว)
+        let avToken = null;
+        try {
+            if (typeof supabaseClient !== 'undefined') {
+                const { data } = await supabaseClient.auth.getSession();
+                avToken = data?.session?.access_token || null;
+            }
+        } catch (e) { /* ไม่มี session ก็ยังดูร่างกลางได้ */ }
+        const res = await fetch('/api/avatars', avToken ? { headers: { Authorization: 'Bearer ' + avToken } } : undefined);
         if (!res.ok) return;
         const body = await res.json();
         // ต้องเก็บทั้งร่างกลางและร่างส่วนตัวของเรา — เดิมอ่านแต่ imported
