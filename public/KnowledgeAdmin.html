@@ -115,14 +115,6 @@ select{appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xmlns=
       <div class="topbar" id="portal-topbar"></div>
       <div class="page-content">
 
-        <!-- ไม่ใช่แอดมิน = ไม่ให้เห็นอะไรเลย (server ก็ปฏิเสธ API อยู่แล้ว นี่เป็นชั้นความสะดวก) -->
-        <div id="notAdmin" class="card gate hide">
-          <div class="g-ic">🔒</div>
-          <div class="g-t">หน้านี้สำหรับผู้ดูแลระบบเท่านั้น</div>
-          <div class="g-s">บัญชีของคุณไม่มีสิทธิ์ตั้งค่าแบบทดสอบ<br>
-            ถ้าต้องการ<b>ทำแบบทดสอบ</b> ไปที่หน้า Knowledge Check ได้เลย</div>
-          <button class="btn primary" style="margin-top:16px;" onclick="location.href='PublicKnowledge.html'">ไปหน้าทำแบบทดสอบ</button>
-        </div>
 
         <div id="adminBody" class="hide">
           <div class="sec-head"><span class="sec-num">•</span><span class="sec-tag">KNOWLEDGE CHECK — ADMIN</span></div>
@@ -560,13 +552,12 @@ window.previewCert = function () {
 };
 
 // ---------- เข้าหน้าได้เฉพาะแอดมิน ----------
+// ใช้ยามตัวเดียวกับหน้าแอดมินอื่นๆ — ปิดหน้าไว้ระหว่างตรวจ และเด้ง user ออกไปพอร์ทัลของตัวเอง
+// (เดิมหน้านี้แค่โชว์การ์ด "ไม่มีสิทธิ์" แต่ยังค้างอยู่หน้าแอดมิน user จึงรู้สึกว่าหลุดเข้ามาได้)
 (async function () {
+  if (!(await guardAdminOnly())) return;
   const { data: { session } } = await supabaseClient.auth.getSession();
-  if (!session) { location.href = 'Login.html'; return; }
   token = session.access_token;
-  const role = await fetch('/api/me/role', { headers: { Authorization: 'Bearer ' + token } })
-    .then(r => r.json()).catch(() => ({}));
-  if (!role.isAdmin) { $('notAdmin').classList.remove('hide'); return; }
   $('adminBody').classList.remove('hide');
   await loadAll();
   await loadBank();

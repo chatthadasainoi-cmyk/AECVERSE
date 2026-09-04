@@ -207,7 +207,7 @@ async function handleLogout(){
   window.location.href = 'Login.html';
 }
 initUserChip();
-  guardAdminOnly();
+  guardAdminOnly(['admin','engineer']);
 
 // ============================================================
 // สถานะที่ผู้ใช้เลือก (โหลดค่าเดิมจากบัญชีตอนเปิดหน้า)

@@ -1526,6 +1526,9 @@ function renderWorkflowUI(name, desc, stepsArray, method, colorClass) {
 }
 
 function enableLiveEdit() {
+    // กันไว้อีกชั้น: ปุ่มถูกซ่อนไปแล้วก็จริง แต่ยังเรียกฟังก์ชันนี้จาก console หรือจาก
+    // ปุ่มที่ค้างอยู่ก่อน server ตอบสิทธิ์ได้ — ไม่มีสิทธิ์ก็ไม่ให้เข้าโหมดแก้ไขตั้งแต่แรก
+    if (!canEditData()) { mpAppendChat({ name: 'ระบบ', color: '#ef4444', text: 'บัญชีของคุณไม่มีสิทธิ์แก้ไขข้อมูล' }); return; }
     if (!selection.uuid) return;
     const data = workflowDatabase[selection.key] || workflowDatabase.default;
     const methodText = $('detection-method') ? $('detection-method').innerText : '';
@@ -1693,6 +1696,9 @@ window.closeTypeSelector = closeTypeSelector;
 window.assignMeshType = assignMeshType;
 window.clearMeshType = clearMeshType;
 window.openTypeSelectorForActive = function () {
+    // กันไว้อีกชั้น: ปุ่มถูกซ่อนไปแล้วก็จริง แต่ยังเรียกฟังก์ชันนี้จาก console หรือจาก
+    // ปุ่มที่ค้างอยู่ก่อน server ตอบสิทธิ์ได้ — ไม่มีสิทธิ์ก็ไม่ให้เข้าโหมดแก้ไขตั้งแต่แรก
+    if (!canEditData()) { mpAppendChat({ name: 'ระบบ', color: '#ef4444', text: 'บัญชีของคุณไม่มีสิทธิ์แก้ไขข้อมูล' }); return; }
     if (!selection.uuid || !factoryModel) { mpAppendChat({ name: 'ระบบ', color: '#ef4444', text: 'กรุณาเลือกชิ้นส่วนก่อนกำหนด Type' }); return; }
     let target = null;
     factoryModel.traverse(c => { if (c.isMesh && c.uuid === selection.uuid) target = c; });
@@ -2150,6 +2156,9 @@ function openMarkerEditorAt(id, x, y, z, targetText, defaultName, defaultRadius,
 }
 
 window.openMarkerEditorForActive = function () {
+    // กันไว้อีกชั้น: ปุ่มถูกซ่อนไปแล้วก็จริง แต่ยังเรียกฟังก์ชันนี้จาก console หรือจาก
+    // ปุ่มที่ค้างอยู่ก่อน server ตอบสิทธิ์ได้ — ไม่มีสิทธิ์ก็ไม่ให้เข้าโหมดแก้ไขตั้งแต่แรก
+    if (!canEditData()) { mpAppendChat({ name: 'ระบบ', color: '#ef4444', text: 'บัญชีของคุณไม่มีสิทธิ์แก้ไขข้อมูล' }); return; }
     if (!selection.uuid || !factoryModel) {
         mpAppendChat({ name: 'ระบบ', color: '#ef4444', text: 'กรุณาเลือกชิ้นส่วนก่อนกำหนดจุด' });
         return;
@@ -2758,16 +2767,21 @@ let isAdmin = false;
 //   user     = ดูอย่างเดียว
 let myRole = 'user';
 // server ยังไม่บอกสิทธิ์มา (self_init) — ระหว่างนี้อย่าเพิ่งซ่อนอะไร ไม่งั้นแอดมินจะเห็นแผงกระพริบ
+// server ยังไม่บอกสิทธิ์มา (self_init) — ระหว่างนี้ถือว่า "ไม่มีสิทธิ์" ไว้ก่อน
+// ของเดิม refreshRoleUi() คืนค่าออกไปเฉยๆ ตอนยังไม่รู้สิทธิ์ แปลว่าปุ่มของแอดมิน
+// ถูกเปิดค้างไว้ตั้งแต่หน้าโหลดจนกว่า socket จะตอบ — เน็ตช้าหรือ socket ต่อไม่ติด
+// ผู้ใช้ธรรมดาก็กดปุ่มแก้ไขข้อมูลได้จริง (ตรงกับที่รายงานว่า "บางที" ทำได้)
 let roleResolved = false;
-const canEditData = () => myRole === 'admin' || myRole === 'engineer';
+const canEditData = () => roleResolved && (myRole === 'admin' || myRole === 'engineer');
+const canManageModel = () => roleResolved && isAdmin;
 
 // ซ่อน/แสดงปุ่มตามสิทธิ์ — เป็นแค่ชั้นความสะดวก ตัวกันจริงอยู่ที่ server (denyAction)
 //   admin    : เห็นครบทุกอย่าง
 //   engineer : หน้าตาเหมือน admin ทุกประการ ยกเว้นอัปโหลด / เซฟ / โหลด / ปรับสเกล / ลบโมเดล
 //   user     : ตัดแผง "โมเดล" ทิ้งทั้งแท็บ จะได้ไม่เห็นปุ่มที่กดไม่ได้แล้วงง
 function refreshRoleUi() {
-    if (!roleResolved) return;
     const editors = canEditData();
+    const manager = canManageModel();
     const show = (id, allow) => { const el = $(id); if (el) el.style.display = allow ? '' : 'none'; };
 
     // ปุ่มแก้ข้อมูล/ปักจุด บนป้ายข้อมูลชิ้นส่วน — admin + engineer
@@ -2777,8 +2791,8 @@ function refreshRoleUi() {
         .forEach(id => show(id, editors));
 
     // แผง "โมเดล" ทั้งแผง (อัปโหลด + คลังโมเดล + เซฟ/โหลด) — user ไม่ต้องเห็นเลย
-    // นอกจากนี้ปล่อยให้ระบบแท็บคุม display ของ #dashboard เองตามปกติ ไม่ไปแตะ
-    if (myRole === 'user') {
+    // ระหว่างที่ยังไม่รู้สิทธิ์ก็ซ่อนไว้ก่อนเช่นกัน แล้วค่อยเปิดคืนถ้าเป็น admin/engineer
+    if (!roleResolved || myRole === 'user') {
         show('tab-dashboard', false);
         const dash = $('dashboard');
         // แท็บแรกคือ "โมเดล" — ถ้ากำลังเปิดอยู่ต้องเด้งไปแท็บถัดไป ไม่งั้นคอลัมน์ซ้ายว่าง
@@ -2789,16 +2803,21 @@ function refreshRoleUi() {
     }
 
     // ยุ่งกับตัวโมเดลได้เฉพาะ admin — engineer เห็นแผงแต่ไม่เห็นส่วนพวกนี้
-    show('model-upload-section', isAdmin);   // อัปโหลดไฟล์ใหม่
-    show('scene-io-section', isAdmin);       // เซฟ / โหลดฉาก (.zip)
-    show('model-transform-section', isAdmin); // ล็อก + gizmo + ตำแหน่ง/หมุน/สเกล
-    document.querySelectorAll('.mlr-use-btn').forEach(b => { b.style.display = isAdmin ? '' : 'none'; });
+    show('model-upload-section', manager);    // อัปโหลดไฟล์ใหม่
+    show('scene-io-section', manager);        // เซฟ / โหลดฉาก (.zip)
+    show('model-transform-section', manager); // ล็อก + gizmo + ตำแหน่ง/หมุน/สเกล
+    document.querySelectorAll('.mlr-use-btn').forEach(b => { b.style.display = manager ? '' : 'none'; });
     // ปุ่มลบโมเดลมี interval คุมอยู่แล้ว (เช็ค isAdmin) — ที่นี่แค่ปิดให้ทันทีไม่ต้องรอรอบถัดไป
-    if (!isAdmin) show('btn-delete-model', false);
+    // ใช้ manager (= canManageModel()) ไม่ใช่ isAdmin เปล่าๆ — manager เป็น false ด้วยตอนที่
+    // สิทธิ์ยังมาไม่ถึง จึงปิดปุ่มไว้ก่อนเสมอ ไม่ใช่เปิดค้างระหว่างรอผลตรวจ
+    if (!manager) show('btn-delete-model', false);
     // รายการจุดโชว์ปุ่มแก้ไข/ลบตามสิทธิ์ ต้องวาดใหม่เมื่อรู้สิทธิ์แล้ว
     if (typeof renderMarkerList === 'function') renderMarkerList();
 }
 window.refreshRoleUi = refreshRoleUi;
+// ซ่อนทุกอย่างที่ต้องมีสิทธิ์ไว้ตั้งแต่วินาทีแรก แล้วค่อยเปิดคืนเมื่อ server ยืนยันสิทธิ์
+// (fail closed) — สำคัญกว่าการกันตาลาย เพราะช่วงก่อน self_init คือช่องที่ user กดปุ่มแอดมินได้
+refreshRoleUi();
 let modelLocked = true;
 const SLIDER_IDS = ['param-posX', 'param-posY', 'param-posZ', 'param-rotY', 'param-scale'];
 const NUMBER_IDS = ['num-posX', 'num-posY', 'num-posZ', 'num-rotY', 'num-scale'];
@@ -4357,7 +4376,7 @@ setInterval(() => {
     const btn = $('btn-delete-model');
     if (!btn) return;
     // ปุ่มลบโผล่เฉพาะ Admin ที่ปลดล็อกโมเดลแล้วเท่านั้น — ตอนล็อกอยู่ห้ามลบ
-    const shouldShow = !!factoryModel && isAdmin && !modelLocked;
+    const shouldShow = !!factoryModel && canManageModel() && !modelLocked;
     if ((btn.style.display !== 'none') !== shouldShow) btn.style.display = shouldShow ? 'block' : 'none';
 }, 500);
 

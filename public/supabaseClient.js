@@ -22,21 +22,75 @@ async function initUserChip(){
   if (avatarEl) avatarEl.textContent = email.slice(0, 2).toUpperCase();
 }
 
-// เรียกจากหน้าฝั่งแอดมินเท่านั้น (Dashboard/Analytics/WorkOrder/Emergency/Reports/
-// Settings/Digitaltwin/Avatar เวอร์ชันแอดมิน) — user ทั่วไปที่หลุดเข้ามาทาง URL ตรงๆ
-// (ไม่ได้ผ่าน RoleRedirect ตอน login) จะถูกเด้งกลับไปพอร์ทัลของตัวเองแทน
-// allowRoles: หน้าไหนที่ engineer เข้าได้ด้วย (เช่น ใบสั่งงาน) ส่ง ['admin','engineer'] มา
+// ============================================================
+// ยามเฝ้าหน้าฝั่งแอดมิน
+// เรียกจากหน้าแอดมินทุกหน้า (Dashboard/Analytics/WorkOrder/Emergency/Reports/
+// Settings/Digitaltwin/Avatar/KnowledgeAdmin) — user ทั่วไปที่หลุดเข้ามาทาง URL ตรงๆ
+// จะถูกเด้งกลับไปพอร์ทัลของตัวเอง
+//
+// สำคัญ 2 ข้อที่เคยพลาด:
+//  1) ต้อง "ปิดหน้าไว้ก่อน" ระหว่างรอผลตรวจสิทธิ์ ไม่ใช่ปล่อยให้หน้าแสดงเต็มแล้วค่อยเด้ง
+//     เพราะระหว่างนั้น user กดปุ่มแอดมินได้จริง (เน็ตช้าเท่าไหร่ก็เห็นนานเท่านั้น)
+//  2) ตรวจสิทธิ์ไม่สำเร็จต้อง "ไม่ให้ผ่าน" — ของเดิมปล่อยผ่านเวลา fetch พัง
+//     ซึ่งแปลว่าแค่ทำให้ API ล้มก็เข้าหน้าแอดมินได้
+// ============================================================
+function aecShowRoleGate(state, detail){
+  let el = document.getElementById('aec-role-gate');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'aec-role-gate';
+    el.style.cssText = 'position:fixed;inset:0;z-index:99999;display:flex;flex-direction:column;' +
+      'align-items:center;justify-content:center;gap:14px;text-align:center;padding:24px;' +
+      'background:#080b11;color:#eef2f7;font-family:"Inter",system-ui,sans-serif;';
+    (document.body || document.documentElement).appendChild(el);
+  }
+  if (state === 'checking') {
+    el.innerHTML = '<div style="font-size:13px;color:#657182;">กำลังตรวจสอบสิทธิ์การเข้าใช้งาน...</div>';
+  } else if (state === 'denied') {
+    el.innerHTML = '<div style="font-size:34px;">🔒</div>' +
+      '<div style="font-size:15px;font-weight:800;">หน้านี้สำหรับผู้ดูแลระบบเท่านั้น</div>' +
+      '<div style="font-size:12.5px;color:#657182;line-height:1.7;">' + (detail || '') + '<br>กำลังพากลับไปหน้าของคุณ...</div>';
+  } else if (state === 'error') {
+    el.innerHTML = '<div style="font-size:34px;">⚠️</div>' +
+      '<div style="font-size:15px;font-weight:800;">ตรวจสอบสิทธิ์ไม่สำเร็จ</div>' +
+      '<div style="font-size:12.5px;color:#657182;line-height:1.7;">' + (detail || 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้') +
+      '<br>เพื่อความปลอดภัย ระบบจะยังไม่เปิดหน้านี้ให้</div>' +
+      '<button onclick="location.reload()" style="margin-top:6px;padding:9px 18px;border-radius:9px;cursor:pointer;' +
+      'font-family:inherit;font-size:12.5px;font-weight:700;background:#111826;border:1px solid #1c2531;color:#eef2f7;">ลองใหม่</button>' +
+      '<button onclick="location.href=\'PublicHome.html\'" style="padding:9px 18px;border-radius:9px;cursor:pointer;' +
+      'font-family:inherit;font-size:12.5px;font-weight:700;background:transparent;border:1px solid #1c2531;color:#9aa7b8;">กลับหน้าหลัก</button>';
+  }
+  return el;
+}
+
+// allowRoles: ระดับสิทธิ์ที่เข้าหน้านี้ได้ (ค่าเริ่มต้น = admin เท่านั้น)
+// ส่ง ['admin','engineer'] สำหรับหน้าที่ engineer ควรเข้าได้ด้วย
 async function guardAdminOnly(allowRoles){
   const allowed = Array.isArray(allowRoles) && allowRoles.length ? allowRoles : ['admin'];
+  const gate = aecShowRoleGate('checking');
+
   const { data: { session } } = await supabaseClient.auth.getSession();
-  if (!session) { window.location.href = 'Login.html'; return; }
+  if (!session) { redirectToLoginPreservingPath(); return false; }
+
+  let body = null;
   try {
     const res = await fetch('/api/me/role', { headers: { Authorization: 'Bearer ' + session.access_token } });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok || !allowed.includes(body.role)) window.location.href = 'PublicHome.html';
-  } catch (err) {
-    // เช็คสิทธิ์ไม่ได้ (เช่น server สะดุดชั่วคราว) — ปล่อยผ่านไปก่อน ดีกว่าเด้ง admin จริงออกจากหน้าตัวเอง
+    if (res.ok) body = await res.json().catch(() => null);
+  } catch (err) { /* ตกลงไปที่ทางฝั่งล่าง */ }
+
+  if (!body || !body.role) {
+    // ไม่รู้สิทธิ์ = ไม่ให้ผ่าน (fail closed) มีปุ่มลองใหม่ให้แอดมินตัวจริงที่เน็ตสะดุด
+    aecShowRoleGate('error');
+    return false;
   }
+  if (!allowed.includes(body.role)) {
+    aecShowRoleGate('denied', 'บัญชีของคุณมีสิทธิ์ระดับ "' + body.role + '"');
+    setTimeout(() => { window.location.href = 'PublicHome.html'; }, 1200);
+    return false;
+  }
+  gate.remove();          // ผ่านแล้วค่อยเปิดหน้าให้เห็น
+  window.AEC_MY_ROLE = body.role;
+  return true;
 }
 
 // ============================================================
