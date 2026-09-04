@@ -441,7 +441,10 @@ async function deletePersonalAvatar(id) {
         // ผู้ใช้กดยืนยันร่างแล้ว — ดึงไฟล์มาเก็บที่ระบบเราและลงทะเบียนให้
         openBtn.disabled = true;
         try {
-          const name = 'ร่างของฉัน ' + new Date().toLocaleDateString('th-TH', { day: 'numeric', month: 'short' });
+          // เดิมใช้แค่วันที่ สร้างวันเดียวกันหลายร่างจึงชื่อซ้ำกันหมดจนแยกไม่ออก
+          const now = new Date();
+          const name = 'ร่างของฉัน ' + now.toLocaleDateString('th-TH', { day: 'numeric', month: 'short' }) +
+            ' ' + now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
           const r = await AecAvatarImport.importFromUrl(url, name, say);
           say('เพิ่มร่างเรียบร้อย' + (r.info.rigged ? ' — เดินได้ปกติ' : ' — ไม่มีโครงกระดูก จึงยืนนิ่ง'), r.info.rigged ? 'ok' : 'bad');
           await loadAvatarCatalog();
@@ -495,6 +498,9 @@ async function loadAvatarCatalog() {
   renderImportedAvatars();
   renderPersonalAvatars();
   refreshAvatarGroups();
+  // ตอนเปิดหน้า พรีวิววาดไปก่อนที่ทะเบียนจะมาถึง ถ้าร่างที่เลือกไว้เป็นร่างที่นำเข้า
+  // มันจะโชว์ร่างกล่องค้างอยู่ — วาดใหม่อีกรอบเมื่อรู้จักร่างครบแล้ว
+  if (selected.model && !PV_MODEL_FILES[selected.model] && selected.model !== 'engineer') rebuildPreviewAvatar();
 }
 
 // ฟอร์มนำเข้า
@@ -620,6 +626,9 @@ function buildEngineerPreview(color){
 
 let pvAvatar = null, pvMixer = null, pvWalkAction = null, pvIdleAction = null, pvWalking = false;
 const PV_MODEL_FILES = { character: 'avatars/character.glb', ch22: 'avatars/ch22.glb', ch07: 'avatars/ch07.glb', remy: 'avatars/remy.glb' };
+// พรีวิวเคยรู้จักแค่ 4 ร่างที่ฝังไว้ ร่างที่นำเข้า/สร้างเองจึงตกไปเป็นร่างกล่องเสมอ
+// ทั้งที่มันเป็นไฟล์ .glb ปกติ — รวมทะเบียนเข้าด้วยกันเหมือนที่โลก 3D ทำ
+const pvUrlFor = id => PV_MODEL_FILES[id] || (typeof avatarUrlById === 'function' ? avatarUrlById(id) : null);
 const PV_ANIM_FILES = { catwalk: 'avatars/walk_anim.glb', walking: 'avatars/walking_anim.glb' };
 const pvCache = {};
 function pvLoad(url){
@@ -643,9 +652,10 @@ let pvBuildSeq = 0; // กันการกดสลับเร็วๆ แ�
 async function rebuildPreviewAvatar(){
   const seq = ++pvBuildSeq;
   const container = new THREE.Group();
-  if (PV_MODEL_FILES[selected.model]) {
+  const pvUrl = pvUrlFor(selected.model);
+  if (pvUrl) {
     try {
-      const [charGltf, animGltf] = await Promise.all([pvLoad(PV_MODEL_FILES[selected.model]), pvLoad(PV_ANIM_FILES[selected.anim] || PV_ANIM_FILES.catwalk)]);
+      const [charGltf, animGltf] = await Promise.all([pvLoad(pvUrl), pvLoad(PV_ANIM_FILES[selected.anim] || PV_ANIM_FILES.catwalk)]);
       if (seq !== pvBuildSeq) return; // มีการเลือกใหม่ระหว่างโหลด — ทิ้งผลนี้
       const visual = charGltf.scene;
       visual.rotation.y = 0;
