@@ -134,6 +134,18 @@ a{color:inherit;text-decoration:none;} button{font-family:inherit;}
 
           <div class="card">
             <div class="section-label">เลือกร่างตัวละคร</div>
+
+            <!-- สร้างตัวละครของตัวเอง — เลือกทรงผม รูปหน้า สีผิว เสื้อผ้า ที่ Ready Player Me -->
+            <button id="rpm-open" class="btn"
+              style="width:100%;background:linear-gradient(135deg,#3b82f6,#8b5cf6);border:none;color:#fff;
+                     font-weight:800;padding:12px;margin-bottom:6px;">
+              ✨ สร้างตัวละครของตัวเอง
+            </button>
+            <div style="font-size:10.5px;color:var(--text-2);line-height:1.6;margin-bottom:12px;">
+              เลือกทรงผม รูปหน้า สีผิว และเสื้อผ้าได้เอง ทำเสร็จแล้วร่างจะเข้ามาอยู่ในรายการนี้ทันที
+              และเดินได้เหมือนร่างอื่น · เก็บได้สูงสุด 5 ร่าง
+            </div>
+            <div id="personal-avatars"></div>
             <div class="model-option" data-model="character" onclick="selectModel('character')">
               <div class="mo-icon">🧍</div>
               <div>
@@ -214,6 +226,27 @@ a{color:inherit;text-decoration:none;} button{font-family:inherit;}
 
             <button class="btn primary" style="width:100%;margin-top:20px;" onclick="saveAvatar()">บันทึกตัวละคร</button>
             <div id="save-status"></div>
+
+    <!-- ตัวสร้างตัวละครของ Ready Player Me (โหลดใน iframe ตอนกดเปิดเท่านั้น) -->
+    <div id="rpm-modal" style="display:none;position:fixed;inset:0;background:rgba(4,7,12,.85);z-index:1000;
+         align-items:center;justify-content:center;padding:16px;">
+      <div style="width:min(940px,100%);height:min(680px,calc(100vh - 32px));background:var(--panel);
+           border:1px solid var(--border);border-radius:14px;overflow:hidden;display:flex;flex-direction:column;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 14px;
+             border-bottom:1px solid var(--border-soft);">
+          <div>
+            <div style="font-size:13.5px;font-weight:800;">สร้างตัวละครของคุณ</div>
+            <div style="font-size:10.5px;color:var(--text-2);margin-top:2px;">
+              เลือกทรงผม รูปหน้า สีผิว เสื้อผ้า แล้วกดปุ่มยืนยันของตัวสร้าง — ร่างจะถูกดึงกลับมาเก็บในระบบเรา
+            </div>
+          </div>
+          <button id="rpm-close" style="background:none;border:none;color:var(--text-2);font-size:18px;cursor:pointer;">✕</button>
+        </div>
+        <div id="rpm-frame-box" style="flex:1;min-height:0;position:relative;background:#0b0f17;"></div>
+        <div id="rpm-status" style="padding:10px 14px;font-size:11.5px;color:var(--text-2);
+             border-top:1px solid var(--border-soft);min-height:18px;"></div>
+      </div>
+    </div>
             <div style="color:var(--text-2);font-size:10.5px;line-height:1.6;margin-top:8px;">
               ตัวละครผูกกับบัญชีของคุณ — บันทึกแล้วเปิดหน้า Metaverse ใหม่ (หรือรีเฟรช) เพื่อสวมร่างใหม่ ผู้เล่นทุกคนจะเห็นคุณเป็นร่างนี้
             </div>
@@ -259,11 +292,86 @@ COLORS.forEach(c => {
 // ร่างที่นำเข้าเพิ่ม — เติมรายการจากทะเบียนบน server
 // (ปุ่มนำเข้าเห็นเฉพาะพนักงาน เพราะร่างที่เพิ่มเข้ามาทุกคนเลือกใช้ได้)
 // ============================================================
+let personalAvatars = [];
+
+function renderPersonalAvatars() {
+  const box = document.getElementById('personal-avatars');
+  if (!box) return;
+  const esc = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  box.innerHTML = personalAvatars.map(a => `
+    <div class="model-option" data-model="${esc(a.id)}" onclick="selectModel('${esc(a.id)}')">
+      <div class="mo-icon">${a.source === 'rpm' ? '✨' : '🧍'}</div>
+      <div style="flex:1;min-width:0;">
+        <div class="mo-name">${esc(a.name)}</div>
+        <div class="mo-desc">ร่างของคุณ · ${a.sizeMb || '?'} MB${a.rigged ? '' : ' · ไม่มีโครงกระดูก จึงยืนนิ่ง'}</div>
+      </div>
+      <button onclick="event.stopPropagation();deletePersonalAvatar('${esc(a.id)}')" title="ลบร่างนี้"
+        style="background:none;border:none;color:var(--text-2);cursor:pointer;font-size:13px;padding:4px;">🗑️</button>
+    </div>`).join('');
+}
+
+async function deletePersonalAvatar(id) {
+  if (!confirm('ลบร่างนี้ออกจากบัญชีของคุณ?')) return;
+  try {
+    await AecAvatarImport.remove(id);
+    if (selected.model === id) selectModel('character');   // กำลังใส่ร่างที่เพิ่งลบอยู่
+    await loadAvatarCatalog();
+  } catch (err) { alert(err.message || 'ลบไม่สำเร็จ'); }
+}
+
+// ---------- ตัวสร้างตัวละคร Ready Player Me ----------
+(function () {
+  const modal = document.getElementById('rpm-modal');
+  const frameBox = document.getElementById('rpm-frame-box');
+  const status = document.getElementById('rpm-status');
+  const openBtn = document.getElementById('rpm-open');
+  if (!modal || !openBtn) return;
+  let unbind = null;
+  const say = (t, tone) => { status.textContent = t || '';
+    status.style.color = tone === 'bad' ? 'var(--red)' : tone === 'ok' ? 'var(--green)' : 'var(--text-2)'; };
+
+  function close() {
+    modal.style.display = 'none';
+    if (unbind) { unbind(); unbind = null; }
+    frameBox.innerHTML = '';        // ถอด iframe ทิ้ง ไม่ให้ค้างกินหน่วยความจำ
+    say('');
+  }
+
+  openBtn.addEventListener('click', () => {
+    modal.style.display = 'flex';
+    say('กำลังเปิดตัวสร้าง...');
+    const iframe = document.createElement('iframe');
+    iframe.src = AecAvatarImport.creatorUrl();
+    iframe.allow = 'camera *; microphone *; clipboard-write';   // ตัวสร้างมีโหมดถ่ายรูปหน้าเพื่อทำ avatar
+    iframe.style.cssText = 'width:100%;height:100%;border:0;display:block;';
+    frameBox.appendChild(iframe);
+    iframe.addEventListener('load', () => say('เลือกทรงผม รูปหน้า และเสื้อผ้าได้เลย — เสร็จแล้วกดปุ่มยืนยันในตัวสร้าง'));
+
+    unbind = AecAvatarImport.bindCreator(iframe, async url => {
+      // ตัวสร้างส่ง URL มาแล้ว — ดึงไฟล์มาเก็บที่ระบบเราและลงทะเบียนให้
+      openBtn.disabled = true;
+      try {
+        const name = 'ร่างของฉัน ' + new Date().toLocaleDateString('th-TH', { day: 'numeric', month: 'short' });
+        const r = await AecAvatarImport.importFromUrl(url, name, say);
+        say('เพิ่มร่างเรียบร้อย' + (r.info.rigged ? ' — เดินได้ปกติ' : ' — ไม่มีโครงกระดูก จึงยืนนิ่ง'), r.info.rigged ? 'ok' : 'bad');
+        await loadAvatarCatalog();
+        selectModel(r.avatar.id);
+        setTimeout(close, 1200);
+      } catch (err) { say(err.message || 'บันทึกร่างไม่สำเร็จ', 'bad'); }
+      finally { openBtn.disabled = false; }
+    });
+  });
+
+  document.getElementById('rpm-close').addEventListener('click', close);
+  modal.addEventListener('click', e => { if (e.target === modal) close(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && modal.style.display !== 'none') close(); });
+})();
+
 const knownAvatarIds = new Set(['engineer', 'character', 'ch22', 'ch07', 'remy']);
 let importedAvatars = [];
 
 function avatarUrlById(id) {
-  const a = importedAvatars.find(x => x.id === id);
+  const a = [...importedAvatars, ...personalAvatars].find(x => x.id === id);
   return a ? a.url : null;
 }
 
@@ -285,8 +393,10 @@ async function loadAvatarCatalog() {
   if (!window.AecAvatarImport) return;
   const cat = await AecAvatarImport.list();
   importedAvatars = cat.imported || [];
-  importedAvatars.forEach(a => knownAvatarIds.add(a.id));
+  personalAvatars = cat.personal || [];
+  [...importedAvatars, ...personalAvatars].forEach(a => knownAvatarIds.add(a.id));
   renderImportedAvatars();
+  renderPersonalAvatars();
 }
 
 // ฟอร์มนำเข้า

@@ -77,7 +77,7 @@ window.AecAvatarImport = (function () {
   }
 
   // ตรวจ -> อัป -> ลงทะเบียน. onStep(ข้อความ, โทน) ใช้รายงานความคืบหน้าให้หน้าเว็บ
-  async function importFile(file, displayName, onStep) {
+  async function importFile(file, displayName, onStep, opts) {
     const say = (t, tone) => { if (onStep) onStep(t, tone); };
 
     if (!/\.glb$/i.test(file.name)) throw new Error('รองรับเฉพาะไฟล์ .glb เท่านั้น (ไฟล์ .fbx ให้แปลงเป็น .glb ก่อน)');
@@ -103,12 +103,64 @@ window.AecAvatarImport = (function () {
       method: 'POST', headers: { 'Content-Type': 'application/json', ...h },
       body: JSON.stringify({
         id, name: displayName || file.name.replace(/\.glb$/i, ''),
-        url, sizeMb: mb, rigged: info.rigged
+        url, sizeMb: mb, rigged: info.rigged,
+        personal: !!(opts && opts.personal),
+        source: (opts && opts.source) || 'upload'
       })
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.error || 'ลงทะเบียนไม่สำเร็จ');
     return { avatar: body.avatar, info };
+  }
+
+  // ---------- Ready Player Me ----------
+  // ตัวสร้าง avatar ของ RPM เปิดใน iframe แล้วคุยกันด้วย postMessage
+  // ผู้ใช้เลือกทรงผม/รูปหน้า/สีผิว/เสื้อผ้าที่นั่น พอกดเสร็จมันส่ง URL ของไฟล์ .glb กลับมา
+  //
+  // เราไม่เก็บ URL ของเขาไว้ตรงๆ แต่ดึงไฟล์มาเก็บที่เก็บของเราเอง เพราะ
+  //  1) ร่างจะไม่หายถ้าวันหนึ่งเขาเปลี่ยนหรือลบไฟล์ฝั่งนั้น
+  //  2) ผ่านการตรวจโครงกระดูกชุดเดียวกับไฟล์ที่อัปเอง ไม่ต้องมีทางลัดพิเศษ
+  //  3) ทะเบียนยังคงกฎเดิม — รับเฉพาะไฟล์ในที่เก็บของระบบ
+  const RPM_SUBDOMAIN = 'demo';   // เปลี่ยนเป็น subdomain ขององค์กรได้เมื่อสมัคร RPM
+  const RPM_ORIGIN = 'https://' + RPM_SUBDOMAIN + '.readyplayer.me';
+
+  // bodyType=fullbody จำเป็น — แบบครึ่งตัวไม่มีขา ท่าเดินใช้ไม่ได้
+  const creatorUrl = () => RPM_ORIGIN + '/avatar?frameApi&bodyType=fullbody&clearCache';
+
+  // ผูกกับ iframe ที่หน้าเว็บสร้างไว้ คืนฟังก์ชันไว้เลิกฟัง
+  function bindCreator(iframe, onAvatarUrl) {
+    const onMsg = e => {
+      if (e.origin !== RPM_ORIGIN) return;            // รับเฉพาะข้อความจากตัวสร้างของ RPM
+      let json;
+      try { json = typeof e.data === 'string' ? JSON.parse(e.data) : e.data; }
+      catch (err) { return; }
+      if (!json || json.source !== 'readyplayerme') return;
+      if (json.eventName === 'v1.frame.ready') {
+        iframe.contentWindow.postMessage(
+          JSON.stringify({ target: 'readyplayerme', type: 'subscribe', eventName: 'v1.**' }), '*');
+      }
+      if (json.eventName === 'v1.avatar.exported' && json.data && json.data.url) {
+        onAvatarUrl(json.data.url);
+      }
+    };
+    window.addEventListener('message', onMsg);
+    return () => window.removeEventListener('message', onMsg);
+  }
+
+  // ดึงไฟล์ที่ RPM สร้างให้ แล้วส่งเข้าสายเดียวกับการอัปโหลดปกติ
+  async function importFromUrl(url, displayName, onStep) {
+    const say = (t, tone) => { if (onStep) onStep(t, tone); };
+    say('กำลังดึงร่างที่สร้างไว้...');
+    let blob;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(String(res.status));
+      blob = await res.blob();
+    } catch (err) {
+      throw new Error('ดึงไฟล์ร่างจาก Ready Player Me ไม่สำเร็จ — ลองใหม่อีกครั้ง');
+    }
+    const file = new File([blob], (displayName || 'my-avatar') + '.glb', { type: 'model/gltf-binary' });
+    return importFile(file, displayName, say, { personal: true, source: 'rpm' });
   }
 
   async function list() {
@@ -128,5 +180,5 @@ window.AecAvatarImport = (function () {
     return body;
   }
 
-  return { importFile, inspectGlb, list, remove, MAX_MB };
+  return { importFile, importFromUrl, inspectGlb, list, remove, MAX_MB, creatorUrl, bindCreator, RPM_ORIGIN };
 })();
