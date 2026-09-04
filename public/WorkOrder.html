@@ -11,6 +11,11 @@
         <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
         <script src="supabaseClient.js"></script>
         <style>
+        .wo-l{display:block;font-size:11px;font-weight:700;color:var(--text-2);margin-bottom:5px;}
+        .wo-in{width:100%;background:var(--panel-2);border:1px solid var(--border);border-radius:8px;
+          padding:9px 11px;color:var(--text-0);font-size:12.5px;font-family:inherit;outline:none;box-sizing:border-box;}
+        .wo-in:focus{border-color:var(--blue);}
+        #woTabs .tab{cursor:pointer;}
         /* ==================== AEC VERSE — shared design system ==================== */
         :root{
             --bg-0:#080b11;
@@ -381,51 +386,64 @@
 
         <div class="card" style="margin-bottom:14px;">
             <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
-            <div class="search-box" style="width:280px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg><input placeholder="Search work order..."></div>
-            <button class="btn primary">+ Create Work Order</button>
+            <div class="search-box" style="width:280px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg><input id="woSearch" placeholder="ค้นหาชื่องาน / อุปกรณ์ / ผู้รับงาน..."></div>
+            <button class="btn primary" id="woNewBtn">+ สร้างใบสั่งงาน</button>
             </div>
+            <div id="woMsg" style="margin-top:10px;font-size:12px;"></div>
         </div>
-        <div class="tabs" style="margin-bottom:14px;">
-            <div class="tab active">All (34)</div>
-            <div class="tab">Pending (8)</div>
-            <div class="tab">In Progress (6)</div>
-            <div class="tab">Completed (18)</div>
-            <div class="tab">Cancelled (2)</div>
+        <div class="tabs" id="woTabs" style="margin-bottom:14px;">
+            <div class="tab active" data-st="all">ทั้งหมด (0)</div>
+            <div class="tab" data-st="pending">รอดำเนินการ (0)</div>
+            <div class="tab" data-st="in_progress">กำลังทำ (0)</div>
+            <div class="tab" data-st="completed">เสร็จสิ้น (0)</div>
+            <div class="tab" data-st="cancelled">ยกเลิก (0)</div>
         </div>
         <div class="card">
             <table>
-            <thead><tr><th>WO ID</th><th>Title</th><th>Equipment</th><th>Type</th><th>Priority</th><th>Status</th><th>Assignee</th><th>Due Date</th><th></th></tr></thead>
-            <tbody><tr>
-        <td class="strong">WO-2025-00034</td><td>ตรวจสอบแรงดัน</td><td>BOILER-01</td><td>Inspection</td>
-        <td><span class="badge b-red">High</span></td>
-        <td><span class="badge b-yellow">Pending</span></td>
-        <td>สมชาย ใจ</td><td>22/05/2025</td><td style="text-align:right;">›</td>
-        </tr><tr>
-        <td class="strong">WO-2025-00033</td><td>เปลี่ยน Seal Pump</td><td>PUMP-02</td><td>Repair</td>
-        <td><span class="badge b-yellow">Medium</span></td>
-        <td><span class="badge b-blue">In Progress</span></td>
-        <td>วิชัย มั่น</td><td>21/05/2025</td><td style="text-align:right;">›</td>
-        </tr><tr>
-        <td class="strong">WO-2025-00032</td><td>ล้าง Filter</td><td>FILTER-01</td><td>Maintenance</td>
-        <td><span class="badge b-yellow">Medium</span></td>
-        <td><span class="badge b-blue">In Progress</span></td>
-        <td>อนุชา ดี</td><td>20/05/2025</td><td style="text-align:right;">›</td>
-        </tr><tr>
-        <td class="strong">WO-2025-00031</td><td>ตรวจสอบวาล์ว</td><td>TANK-01</td><td>Inspection</td>
-        <td><span class="badge b-green">Low</span></td>
-        <td><span class="badge b-green">Completed</span></td>
-        <td>สมหญิง รัก</td><td>19/05/2025</td><td style="text-align:right;">›</td>
-        </tr><tr>
-        <td class="strong">WO-2025-00030</td><td>ตรวจสอบ Bearing</td><td>PUMP-01</td><td>Repair</td>
-        <td><span class="badge b-yellow">Medium</span></td>
-        <td><span class="badge b-green">Completed</span></td>
-        <td>สมชาย ใจ</td><td>18/05/2025</td><td style="text-align:right;">›</td>
-        </tr></tbody>
+            <thead><tr><th>WO ID</th><th>ชื่องาน</th><th>อุปกรณ์</th><th>ประเภท</th><th>ความเร่งด่วน</th><th>สถานะ</th><th>ผู้รับงาน</th><th>กำหนดเสร็จ</th></tr></thead>
+            <tbody id="woBody"><tr><td colspan="8" style="color:var(--text-2);font-size:12px;padding:18px 4px;">กำลังโหลด...</td></tr></tbody>
             </table>
             <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;">
-            <span class="muted" style="color:var(--text-2);font-size:11.5px;">Showing 1 to 5 of 34 items</span>
-            <div class="pager"><span class="pg active">1</span><span class="pg">2</span><span class="pg">3</span><span class="pg">4</span><span class="pg">5</span> ... <span class="pg">7</span> ›</div>
+            <span id="woCount" class="muted" style="color:var(--text-2);font-size:11.5px;"></span>
             </div>
+        </div>
+
+        <!-- สร้างใบสั่งงาน -->
+        <div id="woModal" style="display:none;position:fixed;inset:0;background:rgba(4,7,12,.78);z-index:1000;align-items:center;justify-content:center;padding:16px;">
+          <div class="card" style="width:min(520px,100%);max-height:calc(100vh - 32px);overflow-y:auto;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+              <h3 style="margin:0;font-size:14px;font-weight:800;">สร้างใบสั่งงาน</h3>
+              <button id="woClose" style="background:none;border:none;color:var(--text-2);font-size:17px;cursor:pointer;">✕</button>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:11px;">
+              <div><label class="wo-l">ชื่องาน *</label><input type="text" id="woTitle" class="wo-in" placeholder="เช่น ตรวจสอบแรงดันถังหมัก"></div>
+              <div style="display:flex;gap:10px;">
+                <div style="flex:1;"><label class="wo-l">อุปกรณ์</label><input type="text" id="woEquip" class="wo-in" placeholder="TANK-01"></div>
+                <div style="flex:1;"><label class="wo-l">กำหนดเสร็จ</label><input type="date" id="woDue" class="wo-in"></div>
+              </div>
+              <div style="display:flex;gap:10px;">
+                <div style="flex:1;"><label class="wo-l">ประเภท</label><select id="woType" class="wo-in">
+                  <option value="inspection">ตรวจสอบ</option><option value="repair">ซ่อม</option>
+                  <option value="maintenance">บำรุงรักษา</option><option value="emergency">ฉุกเฉิน</option></select></div>
+                <div style="flex:1;"><label class="wo-l">ความเร่งด่วน</label><select id="woPrio" class="wo-in">
+                  <option value="low">ต่ำ</option><option value="medium" selected>ปานกลาง</option>
+                  <option value="high">สูง</option><option value="critical">วิกฤต</option></select></div>
+              </div>
+              <div>
+                <label class="wo-l">ผู้รับงาน</label>
+                <select id="woAssignee" class="wo-in"><option value="">— ยังไม่มอบหมาย —</option></select>
+                <div style="font-size:10.5px;color:var(--text-2);margin-top:5px;line-height:1.55;">
+                  มอบหมายได้เฉพาะบัญชีระดับ Admin และ Engineer เท่านั้น — บัญชีผู้เยี่ยมชม (User) ไม่มีหน้าที่รับงาน จึงไม่ขึ้นในรายการนี้
+                </div>
+              </div>
+              <div><label class="wo-l">รายละเอียด</label><textarea id="woNote" class="wo-in" rows="3" placeholder="รายละเอียดเพิ่มเติม"></textarea></div>
+              <div id="woFormMsg" style="font-size:12px;"></div>
+              <div style="display:flex;gap:8px;justify-content:flex-end;">
+                <button class="btn" id="woCancel" style="background:transparent;border:1px solid var(--border);color:var(--text-1);">ยกเลิก</button>
+                <button class="btn primary" id="woSave">สร้างใบสั่งงาน</button>
+              </div>
+            </div>
+          </div>
         </div>
 
         </div>
@@ -438,7 +456,152 @@
         window.location.href = 'Login.html';
     }
     initUserChip();
-  guardAdminOnly();
+  guardAdminOnly(["admin", "engineer"]);   // ใบสั่งงานเป็นงานของพนักงาน engineer ต้องเข้าได้ด้วย
+    // ==================== ใบสั่งงาน (ข้อมูลจริงจาก /api/work-orders) ====================
+    // หน้านี้เดิมเป็น mockup: แถวฮาร์ดโค้ด ชื่อคนสมมติ ตัวเลขบนแท็บไม่ตรงกับอะไรเลย
+    const $ = id => document.getElementById(id);
+    let woAll = [], woCounts = {}, woFilter = 'all', woMyRole = '';
+
+    const escH = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const ST_TH = { pending: 'รอดำเนินการ', in_progress: 'กำลังทำ', completed: 'เสร็จสิ้น', cancelled: 'ยกเลิก' };
+    const ST_B = { pending: 'b-yellow', in_progress: 'b-blue', completed: 'b-green', cancelled: 'b-gray' };
+    const PR_TH = { low: 'ต่ำ', medium: 'ปานกลาง', high: 'สูง', critical: 'วิกฤต' };
+    const PR_B = { low: 'b-green', medium: 'b-yellow', high: 'b-red', critical: 'b-red' };
+    const TY_TH = { inspection: 'ตรวจสอบ', repair: 'ซ่อม', maintenance: 'บำรุงรักษา', emergency: 'ฉุกเฉิน' };
+
+    async function woAuth() {
+      const { data } = await supabaseClient.auth.getSession();
+      const t = data?.session?.access_token;
+      return t ? { Authorization: 'Bearer ' + t } : null;
+    }
+    function woSay(el, text, tone) {
+      const e = $(el); if (!e) return;
+      e.textContent = text || '';
+      e.style.color = tone === 'bad' ? 'var(--red)' : tone === 'ok' ? 'var(--green)' : 'var(--text-2)';
+    }
+
+    async function loadWorkOrders() {
+      const h = await woAuth();
+      if (!h) { woSay('woMsg', 'ต้องเข้าสู่ระบบก่อน', 'bad'); return; }
+      try {
+        const res = await fetch('/api/work-orders', { headers: h });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) { woSay('woMsg', body.error || 'โหลดใบสั่งงานไม่สำเร็จ', 'bad'); return; }
+        woAll = body.workOrders || [];
+        woCounts = body.counts || {};
+        woMyRole = body.myRole || '';
+        woSay('woMsg', '');
+        renderTabs(); renderRows();
+      } catch (err) { woSay('woMsg', 'ติดต่อเซิร์ฟเวอร์ไม่ได้', 'bad'); }
+    }
+
+    function renderTabs() {
+      const total = woAll.length;
+      document.querySelectorAll('#woTabs .tab').forEach(t => {
+        const st = t.dataset.st;
+        const n = st === 'all' ? total : (woCounts[st] || 0);
+        const label = st === 'all' ? 'ทั้งหมด' : ST_TH[st];
+        t.textContent = `${label} (${n})`;
+        t.classList.toggle('active', st === woFilter);
+      });
+    }
+
+    function visibleRows() {
+      const q = ($('woSearch').value || '').trim().toLowerCase();
+      return woAll.filter(w => {
+        if (woFilter !== 'all' && w.status !== woFilter) return false;
+        if (!q) return true;
+        return [w.id, w.title, w.equipment, w.assigneeName].some(v => String(v || '').toLowerCase().includes(q));
+      });
+    }
+
+    function renderRows() {
+      const rows = visibleRows();
+      $('woBody').innerHTML = rows.length ? rows.map(w => `
+        <tr data-id="${escH(w.id)}">
+          <td class="strong">${escH(w.id)}</td>
+          <td>${escH(w.title)}</td>
+          <td>${escH(w.equipment || '—')}</td>
+          <td>${escH(TY_TH[w.type] || w.type)}</td>
+          <td><span class="badge ${PR_B[w.priority] || 'b-gray'}">${escH(PR_TH[w.priority] || w.priority)}</span></td>
+          <td>
+            <select class="wo-status" data-id="${escH(w.id)}" style="background:transparent;border:1px solid var(--border);border-radius:6px;padding:3px 6px;color:var(--text-0);font-size:11px;font-family:inherit;">
+              ${Object.keys(ST_TH).map(s => `<option value="${s}"${s === w.status ? ' selected' : ''}>${ST_TH[s]}</option>`).join('')}
+            </select>
+          </td>
+          <td>${w.assigneeName ? `${escH(w.assigneeName)} <span style="color:var(--text-2);font-size:10px;">(${escH(w.assigneeRole)})</span>` : '<span style="color:var(--text-2);">ยังไม่มอบหมาย</span>'}</td>
+          <td>${escH(w.dueDate || '—')}</td>
+        </tr>`).join('')
+        : `<tr><td colspan="8" style="color:var(--text-2);font-size:12px;padding:18px 4px;">${woAll.length ? 'ไม่พบใบสั่งงานที่ตรงกับการค้นหา' : 'ยังไม่มีใบสั่งงาน กด "+ สร้างใบสั่งงาน" เพื่อเริ่ม'}</td></tr>`;
+      $('woCount').textContent = `แสดง ${rows.length} จาก ${woAll.length} รายการ`;
+
+      document.querySelectorAll('.wo-status').forEach(sel => sel.addEventListener('change', async () => {
+        const h = await woAuth(); if (!h) return;
+        const id = sel.dataset.id, prev = woAll.find(w => w.id === id)?.status;
+        try {
+          const res = await fetch('/api/work-orders/' + encodeURIComponent(id), {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json', ...h },
+            body: JSON.stringify({ status: sel.value })
+          });
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok) { sel.value = prev; woSay('woMsg', body.error || 'เปลี่ยนสถานะไม่สำเร็จ', 'bad'); return; }
+          woSay('woMsg', `อัปเดต ${id} เป็น "${ST_TH[sel.value]}" แล้ว`, 'ok');
+          loadWorkOrders();
+        } catch (err) { sel.value = prev; woSay('woMsg', 'ติดต่อเซิร์ฟเวอร์ไม่ได้', 'bad'); }
+      }));
+    }
+
+    document.querySelectorAll('#woTabs .tab').forEach(t =>
+      t.addEventListener('click', () => { woFilter = t.dataset.st; renderTabs(); renderRows(); }));
+    $('woSearch').addEventListener('input', renderRows);
+
+    // ---------- สร้างใบสั่งงาน ----------
+    async function loadAssignees() {
+      const h = await woAuth(); if (!h) return;
+      try {
+        const res = await fetch('/api/work-orders/assignees', { headers: h });
+        const body = await res.json().catch(() => ({}));
+        const sel = $('woAssignee');
+        sel.innerHTML = '<option value="">— ยังไม่มอบหมาย —</option>' +
+          (body.assignees || []).map(a => `<option value="${escH(a.id)}">${escH(a.name)} (${escH(a.role)})</option>`).join('');
+        if (body.warning) woSay('woFormMsg', body.warning, 'bad');
+        else if (!(body.assignees || []).length) woSay('woFormMsg', 'ยังไม่มีบัญชีระดับ Admin/Engineer ให้มอบหมาย', 'bad');
+        else woSay('woFormMsg', '');
+      } catch (err) { woSay('woFormMsg', 'โหลดรายชื่อผู้รับงานไม่สำเร็จ', 'bad'); }
+    }
+    const openModal = () => { $('woModal').style.display = 'flex'; loadAssignees(); };
+    const closeModal = () => { $('woModal').style.display = 'none'; woSay('woFormMsg', ''); };
+    $('woNewBtn').addEventListener('click', openModal);
+    $('woClose').addEventListener('click', closeModal);
+    $('woCancel').addEventListener('click', closeModal);
+    $('woModal').addEventListener('click', e => { if (e.target === $('woModal')) closeModal(); });
+
+    $('woSave').addEventListener('click', async () => {
+      const title = $('woTitle').value.trim();
+      if (!title) { woSay('woFormMsg', 'ต้องระบุชื่องาน', 'bad'); return; }
+      const h = await woAuth(); if (!h) return;
+      $('woSave').disabled = true;
+      try {
+        const res = await fetch('/api/work-orders', {
+          method: 'POST', headers: { 'Content-Type': 'application/json', ...h },
+          body: JSON.stringify({
+            title, equipment: $('woEquip').value.trim(), type: $('woType').value,
+            priority: $('woPrio').value, assigneeId: $('woAssignee').value,
+            dueDate: $('woDue').value, note: $('woNote').value.trim()
+          })
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) { woSay('woFormMsg', body.error || 'สร้างใบสั่งงานไม่สำเร็จ', 'bad'); return; }
+        closeModal();
+        ['woTitle', 'woEquip', 'woDue', 'woNote'].forEach(id => { $(id).value = ''; });
+        woSay('woMsg', `สร้าง ${body.workOrder.id} แล้ว${body.workOrder.assigneeName ? ` — แจ้งเตือน ${body.workOrder.assigneeName} เรียบร้อย` : ''}`, 'ok');
+        loadWorkOrders();
+      } catch (err) { woSay('woFormMsg', 'ติดต่อเซิร์ฟเวอร์ไม่ได้', 'bad'); }
+      finally { $('woSave').disabled = false; }
+    });
+
+    loadWorkOrders();
+
     </script>
     <script src="notifications.js"></script>
 </body>
