@@ -10,6 +10,38 @@
 // ════════════════════════════════════════════════════════════════════════
 
 // ============================================================
+// การเชื่อมต่อ Supabase
+// ประกาศไว้บนสุดเพราะโค้ดข้างล่างหลายจุดต้องใช้ตั้งแต่ตอนเปิดหน้า
+// (เดิมอยู่กลางไฟล์ ใครเรียกก่อนถึงบรรทัดนั้นจะได้ ReferenceError เงียบๆ)
+// ============================================================
+const SUPABASE_URL = 'https://hzlokmixfkfrmkuucfhg.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh6bG9rbWl4Zmtmcm1rdXVjZmhnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1NzA5NTUsImV4cCI6MjA5ODE0Njk1NX0.DSj0c7XN979948Iq5rGmWqI9ddcbg56OmfKFin--Luo';
+const SUPABASE_BUCKET = 'models';
+
+// อ่าน access token ของคนที่ล็อกอินอยู่
+// หน้าแอดมินโหลด supabaseClient.js มาแล้วจึงมีตัวแปร supabaseClient แต่หน้าโลก 3D
+// (index.html) ไม่ได้โหลดไฟล์นั้น เดิมโค้ดดูแค่ supabaseClient จึงไม่เคยได้ token ในโลก 3D
+// ผลคือ server ไม่รู้ว่าเป็นใคร ไม่ส่งร่างส่วนตัวมาให้ ผู้ใช้เลยกลับไปใส่ร่างเริ่มต้นทุกครั้ง
+let _aecSbFallback = null;
+async function aecAccessToken() {
+    try {
+        if (typeof supabaseClient !== 'undefined' && supabaseClient) {
+            const { data } = await supabaseClient.auth.getSession();
+            return data?.session?.access_token || null;
+        }
+        if (!_aecSbFallback) {
+            if (!window.supabase || typeof window.supabase.createClient !== 'function') return null;
+            _aecSbFallback = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        }
+        const { data } = await _aecSbFallback.auth.getSession();
+        return data?.session?.access_token || null;
+    } catch (err) {
+        console.warn('[AUTH] อ่าน session ไม่สำเร็จ:', err);
+        return null;
+    }
+}
+
+// ============================================================
 // 0. UTIL
 // ============================================================
 function safeCall(fn, label) {
@@ -506,13 +538,7 @@ const avatarCatalogReady = (async () => {
     try {
         // ส่ง token ไปด้วย ไม่งั้น server ไม่รู้ว่าเป็นใคร แล้วไม่คืนร่างส่วนตัวของเรามา
         // (ร่างที่ตัวเองสร้างจะหายไปจากโลก 3D ทั้งที่บันทึกสำเร็จแล้ว)
-        let avToken = null;
-        try {
-            if (typeof supabaseClient !== 'undefined') {
-                const { data } = await supabaseClient.auth.getSession();
-                avToken = data?.session?.access_token || null;
-            }
-        } catch (e) { /* ไม่มี session ก็ยังดูร่างกลางได้ */ }
+        const avToken = await aecAccessToken();   // ไม่มี session ก็ยังดูร่างกลางได้
         const res = await fetch('/api/avatars', avToken ? { headers: { Authorization: 'Bearer ' + avToken } } : undefined);
         if (!res.ok) return;
         const body = await res.json();
@@ -1116,9 +1142,6 @@ function loadModelFromBlobUrl(blobUrl, fileName, transform, onDone) {
 }
 
 // ---------- Supabase upload (เก็บ config เดิมของผู้ใช้ไว้ ไม่แตะระบบ backend) ----------
-const SUPABASE_URL = 'https://hzlokmixfkfrmkuucfhg.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh6bG9rbWl4Zmtmcm1rdXVjZmhnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1NzA5NTUsImV4cCI6MjA5ODE0Njk1NX0.DSj0c7XN979948Iq5rGmWqI9ddcbg56OmfKFin--Luo';
-const SUPABASE_BUCKET = 'models';
 
 async function uploadToSupabase(file) {
     const fileName = `model_${Date.now()}_${file.name.replace(/\s+/g, '_')}`;
@@ -3118,14 +3141,7 @@ async function initMultiplayer() {
 
     // ตัวตนผูกกับบัญชี Supabase: ดึง access token จาก session ที่ล็อกอินไว้
     // (session เก็บใน localStorage ของ origin เดียวกัน — หน้า Login เป็นคนสร้างให้)
-    let token = null;
-    if (window.supabase && typeof window.supabase.createClient === 'function') {
-        try {
-            const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-            const { data: { session } } = await sb.auth.getSession();
-            if (session) token = session.access_token;
-        } catch (err) { console.warn('อ่าน session ไม่สำเร็จ:', err); }
-    }
+    const token = await aecAccessToken();
     // โหมดผู้เล่น (ไม่ใช่ viewer ใน iframe) ต้องล็อกอินก่อนเสมอ — ชื่อ/ตัวละครมาจากบัญชี
     if (!token && !VIEWER_MODE) { window.location.href = 'Login.html'; return; }
 

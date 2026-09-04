@@ -13,6 +13,12 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <!-- โมดูลพวกนี้ต้องโหลดก่อนสคริปต์ในหน้า เพราะสคริปต์นั้นเรียก loadAvatarCatalog()
+         ทันทีตอนรัน ถ้ามาทีหลังจะได้ AecCollapseGroup/AecAvatarImport เป็น undefined
+         แล้วเงียบไปเฉยๆ — หัวข้อไม่ขึ้นและร่างที่บันทึกไว้ไม่ถูกโหลด -->
+    <script src="collapse-group.js"></script>
+    <script src="app-config.js"></script>
+    <script src="avatar-import.js"></script>
 <style>
 /* ==================== AEC VERSE — shared design system (subset) ==================== */
 :root{
@@ -541,15 +547,22 @@ async function loadAvatarCatalog() {
   });
 })();
 
-loadAvatarCatalog();
+// ทะเบียนร่างมาทางเน็ต ส่วนค่าที่บันทึกไว้อ่านจาก session ซึ่งมักเสร็จก่อน
+// ถ้าไม่รอกัน loadSavedConfig จะเช็ค knownAvatarIds ตอนที่ยังมีแต่ร่างพื้นฐาน
+// แล้วปัดร่างที่ผู้ใช้สร้างเองทิ้ง กลับไปเป็นร่างเริ่มต้นทุกครั้งที่เปิดหน้า
+const avatarCatalogReady = loadAvatarCatalog().catch(err => {
+  console.warn("[AVATAR] โหลดทะเบียนร่างไม่สำเร็จ", err);
+});
 
 async function loadSavedConfig(){
+  await avatarCatalogReady;   // ต้องรู้จักร่างที่นำเข้า/สร้างเองก่อน ถึงจะตัดสินได้ว่าร่างที่บันทึกไว้ยังมีอยู่ไหม
   try {
     const { data: { session } } = await supabaseClient.auth.getSession();
     const saved = session?.user?.user_metadata?.avatar;
     if (saved) {
       // เดิมเป็นรายชื่อตายตัว ร่างที่นำเข้าใหม่จึงถูกปัดทิ้งทุกครั้งที่โหลดหน้า
       if (knownAvatarIds.has(saved.model)) selected.model = saved.model;
+      else if (saved.model) console.warn("[AVATAR] ร่างที่บันทึกไว้ไม่อยู่ในทะเบียนแล้ว:", saved.model);
       if (['catwalk', 'walking'].includes(saved.anim)) selected.anim = saved.anim;
       if (typeof saved.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(saved.color)) selected.color = saved.color;
     }
@@ -713,9 +726,6 @@ const pvClock = new THREE.Clock();
 
 loadSavedConfig();
 </script>
-<script src="collapse-group.js"></script>
-<script src="app-config.js"></script>
-<script src="avatar-import.js"></script>
 <script src="notifications.js"></script>
 </body>
 </html>

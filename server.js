@@ -1564,12 +1564,22 @@ function colorForUserId(userId) {
 }
 
 // config ตัวละครจากหน้า Avatar (เก็บใน user_metadata ของบัญชี) — กรองค่าก่อนใช้เสมอ
-const AVATAR_MODEL_KEYS = ['engineer', 'character', 'ch22', 'ch07', 'remy'];
+// ร่างที่ใช้ได้จริง = ร่างที่มากับระบบ + ทุกร่างในทะเบียน (ทั้งร่างกลางและร่างส่วนตัว)
+// เดิมตรงนี้เป็นรายชื่อตายตัว ร่างที่ผู้ใช้สร้างเองจึงถูกปัดเป็น engineer ทุกครั้งตอนเข้าโลก 3D
+// ผู้ใช้เลือกและบันทึกร่างสำเร็จในหน้า Avatar แต่พอเข้า metaverse กลับเป็นร่างเริ่มต้น
+//
+// ตรวจกับทะเบียน ณ ตอนเรียก ไม่ใช่ตอนเปิดเซิร์ฟเวอร์ — ร่างที่เพิ่งนำเข้าจึงใช้ได้ทันที
+function avatarModelExists(id) {
+    if (!id || typeof id !== 'string') return false;
+    if (id === 'engineer') return true;                      // ร่างพื้นฐาน ไม่มีไฟล์
+    if (BUILTIN_AVATARS.some(b => b.id === id)) return true;
+    return avatarCatalog.some(a => a.id === id);
+}
 const AVATAR_ANIM_KEYS = ['catwalk', 'walking'];
 function sanitizeAvatarConfig(raw) {
     if (!raw || typeof raw !== 'object') return null;
     return {
-        model: AVATAR_MODEL_KEYS.includes(raw.model) ? raw.model : 'engineer',
+        model: avatarModelExists(raw.model) ? raw.model : 'engineer',
         anim: AVATAR_ANIM_KEYS.includes(raw.anim) ? raw.anim : 'catwalk',
         color: (typeof raw.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(raw.color)) ? raw.color : null
     };
