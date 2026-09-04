@@ -76,10 +76,17 @@ window.AecAvatarImport = (function () {
     const name = `avatars/${id}.glb`;
     const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${BUCKET}/${name}`, {
       method: 'POST',
-      headers: { Authorization: 'Bearer ' + SUPABASE_ANON_KEY, 'Content-Type': 'model/gltf-binary', 'x-upsert': 'true' },
+      // ใช้ application/octet-stream เหมือนการอัปโมเดลโรงงานที่ใช้ได้มานาน
+      // ถ้าที่เก็บจำกัดชนิดไฟล์ไว้ model/gltf-binary อาจไม่อยู่ในรายการที่อนุญาต
+      headers: { Authorization: 'Bearer ' + SUPABASE_ANON_KEY, 'Content-Type': 'application/octet-stream', 'x-upsert': 'true' },
       body: file
     });
-    if (!res.ok) throw new Error(await res.text());
+    if (!res.ok) {
+      const raw = await res.text();
+      let msg = raw;
+      try { const j = JSON.parse(raw); msg = j.message || j.error || raw; } catch (e) { /* ไม่ใช่ JSON ก็ใช้ข้อความดิบ */ }
+      throw new Error('อัปโหลดไฟล์ไม่สำเร็จ: ' + String(msg).slice(0, 160));
+    }
     return `${SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${name}`;
   }
 
