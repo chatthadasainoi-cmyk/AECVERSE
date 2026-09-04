@@ -16,8 +16,14 @@ window.AecAvatarImport = (function () {
   const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh6bG9rbWl4Zmtmcm1rdXVjZmhnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1NzA5NTUsImV4cCI6MjA5ODE0Njk1NX0.DSj0c7XN979948Iq5rGmWqI9ddcbg56OmfKFin--Luo';
   const BUCKET = 'models';
 
-  const slug = t => String(t).toLowerCase().replace(/\.glb$/, '')
-    .replace(/[^a-z0-9ก-๙]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'avatar';
+  // id และชื่อไฟล์ต้องเป็น ASCII ล้วน — ที่เก็บไฟล์ปฏิเสธ key ที่มีอักษรไทยหรือจุด
+  // (เคยปล่อยอักษรไทยผ่าน แล้วอัปโหลดล้มด้วย InvalidKey: avatars/ร่างของฉัน-4-ก.ย._...glb)
+  // ชื่อที่ผู้ใช้ตั้งไว้ยังเก็บครบใน name ซึ่งเป็นตัวที่แสดงบนหน้าจอ
+  const slug = t => String(t).toLowerCase().replace(/.glb$/, '')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32);
+  // ชื่อไทยล้วนจะเหลือค่าว่างหลัง slug — ต้องมี id ที่ใช้ได้เสมอและไม่ชนกัน
+  const safeId = name => (slug(name) ? slug(name) + '-' : 'avatar-') +
+    Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
   async function authHeaders() {
     const { data } = await supabaseClient.auth.getSession();
@@ -66,7 +72,8 @@ window.AecAvatarImport = (function () {
   }
 
   async function uploadToStorage(file, id) {
-    const name = `avatars/${id}_${Date.now()}.glb`;
+    // id ผ่าน safeId มาแล้วจึงเป็น ASCII ล้วน ใช้เป็น key ได้ตรงๆ
+    const name = `avatars/${id}.glb`;
     const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${BUCKET}/${name}`, {
       method: 'POST',
       headers: { Authorization: 'Bearer ' + SUPABASE_ANON_KEY, 'Content-Type': 'model/gltf-binary', 'x-upsert': 'true' },
@@ -92,7 +99,7 @@ window.AecAvatarImport = (function () {
     if (!info.meshes) throw new Error('ไม่พบชิ้นส่วนที่มองเห็นได้ในไฟล์นี้');
     say(`พบ ${info.meshes} ชิ้นส่วน · ${info.tris.toLocaleString()} สามเหลี่ยม · กระดูก ${info.bones} ชิ้น · สูง ${info.heightM} ม.`);
 
-    const id = slug(displayName || file.name);
+    const id = safeId(displayName || file.name);
     say('กำลังอัปโหลด...');
     const url = await uploadToStorage(file, id);
 
