@@ -337,8 +337,42 @@ async function deletePersonalAvatar(id) {
     say('');
   }
 
-  openBtn.addEventListener('click', () => {
+  // ตัวสร้างเปิดไม่ได้ (ยังไม่ตั้ง subdomain หรือเน็ตเข้าไม่ถึง) -> อธิบายเองในกล่อง
+  // ไม่ปล่อยให้เบราว์เซอร์โชว์หน้า "server IP address could not be found" ซึ่งผู้ใช้ทำอะไรต่อไม่ถูก
+  function showUnavailable(reason) {
+    frameBox.innerHTML = `
+      <div style="height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;
+                  gap:12px;text-align:center;padding:28px;">
+        <div style="font-size:32px;">🧩</div>
+        <div style="font-size:14px;font-weight:800;color:var(--text-0);">ยังใช้ตัวสร้างตัวละครไม่ได้</div>
+        <div style="font-size:12px;color:var(--text-2);line-height:1.75;max-width:440px;">${reason}</div>
+        <div style="font-size:11.5px;color:var(--text-1);line-height:1.75;max-width:440px;
+                    background:var(--panel-2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">
+          <b>ระหว่างนี้ยังสร้างตัวละครเองได้</b><br>
+          ปั้นร่างจากที่ไหนก็ได้ที่ส่งออกเป็นไฟล์ <b>.glb</b> ได้ (Ready Player Me, VRoid Studio, Blender)
+          แล้วใช้ปุ่ม <b>“เลือกไฟล์ .glb”</b> ด้านล่างอัปเข้ามา — ระบบตรวจโครงกระดูกให้เหมือนกันทุกอย่าง
+        </div>
+      </div>`;
+  }
+
+  openBtn.addEventListener('click', async () => {
     modal.style.display = 'flex';
+    frameBox.innerHTML = '';
+    say('กำลังเปิดตัวสร้าง...');
+
+    if (!AecAvatarImport.isConfigured()) {
+      say('');
+      showUnavailable('ยังไม่ได้ตั้งค่า subdomain ของ Ready Player Me — ตัวสร้างของแต่ละองค์กรอยู่คนละ subdomain ' +
+        'ต้องสมัครที่ readyplayer.me ก่อน แล้วผู้ดูแลระบบใส่ชื่อ subdomain ที่ได้ลงในไฟล์ <b>app-config.js</b>');
+      return;
+    }
+    say('กำลังตรวจการเชื่อมต่อ...');
+    if (!(await AecAvatarImport.creatorReachable())) {
+      say('');
+      showUnavailable('เปิด <b>' + AecAvatarImport.RPM_ORIGIN + '</b> ไม่ได้ — อาจเป็นเพราะ subdomain ที่ตั้งไว้ไม่ถูกต้อง ' +
+        'หรือเครือข่ายนี้เข้าเว็บภายนอกไม่ได้');
+      return;
+    }
     say('กำลังเปิดตัวสร้าง...');
     const iframe = document.createElement('iframe');
     iframe.src = AecAvatarImport.creatorUrl();
@@ -605,6 +639,7 @@ const pvClock = new THREE.Clock();
 
 loadSavedConfig();
 </script>
+<script src="app-config.js"></script>
 <script src="avatar-import.js"></script>
 <script src="notifications.js"></script>
 </body>

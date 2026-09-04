@@ -121,11 +121,26 @@ window.AecAvatarImport = (function () {
   //  1) ร่างจะไม่หายถ้าวันหนึ่งเขาเปลี่ยนหรือลบไฟล์ฝั่งนั้น
   //  2) ผ่านการตรวจโครงกระดูกชุดเดียวกับไฟล์ที่อัปเอง ไม่ต้องมีทางลัดพิเศษ
   //  3) ทะเบียนยังคงกฎเดิม — รับเฉพาะไฟล์ในที่เก็บของระบบ
-  const RPM_SUBDOMAIN = 'demo';   // เปลี่ยนเป็น subdomain ขององค์กรได้เมื่อสมัคร RPM
-  const RPM_ORIGIN = 'https://' + RPM_SUBDOMAIN + '.readyplayer.me';
+  // subdomain ของ RPM ต้องตั้งเอง — ตัวสร้างของแต่ละองค์กรอยู่คนละ subdomain
+  // (เคยฮาร์ดโค้ดเป็น 'demo' ซึ่ง DNS หาไม่เจอ ผู้ใช้เลยเจอหน้า error ของเบราว์เซอร์เปล่าๆ)
+  // ตั้งค่าได้ที่ public/app-config.js — ไม่ต้องแก้ไฟล์นี้
+  const RPM_SUBDOMAIN = (window.AEC_RPM_SUBDOMAIN || '').trim();
+  const RPM_ORIGIN = RPM_SUBDOMAIN ? 'https://' + RPM_SUBDOMAIN + '.readyplayer.me' : '';
+  const isConfigured = () => !!RPM_SUBDOMAIN;
 
   // bodyType=fullbody จำเป็น — แบบครึ่งตัวไม่มีขา ท่าเดินใช้ไม่ได้
   const creatorUrl = () => RPM_ORIGIN + '/avatar?frameApi&bodyType=fullbody&clearCache';
+
+  // เช็คว่าเปิดถึงจริงมั้ยก่อนยัด iframe เข้าไป
+  // ถ้า DNS ไม่มีหรือเน็ตปิดกั้น เบราว์เซอร์จะโชว์หน้า error ของตัวเองซึ่งอ่านไม่รู้เรื่อง
+  // เราอยากบอกเองว่าเกิดอะไรขึ้นและทำอะไรต่อได้
+  async function creatorReachable() {
+    if (!isConfigured()) return false;
+    try {
+      await fetch(RPM_ORIGIN + '/', { mode: 'no-cors', signal: AbortSignal.timeout(8000) });
+      return true;
+    } catch (err) { return false; }
+  }
 
   // ผูกกับ iframe ที่หน้าเว็บสร้างไว้ คืนฟังก์ชันไว้เลิกฟัง
   function bindCreator(iframe, onAvatarUrl) {
@@ -180,5 +195,6 @@ window.AecAvatarImport = (function () {
     return body;
   }
 
-  return { importFile, importFromUrl, inspectGlb, list, remove, MAX_MB, creatorUrl, bindCreator, RPM_ORIGIN };
+  return { importFile, importFromUrl, inspectGlb, list, remove, MAX_MB,
+           creatorUrl, bindCreator, isConfigured, creatorReachable, get RPM_ORIGIN() { return RPM_ORIGIN; } };
 })();
