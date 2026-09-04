@@ -242,7 +242,9 @@ a{color:inherit;text-decoration:none;} button{font-family:inherit;}
           </div>
           <button id="rpm-close" style="background:none;border:none;color:var(--text-2);font-size:18px;cursor:pointer;">✕</button>
         </div>
-        <div id="rpm-frame-box" style="flex:1;min-height:0;position:relative;background:#0b0f17;"></div>
+        <div id="rpm-frame-box" style="flex:1;min-height:0;position:relative;background:#0b0f17;">
+          <div id="avaturn-sdk-container" style="width:100%;height:100%;border:none;"></div>
+        </div>
         <div id="rpm-status" style="padding:10px 14px;font-size:11.5px;color:var(--text-2);
              border-top:1px solid var(--border-soft);min-height:18px;"></div>
       </div>
@@ -332,8 +334,9 @@ async function deletePersonalAvatar(id) {
 
   function close() {
     modal.style.display = 'none';
-    if (unbind) { unbind(); unbind = null; }
-    frameBox.innerHTML = '';        // ถอด iframe ทิ้ง ไม่ให้ค้างกินหน่วยความจำ
+    AecAvatarImport.closeCreator();
+    const c = document.getElementById('avaturn-sdk-container');
+    if (c) c.innerHTML = '';        // ถอด iframe ทิ้ง ไม่ให้ค้างกินหน่วยความจำ
     say('');
   }
 
@@ -357,43 +360,44 @@ async function deletePersonalAvatar(id) {
 
   openBtn.addEventListener('click', async () => {
     modal.style.display = 'flex';
-    frameBox.innerHTML = '';
-    say('กำลังเปิดตัวสร้าง...');
+    say('กำลังตรวจการเชื่อมต่อ...');
 
     if (!AecAvatarImport.isConfigured()) {
       say('');
-      showUnavailable('ยังไม่ได้ตั้งค่า subdomain ของ Ready Player Me — ตัวสร้างของแต่ละองค์กรอยู่คนละ subdomain ' +
-        'ต้องสมัครที่ readyplayer.me ก่อน แล้วผู้ดูแลระบบใส่ชื่อ subdomain ที่ได้ลงในไฟล์ <b>app-config.js</b>');
+      showUnavailable('ยังไม่ได้ตั้งค่าตัวสร้างตัวละคร — ผู้ดูแลระบบใส่ชื่อ subdomain ลงในไฟล์ <b>app-config.js</b> ก่อน');
       return;
     }
-    say('กำลังตรวจการเชื่อมต่อ...');
     if (!(await AecAvatarImport.creatorReachable())) {
       say('');
-      showUnavailable('เปิด <b>' + AecAvatarImport.RPM_ORIGIN + '</b> ไม่ได้ — อาจเป็นเพราะ subdomain ที่ตั้งไว้ไม่ถูกต้อง ' +
-        'หรือเครือข่ายนี้เข้าเว็บภายนอกไม่ได้');
+      showUnavailable('เปิด <b>' + AecAvatarImport.creatorOrigin + '</b> ไม่ได้ — อาจเป็นเพราะเครือข่ายนี้เข้าเว็บภายนอกไม่ได้ ' +
+        'หรือ subdomain ที่ตั้งไว้ไม่ถูกต้อง');
       return;
     }
-    say('กำลังเปิดตัวสร้าง...');
-    const iframe = document.createElement('iframe');
-    iframe.src = AecAvatarImport.creatorUrl();
-    iframe.allow = 'camera *; microphone *; clipboard-write';   // ตัวสร้างมีโหมดถ่ายรูปหน้าเพื่อทำ avatar
-    iframe.style.cssText = 'width:100%;height:100%;border:0;display:block;';
-    frameBox.appendChild(iframe);
-    iframe.addEventListener('load', () => say('เลือกทรงผม รูปหน้า และเสื้อผ้าได้เลย — เสร็จแล้วกดปุ่มยืนยันในตัวสร้าง'));
 
-    unbind = AecAvatarImport.bindCreator(iframe, async url => {
-      // ตัวสร้างส่ง URL มาแล้ว — ดึงไฟล์มาเก็บที่ระบบเราและลงทะเบียนให้
-      openBtn.disabled = true;
-      try {
-        const name = 'ร่างของฉัน ' + new Date().toLocaleDateString('th-TH', { day: 'numeric', month: 'short' });
-        const r = await AecAvatarImport.importFromUrl(url, name, say);
-        say('เพิ่มร่างเรียบร้อย' + (r.info.rigged ? ' — เดินได้ปกติ' : ' — ไม่มีโครงกระดูก จึงยืนนิ่ง'), r.info.rigged ? 'ok' : 'bad');
-        await loadAvatarCatalog();
-        selectModel(r.avatar.id);
-        setTimeout(close, 1200);
-      } catch (err) { say(err.message || 'บันทึกร่างไม่สำเร็จ', 'bad'); }
-      finally { openBtn.disabled = false; }
-    });
+    say('กำลังเปิดตัวสร้าง...');
+    // showUnavailable อาจเคยวาดทับกล่องนี้ไป ต้องสร้าง container ของ SDK คืนก่อนใช้
+    frameBox.innerHTML = '<div id="avaturn-sdk-container" style="width:100%;height:100%;border:none;"></div>';
+    const container = document.getElementById('avaturn-sdk-container');
+    try {
+      await AecAvatarImport.openCreator(container, async url => {
+        // ผู้ใช้กดยืนยันร่างแล้ว — ดึงไฟล์มาเก็บที่ระบบเราและลงทะเบียนให้
+        openBtn.disabled = true;
+        try {
+          const name = 'ร่างของฉัน ' + new Date().toLocaleDateString('th-TH', { day: 'numeric', month: 'short' });
+          const r = await AecAvatarImport.importFromUrl(url, name, say);
+          say('เพิ่มร่างเรียบร้อย' + (r.info.rigged ? ' — เดินได้ปกติ' : ' — ไม่มีโครงกระดูก จึงยืนนิ่ง'), r.info.rigged ? 'ok' : 'bad');
+          await loadAvatarCatalog();
+          selectModel(r.avatar.id);
+          setTimeout(close, 1400);
+        } catch (err) { say(err.message || 'บันทึกร่างไม่สำเร็จ', 'bad'); }
+        finally { openBtn.disabled = false; }
+      });
+      say('เลือกรูปร่าง ทรงผม และเสื้อผ้าได้เลย — เสร็จแล้วกดปุ่มยืนยันในตัวสร้าง' +
+          (AecAvatarImport.usingDemo() ? ' · โปรเจกต์ทดลอง (demo) จะให้สมัคร/ล็อกอิน Avaturn ก่อนหนึ่งครั้ง' : ''));
+    } catch (err) {
+      say('');
+      showUnavailable('โหลดตัวสร้างไม่สำเร็จ: ' + (err && err.message ? err.message : 'ไม่ทราบสาเหตุ'));
+    }
   });
 
   document.getElementById('rpm-close').addEventListener('click', close);

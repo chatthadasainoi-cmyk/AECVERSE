@@ -113,56 +113,51 @@ window.AecAvatarImport = (function () {
     return { avatar: body.avatar, info };
   }
 
-  // ---------- Ready Player Me ----------
-  // ตัวสร้าง avatar ของ RPM เปิดใน iframe แล้วคุยกันด้วย postMessage
-  // ผู้ใช้เลือกทรงผม/รูปหน้า/สีผิว/เสื้อผ้าที่นั่น พอกดเสร็จมันส่ง URL ของไฟล์ .glb กลับมา
+  // ---------- ตัวสร้างตัวละคร (Avaturn) ----------
+  // เดิมจะใช้ Ready Player Me แต่โดเมนนั้นไม่มีอยู่แล้ว (DNS ตอบ NXDOMAIN ทั้งเครื่องผมและเครื่องผู้ใช้)
+  // Avaturn ทำงานแบบเดียวกันและยังเปิดอยู่ — ตรวจแล้วว่า demo.avaturn.dev, developer.avaturn.me
+  // และ SDK บน jsdelivr เข้าถึงได้จริง
+  //
+  // ที่สำคัญคือร่างของ Avaturn ใช้โครงกระดูกมาตรฐานที่เข้ากับ Mixamo ได้ ท่าเดินของเราจึงใช้ได้เลย
   //
   // เราไม่เก็บ URL ของเขาไว้ตรงๆ แต่ดึงไฟล์มาเก็บที่เก็บของเราเอง เพราะ
-  //  1) ร่างจะไม่หายถ้าวันหนึ่งเขาเปลี่ยนหรือลบไฟล์ฝั่งนั้น
+  //  1) ร่างจะไม่หายถ้าวันหนึ่งเขาเปลี่ยนหรือลบไฟล์ฝั่งนั้น (และ url อาจเป็น dataURL ชั่วคราวด้วย)
   //  2) ผ่านการตรวจโครงกระดูกชุดเดียวกับไฟล์ที่อัปเอง ไม่ต้องมีทางลัดพิเศษ
   //  3) ทะเบียนยังคงกฎเดิม — รับเฉพาะไฟล์ในที่เก็บของระบบ
-  // subdomain ของ RPM ต้องตั้งเอง — ตัวสร้างของแต่ละองค์กรอยู่คนละ subdomain
-  // (เคยฮาร์ดโค้ดเป็น 'demo' ซึ่ง DNS หาไม่เจอ ผู้ใช้เลยเจอหน้า error ของเบราว์เซอร์เปล่าๆ)
-  // ตั้งค่าได้ที่ public/app-config.js — ไม่ต้องแก้ไฟล์นี้
-  const RPM_SUBDOMAIN = (window.AEC_RPM_SUBDOMAIN || '').trim();
-  const RPM_ORIGIN = RPM_SUBDOMAIN ? 'https://' + RPM_SUBDOMAIN + '.readyplayer.me' : '';
-  const isConfigured = () => !!RPM_SUBDOMAIN;
+  const AVATURN_SDK = 'https://cdn.jsdelivr.net/npm/@avaturn/sdk/dist/index.js';
+  const AVATURN_SUBDOMAIN = (window.AEC_AVATURN_SUBDOMAIN || 'demo').trim();
+  const creatorOrigin = () => 'https://' + AVATURN_SUBDOMAIN + '.avaturn.dev';
+  const isConfigured = () => !!AVATURN_SUBDOMAIN;
+  const usingDemo = () => AVATURN_SUBDOMAIN === 'demo';
 
-  // bodyType=fullbody จำเป็น — แบบครึ่งตัวไม่มีขา ท่าเดินใช้ไม่ได้
-  const creatorUrl = () => RPM_ORIGIN + '/avatar?frameApi&bodyType=fullbody&clearCache';
-
-  // เช็คว่าเปิดถึงจริงมั้ยก่อนยัด iframe เข้าไป
-  // ถ้า DNS ไม่มีหรือเน็ตปิดกั้น เบราว์เซอร์จะโชว์หน้า error ของตัวเองซึ่งอ่านไม่รู้เรื่อง
-  // เราอยากบอกเองว่าเกิดอะไรขึ้นและทำอะไรต่อได้
+  // เช็คว่าเปิดถึงจริงก่อนเริ่ม — ถ้าโดเมนตาย/เน็ตปิดกั้น จะได้บอกเองว่าเกิดอะไรขึ้น
+  // แทนที่จะปล่อยให้ SDK ค้างหรือขึ้นหน้า error ของเบราว์เซอร์ในกล่องเรา
   async function creatorReachable() {
     if (!isConfigured()) return false;
     try {
-      await fetch(RPM_ORIGIN + '/', { mode: 'no-cors', signal: AbortSignal.timeout(8000) });
+      await fetch(creatorOrigin() + '/', { mode: 'no-cors', signal: AbortSignal.timeout(8000) });
       return true;
     } catch (err) { return false; }
   }
 
-  // ผูกกับ iframe ที่หน้าเว็บสร้างไว้ คืนฟังก์ชันไว้เลิกฟัง
-  function bindCreator(iframe, onAvatarUrl) {
-    const onMsg = e => {
-      if (e.origin !== RPM_ORIGIN) return;            // รับเฉพาะข้อความจากตัวสร้างของ RPM
-      let json;
-      try { json = typeof e.data === 'string' ? JSON.parse(e.data) : e.data; }
-      catch (err) { return; }
-      if (!json || json.source !== 'readyplayerme') return;
-      if (json.eventName === 'v1.frame.ready') {
-        iframe.contentWindow.postMessage(
-          JSON.stringify({ target: 'readyplayerme', type: 'subscribe', eventName: 'v1.**' }), '*');
-      }
-      if (json.eventName === 'v1.avatar.exported' && json.data && json.data.url) {
-        onAvatarUrl(json.data.url);
-      }
-    };
-    window.addEventListener('message', onMsg);
-    return () => window.removeEventListener('message', onMsg);
+  // เปิดตัวสร้างลงใน container ที่หน้าเว็บเตรียมไว้
+  // onExport(url) จะถูกเรียกเมื่อผู้ใช้กดยืนยันร่างของตัวเอง
+  let sdkInstance = null;
+  async function openCreator(container, onExport) {
+    const { AvaturnSDK } = await import(AVATURN_SDK);
+    sdkInstance = new AvaturnSDK();
+    await sdkInstance.init(container, { url: creatorOrigin() });
+    // data: { url, urlType: 'dataURL' | 'httpURL', gender, bodyId, ... }
+    sdkInstance.on('export', data => { if (data && data.url) onExport(data.url, data); });
+    return sdkInstance;
+  }
+  function closeCreator() {
+    try { if (sdkInstance && sdkInstance.destroy) sdkInstance.destroy(); }
+    catch (err) { console.warn('[AVATAR] ปิดตัวสร้างไม่สำเร็จ:', err); }
+    sdkInstance = null;
   }
 
-  // ดึงไฟล์ที่ RPM สร้างให้ แล้วส่งเข้าสายเดียวกับการอัปโหลดปกติ
+  // ดึงไฟล์ที่ตัวสร้างส่งมา (เป็น http หรือ dataURL ก็ได้) แล้วส่งเข้าสายเดียวกับการอัปโหลดปกติ
   async function importFromUrl(url, displayName, onStep) {
     const say = (t, tone) => { if (onStep) onStep(t, tone); };
     say('กำลังดึงร่างที่สร้างไว้...');
@@ -172,7 +167,7 @@ window.AecAvatarImport = (function () {
       if (!res.ok) throw new Error(String(res.status));
       blob = await res.blob();
     } catch (err) {
-      throw new Error('ดึงไฟล์ร่างจาก Ready Player Me ไม่สำเร็จ — ลองใหม่อีกครั้ง');
+      throw new Error('ดึงไฟล์ร่างจากตัวสร้างไม่สำเร็จ — ลองใหม่อีกครั้ง');
     }
     const file = new File([blob], (displayName || 'my-avatar') + '.glb', { type: 'model/gltf-binary' });
     return importFile(file, displayName, say, { personal: true, source: 'rpm' });
@@ -196,5 +191,6 @@ window.AecAvatarImport = (function () {
   }
 
   return { importFile, importFromUrl, inspectGlb, list, remove, MAX_MB,
-           creatorUrl, bindCreator, isConfigured, creatorReachable, get RPM_ORIGIN() { return RPM_ORIGIN; } };
+           openCreator, closeCreator, isConfigured, usingDemo, creatorReachable,
+           get creatorOrigin() { return creatorOrigin(); } };
 })();
