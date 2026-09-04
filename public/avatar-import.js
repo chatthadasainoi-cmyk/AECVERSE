@@ -189,10 +189,14 @@ window.AecAvatarImport = (function () {
 
   async function list() {
     try {
-      const res = await fetch('/api/avatars');
-      if (!res.ok) return { builtin: [], imported: [] };
+      // ต้องส่ง token — server ใช้ตัวนี้ตัดสินว่าใครถาม แล้วคืนร่างส่วนตัวของคนนั้นมาด้วย
+      // ถ้าไม่ส่ง server จะมองว่าไม่มีใครล็อกอิน แล้วกรองร่างส่วนตัวออกทั้งหมด
+      // (นี่คือสาเหตุที่ร่างซึ่งบันทึกสำเร็จแล้วไม่โผล่ในรายการเลย)
+      const h = await authHeaders();
+      const res = await fetch('/api/avatars', h ? { headers: h } : undefined);
+      if (!res.ok) return { builtin: [], imported: [], personal: [] };
       return await res.json();
-    } catch (err) { return { builtin: [], imported: [] }; }
+    } catch (err) { return { builtin: [], imported: [], personal: [] }; }
   }
 
   async function remove(id) {
