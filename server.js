@@ -826,38 +826,74 @@ function sanitizeAvatar(a) {
         uploadedBy: String(a.uploadedBy || '').slice(0, 120),
         uploadedAt: a.uploadedAt || new Date().toISOString(),
         sizeMb: Number.isFinite(Number(a.sizeMb)) ? Math.round(Number(a.sizeMb) * 10) / 10 : 0,
-        rigged: !!a.rigged          // มีโครงกระดูกแบบ Mixamo ไหม -> ท่าเดินใช้ได้หรือเปล่า
+        rigged: !!a.rigged,         // มีโครงกระดูกแบบ Mixamo ไหม -> ท่าเดินใช้ได้หรือเปล่า
+        // ร่างส่วนตัว: คนที่สร้างเห็นคนเดียว (เช่นร่างที่ปั้นเองจาก Ready Player Me)
+        // ร่างกลาง (ownerId ว่าง): พนักงานนำเข้าให้ทุกคนเลือกใช้
+        ownerId: String(a.ownerId || '').slice(0, 64),
+        source: ['rpm', 'upload'].includes(a.source) ? a.source : 'upload'
     };
 }
 
-// ใครก็ดูรายการร่างได้ — เป็นของที่ทุกคนต้องเลือกใช้
-app.get('/api/avatars', (req, res) => {
-    res.json({ builtin: BUILTIN_AVATARS, imported: avatarCatalog });
+// รายการร่าง = ร่างที่มากับระบบ + ร่างกลาง + ร่างส่วนตัวของคนที่ถามเท่านั้น
+// ร่างส่วนตัวของคนอื่นต้องไม่หลุดออกไป แม้แต่ชื่อ
+app.get('/api/avatars', async (req, res) => {
+    const user = await userFromRequest(req);
+    const mine = user ? user.id : '';
+    const visible = avatarCatalog.filter(a => !a.ownerId || a.ownerId === mine);
+    res.json({
+        builtin: BUILTIN_AVATARS,
+        imported: visible.filter(a => !a.ownerId),
+        personal: visible.filter(a => a.ownerId)
+    });
 });
 
-// นำเข้าร่างใหม่ — พนักงานเท่านั้น (ไฟล์ขึ้น Supabase แล้ว ส่งมาแค่ทะเบียน)
-app.post('/api/avatars', requireStaff, async (req, res) => {
-    const clean = sanitizeAvatar({ ...req.body, uploadedBy: req.staffUser.email });
+// นำเข้าร่าง — ร่างส่วนตัวใครก็สร้างได้ (เป็นตัวละครของตัวเอง)
+// ร่างกลางที่ทุกคนเลือกใช้ได้ ต้องเป็นพนักงานเท่านั้น
+const MAX_PERSONAL_AVATARS = 5;   // กันคนเดียวปั้นรัวจนทะเบียนบวม
+app.post('/api/avatars', async (req, res) => {
+    const user = await userFromRequest(req);
+    if (!user) return res.status(401).json({ error: 'ต้องเข้าสู่ระบบก่อน' });
+    const personal = !!(req.body && req.body.personal);
+    const role = userRole(user);
+    if (!personal && role === 'user') {
+        return res.status(403).json({ error: 'เพิ่มร่างกลางให้ทุกคนใช้ได้เฉพาะพนักงาน — ร่างของตัวเองสร้างได้ตามปกติ' });
+    }
+
+    const clean = sanitizeAvatar({
+        ...req.body,
+        uploadedBy: user.email,
+        ownerId: personal ? user.id : ''      // เชื่อ session ไม่ใช่ค่าที่ client ส่งมา
+    });
     if (!clean) {
         return res.status(400).json({ error: 'ข้อมูลร่างไม่ถูกต้อง — ไฟล์ต้องอัปโหลดขึ้นที่เก็บของระบบก่อน' });
+    }
+    if (personal && avatarCatalog.filter(a => a.ownerId === user.id).length >= MAX_PERSONAL_AVATARS) {
+        return res.status(429).json({ error: `เก็บร่างของตัวเองได้สูงสุด ${MAX_PERSONAL_AVATARS} ร่าง — ลบร่างเก่าออกก่อน` });
     }
     if (BUILTIN_AVATARS.some(b => b.id === clean.id) || avatarCatalog.some(a => a.id === clean.id)) {
         return res.status(409).json({ error: 'มีร่างชื่อนี้อยู่แล้ว' });
     }
     avatarCatalog.unshift(clean);
     await persistJsonFile(AVATAR_CATALOG_FILE, avatarCatalog);
-    console.log(`[AVATAR] ${req.staffUser.email} นำเข้าร่าง "${clean.name}"${clean.rigged ? '' : ' (ไม่มีโครงกระดูก Mixamo)'}`);
+    console.log(`[AVATAR] ${user.email} ${personal ? 'สร้างร่างของตัวเอง' : 'นำเข้าร่างกลาง'} "${clean.name}"${clean.rigged ? '' : ' (ไม่มีโครงกระดูก Mixamo)'}`);
     res.json({ avatar: clean });
 });
 
-// ลบร่างที่นำเข้า — admin เท่านั้น เพราะกระทบทุกคนที่เลือกร่างนั้นอยู่
-app.delete('/api/avatars/:id', requireAdminLite, async (req, res) => {
+// ลบร่าง — ร่างของตัวเองลบเองได้, ร่างกลางต้อง admin เพราะกระทบทุกคนที่ใส่อยู่
+app.delete('/api/avatars/:id', async (req, res) => {
+    const user = await userFromRequest(req);
+    if (!user) return res.status(401).json({ error: 'ต้องเข้าสู่ระบบก่อน' });
     const i = avatarCatalog.findIndex(a => a.id === req.params.id);
     if (i < 0) return res.status(404).json({ error: 'ไม่พบร่างนี้ในทะเบียน' });
-    const [gone] = avatarCatalog.splice(i, 1);
+    const target = avatarCatalog[i];
+    const isOwner = target.ownerId && target.ownerId === user.id;
+    if (!isOwner && !isAdminUser(user)) {
+        return res.status(403).json({ error: 'ลบได้เฉพาะร่างของตัวเอง — ร่างกลางต้องให้ผู้ดูแลระบบลบ' });
+    }
+    avatarCatalog.splice(i, 1);
     await persistJsonFile(AVATAR_CATALOG_FILE, avatarCatalog);
-    console.log(`[AVATAR] ลบร่าง "${gone.name}" โดย ${req.adminUser.email}`);
-    res.json({ ok: true, removed: gone });
+    console.log(`[AVATAR] ลบร่าง "${target.name}" โดย ${user.email}`);
+    res.json({ ok: true, removed: target });
 });
 
 (async () => {
