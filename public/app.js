@@ -4424,7 +4424,13 @@ async function startWorld() {
     // เข้าเต็มจอ — ต้องขอในจังหวะที่ยังนับเป็นการกดของผู้ใช้อยู่ (เรียกจากตัวจัดการคลิกนี้)
     // ถ้าถูกปฏิเสธ (นโยบายเบราว์เซอร์/iframe ไม่อนุญาต) ก็ยังเดินชมได้ตามปกติ แค่ไม่เต็มจอ
     tourMode = true;
-    try { await requestTourFullscreen(); }
+    try {
+        await requestTourFullscreen();
+        const locked = await lockEscapeKey();
+        if (!locked) {
+            mpAppendChat({ name: '🖥️ ระบบ', color: '#9aa7b8', text: 'เบราว์เซอร์นี้ล็อกปุ่ม Esc ไม่ได้ (รองรับเฉพาะ Chrome/Edge บนคอมพิวเตอร์) — ถ้ากด Esc ออกไป จะมีแถบถามให้เลือกว่าจะกลับมาดูต่อหรือไปทำแบบทดสอบ' });
+        }
+    }
     catch (err) {
         console.warn('[TOUR] เข้าเต็มจอไม่สำเร็จ:', err);
         mpAppendChat({ name: '🖥️ ระบบ', color: '#f59e0b', text: 'เบราว์เซอร์ไม่อนุญาตให้เข้าโหมดเต็มจอ — เดินชมได้ตามปกติ กด "จบการเยี่ยมชม" เพื่อไปทำแบบทดสอบ' });
@@ -4444,14 +4450,89 @@ async function startWorld() {
 let tourMode = false;                    // อยู่ในรอบเยี่ยมชมที่เริ่มจากปุ่ม start หรือยัง
 const QUIZ_AFTER_TOUR = 'PublicKnowledge.html?phase=post';
 
-const isFullscreen = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+// โลก 3D ถูกฝังใน iframe เกือบตลอด (Dashboard / Virtual Tour) และงานสองอย่างนี้
+// ทำจากใน iframe ไม่ได้: Keyboard Lock ต้องเรียกจากหน้าบนสุดเท่านั้น และการพาผู้ใช้
+// ไปหน้าแบบทดสอบต้องเปลี่ยนทั้งหน้า ไม่ใช่แค่ในเฟรม -> ส่งให้ tour-host.js ทำแทน
+const inHostFrame = window.self !== window.top;
+let hostFullscreen = false;   // หน้าแม่รายงานมาว่าเต็มจออยู่มั้ย (เฟรมลูกมองเองไม่เห็น)
+
+const isFullscreen = () => inHostFrame
+    ? hostFullscreen
+    : !!(document.fullscreenElement || document.webkitFullscreenElement);
+
+function askHost(type, extra) {
+    try { window.top.postMessage({ type, ...extra }, location.origin); return true; }
+    catch (err) { console.warn('[TOUR] สั่งหน้าแม่ไม่สำเร็จ:', err); return false; }
+}
+
+// ---------- ล็อกปุ่ม Esc ระหว่างอยู่เต็มจอ ----------
+// Keyboard Lock API เป็นทางเดียวที่เบราว์เซอร์ยอมให้หน้าเว็บดัก Esc ตอนเต็มจอได้
+// (ออกแบบมาสำหรับงานแบบ kiosk / remote desktop โดยเฉพาะ) พอล็อกแล้ว Esc จะถูกส่ง
+// มาให้เราแทนที่จะพาออกจากเต็มจอ — ผู้ใช้จึงต้องกดปุ่มมุมซ้ายบนเพื่อออกจริงๆ
+//
+// ข้อจำกัดที่แก้ไม่ได้: รองรับเฉพาะ Chrome/Edge บนเดสก์ท็อป (Firefox/Safari ไม่มี API นี้)
+// และเบราว์เซอร์ยังการันตี "กด Esc ค้างไว้" ให้ออกได้เสมอ — เป็นทางหนีที่ถอดไม่ได้
+// ตามข้อกำหนดความปลอดภัย เว็บจะกักหน้าจอผู้ใช้ไว้สนิทไม่ได้
+let escapeLocked = false;
+
+async function lockEscapeKey() {
+    escapeLocked = false;
+    if (inHostFrame) return false;   // หน้าแม่เป็นคนล็อกให้ แล้วรายงานกลับมาทาง aec_tour_state
+    try {
+        if (!navigator.keyboard || !navigator.keyboard.lock) return false;
+        await navigator.keyboard.lock(['Escape']);
+        escapeLocked = true;
+        return true;
+    } catch (err) {
+        console.warn('[TOUR] ล็อกปุ่ม Esc ไม่สำเร็จ:', err);
+        return false;
+    }
+}
+function unlockEscapeKey() {
+    escapeLocked = false;
+    try { navigator.keyboard?.unlock?.(); } catch (err) { /* ไม่รองรับก็ไม่ต้องทำอะไร */ }
+}
+
+// Esc ถูกดักไว้แล้ว -> บอกทางออกที่ถูกต้องแทนที่จะเงียบจนผู้ใช้นึกว่าเครื่องค้าง
+let escHintAt = 0;
+function nudgeExitButton() {
+    const btn = $('tour-exit');
+    if (btn) { btn.classList.remove('nudge'); void btn.offsetWidth; btn.classList.add('nudge'); }
+    if (Date.now() - escHintAt < 4000) return;   // กดรัวๆ ไม่ต้องขึ้นข้อความซ้ำ
+    escHintAt = Date.now();
+    mpAppendChat({ name: '🖥️ ระบบ', color: '#f59e0b', text: 'กำลังอยู่ในรอบเยี่ยมชม — กดปุ่มมุมซ้ายบนเพื่อจบการเยี่ยมชมและไปทำแบบทดสอบ' });
+}
+window.addEventListener('keydown', e => {
+    if (e.key !== 'Escape' || !tourMode || !isFullscreen()) return;
+    e.preventDefault();
+    nudgeExitButton();
+}, true);
 
 function requestTourFullscreen() {
+    // อยู่ในเฟรม -> ให้หน้าแม่ขอเต็มจอ + ล็อก Esc (การกดปุ่มในเฟรมส่ง user activation
+    // ขึ้นไปถึงหน้าแม่ด้วย จึงยังขอ fullscreen ได้ ถ้าหน้าแม่ทำทันที)
+    if (inHostFrame) {
+        askHost('aec_tour_start');
+        return Promise.resolve();
+    }
     const el = document.documentElement;
     const fn = el.requestFullscreen || el.webkitRequestFullscreen;
     if (!fn) return Promise.reject(new Error('เบราว์เซอร์นี้ไม่รองรับโหมดเต็มจอ'));
     return Promise.resolve(fn.call(el, { navigationUI: 'hide' }));
 }
+
+// หน้าแม่รายงานสถานะ / ส่งต่อการกด Esc ที่ดักไว้ได้
+window.addEventListener('message', e => {
+    if (e.origin !== location.origin || !e.data) return;
+    if (e.data.type === 'aec_tour_state') {
+        hostFullscreen = !!e.data.fullscreen;
+        escapeLocked = !!e.data.escapeLocked;
+        setTourChrome();
+        if (tourMode && !hostFullscreen) $('tour-left-fs')?.classList.add('on');
+    } else if (e.data.type === 'aec_tour_esc') {
+        nudgeExitButton();
+    }
+});
 
 function setTourChrome() {
     const on = tourMode && isFullscreen();
@@ -4462,6 +4543,7 @@ function setTourChrome() {
 // ผู้ใช้กดกลับเข้าเต็มจอเอง — นับเป็น user gesture จึงขอ fullscreen ได้
 window.resumeTourFullscreen = function () {
     dismissTourPrompt();
+    if (inHostFrame) { askHost('aec_tour_resume'); return; }
     requestTourFullscreen().catch(err => console.warn('[TOUR] กลับเข้าเต็มจอไม่สำเร็จ:', err));
 };
 window.dismissTourPrompt = function () { $('tour-left-fs')?.classList.remove('on'); };
@@ -4470,19 +4552,18 @@ window.dismissTourPrompt = function () { $('tour-left-fs')?.classList.remove('on
 // โลก 3D อยู่ใน iframe (same-origin) จึงต้องพาทั้งหน้าไป ไม่ใช่เปลี่ยนแค่ใน iframe
 window.exitTourToQuiz = async function () {
     tourMode = false;
+    unlockEscapeKey();
     dismissTourPrompt();
+    // ในเฟรม: หน้าแม่ต้องเป็นคนปลดล็อก ออกจากเต็มจอ และเปลี่ยนหน้า (เฟรมทำเองไม่ได้)
+    if (inHostFrame && askHost('aec_tour_exit', { url: QUIZ_AFTER_TOUR })) return;
     try { if (isFullscreen()) await (document.exitFullscreen || document.webkitExitFullscreen).call(document); }
     catch (err) { console.warn('[TOUR] ออกจากเต็มจอไม่สำเร็จ:', err); }
-    try {
-        const top = window.top || window;
-        top.location.href = new URL(QUIZ_AFTER_TOUR, top.location.href).href;
-    } catch (err) {
-        window.location.href = QUIZ_AFTER_TOUR;   // ถูกบล็อกด้วย cross-origin -> เปลี่ยนเฉพาะเฟรมนี้
-    }
+    window.location.href = QUIZ_AFTER_TOUR;
 };
 
 ['fullscreenchange', 'webkitfullscreenchange'].forEach(ev =>
     document.addEventListener(ev, () => {
+        if (!isFullscreen()) unlockEscapeKey();   // หลุดออกจากเต็มจอด้วยวิธีใดก็ตาม -> คืนปุ่ม Esc ให้ระบบ
         setTourChrome();
         // หลุดออกจากเต็มจอเองระหว่างยังอยู่ในรอบเยี่ยมชม -> ถามว่าจะทำอะไรต่อ
         if (tourMode && !isFullscreen()) $('tour-left-fs')?.classList.add('on');
