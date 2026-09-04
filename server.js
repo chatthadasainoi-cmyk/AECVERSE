@@ -790,6 +790,82 @@ function pushBroadcast({ kind, title, body, link }) {
 // ---------- ประกาศเหตุฉุกเฉิน ----------
 // แยกจาก "เรียกรวมพล" ในโลก 3D (อันนั้นผูกกับจุดที่ปักไว้) — อันนี้คือประกาศเหตุ
 // ให้ทุกคนรู้ ไม่ต้องมีจุดในฉาก ใช้ได้จากหน้า Emergency และจากบทเรียน type อันตราย
+
+// ============================================================
+// ทะเบียนร่างตัวละคร (Avatar)
+// เดิมมีแค่ 4 ร่างที่ฝังไว้ในโค้ด เพิ่มร่างใหม่ต้องแก้ไฟล์แล้ว deploy ใหม่
+// ตอนนี้พนักงานอัปโหลด .glb เข้ามาเพิ่มเองได้ ทุกคนเลือกใช้ได้ทันที
+//
+// ตัวไฟล์เก็บที่ Supabase Storage เหมือนโมเดลโรงงาน (client อัปตรง ไม่ผ่าน server
+// เพื่อไม่ให้ไฟล์หลายเมกะไบต์วิ่งผ่าน Node) — ที่นี่เก็บแค่ "ทะเบียน" ว่ามีร่างอะไรบ้าง
+// ============================================================
+const AVATAR_CATALOG_FILE = IS_PRODUCTION ? 'avatar_catalog_v1.json' : 'avatar_catalog_dev.json';
+
+// ร่างที่มากับระบบ — ลบไม่ได้ ไม่ได้อยู่ใน Supabase
+const BUILTIN_AVATARS = [
+    { id: 'engineer', name: 'วิศวกร (ร่างพื้นฐาน)', url: '', builtin: true },
+    { id: 'character', name: 'Character', url: 'avatars/character.glb', builtin: true },
+    { id: 'ch22', name: 'CH22', url: 'avatars/ch22.glb', builtin: true },
+    { id: 'ch07', name: 'CH07', url: 'avatars/ch07.glb', builtin: true },
+    { id: 'remy', name: 'Remy', url: 'avatars/remy.glb', builtin: true }
+];
+let avatarCatalog = [];   // เฉพาะร่างที่นำเข้าเพิ่ม
+
+function sanitizeAvatar(a) {
+    if (!a || typeof a !== 'object') return null;
+    const id = String(a.id || '').trim().slice(0, 60);
+    const url = String(a.url || '').trim().slice(0, 400);
+    if (!id || !url) return null;
+    // ต้องเป็นไฟล์ในที่เก็บของเราเท่านั้น — กัน URL ภายนอกถูกยัดเข้าทะเบียน
+    // แล้วกลายเป็นให้ทุกคนโหลดไฟล์จากที่ที่เราควบคุมไม่ได้
+    if (!url.startsWith(`${SUPABASE_URL}/storage/v1/object/public/`)) return null;
+    return {
+        id,
+        name: String(a.name || id).trim().slice(0, 80),
+        url,
+        uploadedBy: String(a.uploadedBy || '').slice(0, 120),
+        uploadedAt: a.uploadedAt || new Date().toISOString(),
+        sizeMb: Number.isFinite(Number(a.sizeMb)) ? Math.round(Number(a.sizeMb) * 10) / 10 : 0,
+        rigged: !!a.rigged          // มีโครงกระดูกแบบ Mixamo ไหม -> ท่าเดินใช้ได้หรือเปล่า
+    };
+}
+
+// ใครก็ดูรายการร่างได้ — เป็นของที่ทุกคนต้องเลือกใช้
+app.get('/api/avatars', (req, res) => {
+    res.json({ builtin: BUILTIN_AVATARS, imported: avatarCatalog });
+});
+
+// นำเข้าร่างใหม่ — พนักงานเท่านั้น (ไฟล์ขึ้น Supabase แล้ว ส่งมาแค่ทะเบียน)
+app.post('/api/avatars', requireStaff, async (req, res) => {
+    const clean = sanitizeAvatar({ ...req.body, uploadedBy: req.staffUser.email });
+    if (!clean) {
+        return res.status(400).json({ error: 'ข้อมูลร่างไม่ถูกต้อง — ไฟล์ต้องอัปโหลดขึ้นที่เก็บของระบบก่อน' });
+    }
+    if (BUILTIN_AVATARS.some(b => b.id === clean.id) || avatarCatalog.some(a => a.id === clean.id)) {
+        return res.status(409).json({ error: 'มีร่างชื่อนี้อยู่แล้ว' });
+    }
+    avatarCatalog.unshift(clean);
+    await persistJsonFile(AVATAR_CATALOG_FILE, avatarCatalog);
+    console.log(`[AVATAR] ${req.staffUser.email} นำเข้าร่าง "${clean.name}"${clean.rigged ? '' : ' (ไม่มีโครงกระดูก Mixamo)'}`);
+    res.json({ avatar: clean });
+});
+
+// ลบร่างที่นำเข้า — admin เท่านั้น เพราะกระทบทุกคนที่เลือกร่างนั้นอยู่
+app.delete('/api/avatars/:id', requireAdminLite, async (req, res) => {
+    const i = avatarCatalog.findIndex(a => a.id === req.params.id);
+    if (i < 0) return res.status(404).json({ error: 'ไม่พบร่างนี้ในทะเบียน' });
+    const [gone] = avatarCatalog.splice(i, 1);
+    await persistJsonFile(AVATAR_CATALOG_FILE, avatarCatalog);
+    console.log(`[AVATAR] ลบร่าง "${gone.name}" โดย ${req.adminUser.email}`);
+    res.json({ ok: true, removed: gone });
+});
+
+(async () => {
+    const loaded = await loadJsonFile(AVATAR_CATALOG_FILE, []);
+    avatarCatalog = loaded.map(sanitizeAvatar).filter(Boolean);
+    console.log(`[AVATAR] โหลดร่างที่นำเข้า ${avatarCatalog.length} ร่าง`);
+})();
+
 app.post('/api/emergency/announce', requireStaff, (req, res) => {
     const b = req.body || {};
     const title = String(b.title || '').trim().slice(0, 160);

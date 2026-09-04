@@ -499,6 +499,24 @@ const WALK_ANIM_FILES = {
     walking: 'avatars/walking_anim.glb'
 };
 
+// ร่างที่พนักงานนำเข้าเพิ่มทีหลัง — ดึงทะเบียนจาก server ครั้งเดียวตอนเปิดโลก
+// เก็บเป็น id -> url เหมือน AVATAR_MODEL_FILES เพื่อให้โค้ดที่เหลือใช้ทางเดียวกันหมด
+const importedAvatarFiles = {};
+const avatarCatalogReady = (async () => {
+    try {
+        const res = await fetch('/api/avatars');
+        if (!res.ok) return;
+        const body = await res.json();
+        (body.imported || []).forEach(a => { if (a && a.id && a.url) importedAvatarFiles[a.id] = a.url; });
+    } catch (err) {
+        // ดึงทะเบียนไม่ได้ก็เข้าโลกได้ตามปกติ แค่ใช้ได้เฉพาะร่างที่มากับระบบ
+        console.warn('[AVATAR] ดึงทะเบียนร่างที่นำเข้าไม่สำเร็จ:', err);
+    }
+})();
+
+// รวมร่างที่มากับระบบกับร่างที่นำเข้าไว้ที่เดียว
+const avatarUrlFor = key => AVATAR_MODEL_FILES[key] || importedAvatarFiles[key] || null;
+
 const _glbCache = {};
 function loadGlb(url) {
     if (!_glbCache[url]) {
@@ -538,7 +556,8 @@ function retargetClipToModel(clip, model) {
 }
 
 async function loadCharacterAssets(modelKey, animKey) {
-    const modelUrl = AVATAR_MODEL_FILES[modelKey] || AVATAR_MODEL_FILES.character;
+    await avatarCatalogReady;   // ผู้เล่นอาจเลือกร่างที่นำเข้าไว้ ต้องรอทะเบียนมาก่อน
+    const modelUrl = avatarUrlFor(modelKey) || AVATAR_MODEL_FILES.character;
     const animUrl = WALK_ANIM_FILES[animKey] || WALK_ANIM_FILES.catwalk;
     const [charGltf, animGltf] = await Promise.all([loadGlb(modelUrl), loadGlb(animUrl)]);
     return { scene: charGltf.scene, rawWalkClip: animGltf.animations[0] };
@@ -551,7 +570,11 @@ async function setAvatarVisual(container, config, color) {
     if (ud.ring) container.remove(ud.ring);
     ud.mixer = null; ud.walkAction = null; ud.idleAction = null; ud.currentAction = null; ud.isMovingState = false;
 
-    const model = (config && AVATAR_MODEL_FILES[config.model]) ? config.model : ((config && config.model) === 'engineer' ? 'engineer' : 'character');
+    await avatarCatalogReady;
+    const wanted = config && config.model;
+    // ร่างที่นำเข้าถือว่าใช้ได้เท่ากับร่างที่มากับระบบ — เดิมเช็คเฉพาะรายการตายตัว
+    // ร่างที่นำเข้าจึงถูกปัดกลับเป็น character ทุกครั้ง ทั้งที่ผู้ใช้เลือกไว้แล้ว
+    const model = (wanted && avatarUrlFor(wanted)) ? wanted : (wanted === 'engineer' ? 'engineer' : 'character');
     let visual = null;
     if (model !== 'engineer' && THREE.SkeletonUtils) {
         try {

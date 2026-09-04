@@ -170,6 +170,28 @@ a{color:inherit;text-decoration:none;} button{font-family:inherit;}
               </div>
             </div>
 
+            <!-- ร่างที่นำเข้าเพิ่ม — เติมจากทะเบียนบน server -->
+            <div id="imported-avatars"></div>
+
+            <!-- นำเข้าร่างใหม่ — เห็นเฉพาะพนักงาน (admin/engineer) -->
+            <div id="avatar-import-box" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--border-soft);">
+              <div class="section-label" style="margin-bottom:8px;">นำเข้าร่างใหม่</div>
+              <div style="font-size:11px;color:var(--text-2);line-height:1.65;margin-bottom:9px;">
+                ไฟล์ <b style="color:var(--text-1);">.glb</b> ขนาดไม่เกิน 12 MB · ท่าเดินของระบบเป็นคลิป Mixamo
+                ถ้าไฟล์ไม่มีโครงกระดูกแบบเดียวกัน ตัวละครจะยืนนิ่งไม่ขยับขา — ระบบจะตรวจให้ก่อนอัปโหลด
+              </div>
+              <input type="text" id="ai-name" placeholder="ชื่อร่าง เช่น ช่างเทคนิคหญิง"
+                style="width:100%;background:var(--panel-2);border:1px solid var(--border);border-radius:8px;
+                       padding:9px 11px;color:var(--text-0);font-size:12.5px;font-family:inherit;outline:none;
+                       box-sizing:border-box;margin-bottom:8px;">
+              <input type="file" id="ai-file" accept=".glb" style="display:none;">
+              <button id="ai-pick" class="btn"
+                style="width:100%;background:var(--panel-2);border:1px solid var(--border);color:var(--text-0);">
+                ⬆️ เลือกไฟล์ .glb
+              </button>
+              <div id="ai-status" style="font-size:11.5px;line-height:1.6;margin-top:8px;color:var(--text-2);"></div>
+            </div>
+
             <div class="section-label" style="margin-top:18px;">ท่าเดิน</div>
             <div class="model-option" data-anim="walking" onclick="selectAnim('walking')">
               <div class="mo-icon">🚶</div>
@@ -232,12 +254,88 @@ COLORS.forEach(c => {
   swatchBox.appendChild(s);
 });
 
+
+// ============================================================
+// ร่างที่นำเข้าเพิ่ม — เติมรายการจากทะเบียนบน server
+// (ปุ่มนำเข้าเห็นเฉพาะพนักงาน เพราะร่างที่เพิ่มเข้ามาทุกคนเลือกใช้ได้)
+// ============================================================
+const knownAvatarIds = new Set(['engineer', 'character', 'ch22', 'ch07', 'remy']);
+let importedAvatars = [];
+
+function avatarUrlById(id) {
+  const a = importedAvatars.find(x => x.id === id);
+  return a ? a.url : null;
+}
+
+function renderImportedAvatars() {
+  const box = document.getElementById('imported-avatars');
+  if (!box) return;
+  const esc = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  box.innerHTML = importedAvatars.map(a => `
+    <div class="model-option" data-model="${esc(a.id)}" onclick="selectModel('${esc(a.id)}')">
+      <div class="mo-icon">${a.rigged ? '🧍' : '🗿'}</div>
+      <div style="flex:1;min-width:0;">
+        <div class="mo-name">${esc(a.name)}</div>
+        <div class="mo-desc">นำเข้า · ${a.sizeMb || '?'} MB${a.rigged ? '' : ' · ไม่มีโครงกระดูก Mixamo จึงยืนนิ่ง ไม่มีท่าเดิน'}</div>
+      </div>
+    </div>`).join('');
+}
+
+async function loadAvatarCatalog() {
+  if (!window.AecAvatarImport) return;
+  const cat = await AecAvatarImport.list();
+  importedAvatars = cat.imported || [];
+  importedAvatars.forEach(a => knownAvatarIds.add(a.id));
+  renderImportedAvatars();
+}
+
+// ฟอร์มนำเข้า
+(function () {
+  const box = document.getElementById('avatar-import-box');
+  const fileIn = document.getElementById('ai-file');
+  const pick = document.getElementById('ai-pick');
+  const nameIn = document.getElementById('ai-name');
+  const status = document.getElementById('ai-status');
+  if (!box) return;
+  const say = (t, tone) => { status.textContent = t || '';
+    status.style.color = tone === 'bad' ? 'var(--red)' : tone === 'ok' ? 'var(--green)' : 'var(--text-2)'; };
+
+  // เห็นปุ่มนำเข้าเฉพาะพนักงาน — server กันซ้ำอีกชั้นอยู่แล้ว ตรงนี้แค่ไม่ให้ผู้ใช้ทั่วไปเจอปุ่มที่กดไม่ได้
+  (async () => {
+    try {
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if (!session) return;
+      const res = await fetch('/api/me/role', { headers: { Authorization: 'Bearer ' + session.access_token } });
+      const body = await res.json().catch(() => ({}));
+      if (res.ok && body.role && body.role !== 'user') box.style.display = '';
+    } catch (err) { /* ดูสิทธิ์ไม่ได้ ก็ไม่ต้องโชว์ปุ่ม */ }
+  })();
+
+  pick.addEventListener('click', () => fileIn.click());
+  fileIn.addEventListener('change', async () => {
+    const file = fileIn.files && fileIn.files[0];
+    if (!file) return;
+    pick.disabled = true;
+    try {
+      const r = await AecAvatarImport.importFile(file, nameIn.value.trim(), say);
+      say(`เพิ่ม "${r.avatar.name}" แล้ว` + (r.info.rigged ? ' — ใช้ท่าเดินได้' : ' — ไม่มีโครงกระดูก Mixamo จึงยืนนิ่ง'), r.info.rigged ? 'ok' : 'bad');
+      nameIn.value = '';
+      await loadAvatarCatalog();
+      selectModel(r.avatar.id);
+    } catch (err) { say(err.message || 'นำเข้าไม่สำเร็จ', 'bad'); }
+    finally { pick.disabled = false; fileIn.value = ''; }
+  });
+})();
+
+loadAvatarCatalog();
+
 async function loadSavedConfig(){
   try {
     const { data: { session } } = await supabaseClient.auth.getSession();
     const saved = session?.user?.user_metadata?.avatar;
     if (saved) {
-      if (['engineer', 'character', 'ch22', 'ch07', 'remy'].includes(saved.model)) selected.model = saved.model;
+      // เดิมเป็นรายชื่อตายตัว ร่างที่นำเข้าใหม่จึงถูกปัดทิ้งทุกครั้งที่โหลดหน้า
+      if (knownAvatarIds.has(saved.model)) selected.model = saved.model;
       if (['catwalk', 'walking'].includes(saved.anim)) selected.anim = saved.anim;
       if (typeof saved.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(saved.color)) selected.color = saved.color;
     }
@@ -397,6 +495,7 @@ const pvClock = new THREE.Clock();
 
 loadSavedConfig();
 </script>
+<script src="avatar-import.js"></script>
 <script src="notifications.js"></script>
 </body>
 </html>
