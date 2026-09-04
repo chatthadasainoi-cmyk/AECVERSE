@@ -507,7 +507,10 @@ const avatarCatalogReady = (async () => {
         const res = await fetch('/api/avatars');
         if (!res.ok) return;
         const body = await res.json();
-        (body.imported || []).forEach(a => { if (a && a.id && a.url) importedAvatarFiles[a.id] = a.url; });
+        // ต้องเก็บทั้งร่างกลางและร่างส่วนตัวของเรา — เดิมอ่านแต่ imported
+        // ร่างที่ตัวเองสร้างจึงหาไม่เจอ แล้วถูกปัดกลับเป็นร่างเริ่มต้นในโลก 3D
+        [...(body.imported || []), ...(body.personal || [])]
+            .forEach(a => { if (a && a.id && a.url) importedAvatarFiles[a.id] = a.url; });
     } catch (err) {
         // ดึงทะเบียนไม่ได้ก็เข้าโลกได้ตามปกติ แค่ใช้ได้เฉพาะร่างที่มากับระบบ
         console.warn('[AVATAR] ดึงทะเบียนร่างที่นำเข้าไม่สำเร็จ:', err);
@@ -516,6 +519,24 @@ const avatarCatalogReady = (async () => {
 
 // รวมร่างที่มากับระบบกับร่างที่นำเข้าไว้ที่เดียว
 const avatarUrlFor = key => AVATAR_MODEL_FILES[key] || importedAvatarFiles[key] || null;
+
+// ผู้เล่นคนอื่นอาจใส่ร่างส่วนตัวที่ทะเบียนของเราไม่มี (ทะเบียนคืนเฉพาะร่างของเราเอง)
+// ถ้าไม่ถามหา เราจะเห็นเขาเป็นร่างเริ่มต้นทั้งที่เขาใส่ร่างอื่นอยู่
+// ถามเป็นราย id ที่ใช้จริงเท่านั้น และถามซ้ำไม่ได้ (จำผลไว้ทั้งกรณีเจอและไม่เจอ)
+const avatarResolveTried = new Set();
+async function resolveAvatarUrl(key) {
+    if (!key || avatarUrlFor(key)) return avatarUrlFor(key);
+    if (avatarResolveTried.has(key)) return null;
+    avatarResolveTried.add(key);
+    try {
+        const res = await fetch('/api/avatars/resolve?ids=' + encodeURIComponent(key));
+        if (!res.ok) return null;
+        const body = await res.json();
+        const url = body && body.urls && body.urls[key];
+        if (url) { importedAvatarFiles[key] = url; return url; }
+    } catch (err) { console.warn('[AVATAR] หาร่างของผู้เล่นคนอื่นไม่สำเร็จ:', err); }
+    return null;
+}
 
 const _glbCache = {};
 function loadGlb(url) {
@@ -572,6 +593,8 @@ async function setAvatarVisual(container, config, color) {
 
     await avatarCatalogReady;
     const wanted = config && config.model;
+    // ร่างของผู้เล่นคนอื่นที่เราไม่มีในทะเบียน — ถามเซิร์ฟเวอร์ก่อนตัดสินว่าใช้ไม่ได้
+    if (wanted && wanted !== 'engineer' && !avatarUrlFor(wanted)) await resolveAvatarUrl(wanted);
     // ร่างที่นำเข้าถือว่าใช้ได้เท่ากับร่างที่มากับระบบ — เดิมเช็คเฉพาะรายการตายตัว
     // ร่างที่นำเข้าจึงถูกปัดกลับเป็น character ทุกครั้ง ทั้งที่ผู้ใช้เลือกไว้แล้ว
     const model = (wanted && avatarUrlFor(wanted)) ? wanted : (wanted === 'engineer' ? 'engineer' : 'character');
