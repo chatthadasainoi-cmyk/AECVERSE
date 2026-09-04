@@ -60,8 +60,26 @@ window.AecNotifications = (function () {
   }
 
   function bellHost() {
-    // ปุ่มกระดิ่งที่มีอยู่แล้วบนแถบบน (renderPortalTopbar เป็นคนวาด)
-    return document.querySelector('.topbar-right .icon-btn[title="การแจ้งเตือน"]');
+    // แถบบนมีสองแบบ: หน้าพอร์ทัลวาดด้วย renderPortalTopbar (มี title) ส่วนหน้าแอดมิน
+    // เขียน markup ไว้ในไฟล์เอง ไม่มี title — เดิมเลือกด้วย title อย่างเดียวจึงหาไม่เจอ
+    // และแผงแจ้งเตือนไม่เคยติดตั้งบนหน้าแอดมินเลย หาจากรูปกระดิ่งจริงแทนจะแน่นอนกว่า
+    const byTitle = document.querySelector('.topbar-right .icon-btn[title="การแจ้งเตือน"]');
+    if (byTitle) return byTitle;
+    return [...document.querySelectorAll('.topbar-right .icon-btn')]
+      .find(b => b.querySelector('path[d^="M18 8a6 6"]') || b.querySelector('#alert-count-badge')) || null;
+  }
+
+  // หน้าแอดมินมีจุดนับ alert ของโรงงานติดอยู่บนกระดิ่งเดียวกันอยู่แล้ว
+  // สองจุดซ้อนมุมเดียวกันจะทับกัน และมันยังโชว์เลข 0 ค้างไว้ซึ่งไม่มีความหมาย
+  // -> ย้ายของเดิมไปมุมล่าง และซ่อนเมื่อเป็น 0
+  function tameLegacyBadge(bell) {
+    const legacy = bell.querySelector('.badge-dot');
+    if (!legacy) return;
+    legacy.style.top = 'auto';
+    legacy.style.bottom = '-3px';
+    const sync = () => { legacy.style.display = (legacy.textContent || '').trim() === '0' ? 'none' : ''; };
+    sync();
+    new MutationObserver(sync).observe(legacy, { childList: true, characterData: true, subtree: true });
   }
 
   function render() {
@@ -129,6 +147,7 @@ window.AecNotifications = (function () {
     if (!bell) return;                    // แถบบนยังไม่ถูกวาด — ตัวเรียกจะลองใหม่
     booted = true;
     injectStyle();
+    tameLegacyBadge(bell);
     bell.classList.add('notif-wrap');
     bell.style.cursor = 'pointer';
     bell.insertAdjacentHTML('beforeend', `

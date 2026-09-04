@@ -567,9 +567,7 @@
       const title = $e('emgTitle').value.trim();
       if (!title) { say('ต้องระบุหัวข้อเหตุฉุกเฉิน', 'bad'); return; }
       // ประกาศถึงทุกคนแล้วเรียกคืนไม่ได้ — ถามยืนยันก่อนเสมอ
-      if (!confirm('ประกาศเหตุฉุกเฉินนี้ให้ทุกคนทราบทันที?
-
-' + title)) return;
+      if (!confirm('ประกาศเหตุฉุกเฉินนี้ให้ทุกคนทราบทันที? — ' + title)) return;
       const h = await auth();
       if (!h) { say('ต้องเข้าสู่ระบบก่อน', 'bad'); return; }
       $e('emgSend').disabled = true;
