@@ -16,6 +16,11 @@
           padding:9px 11px;color:var(--text-0);font-size:12.5px;font-family:inherit;outline:none;box-sizing:border-box;}
         .wo-in:focus{border-color:var(--blue);}
         #woTabs .tab{cursor:pointer;}
+        /* เมนู dropdown ของ select เป็นของระบบปฏิบัติการ ไม่ได้ใช้สีของธีมเรา
+           บนพื้นมืดจึงกลายเป็นตัวหนังสือจางบนพื้นจาง อ่านแทบไม่ออก
+           color-scheme บอกเบราว์เซอร์ให้วาดคอนโทรลชุดมืด ส่วน option ตั้งสีตรงๆ อีกชั้น */
+        select.wo-in, select.wo-status{color-scheme:dark;}
+        select.wo-in option, select.wo-status option{background:#0b0f17;color:#ffffff;}
         /* ==================== AEC VERSE — shared design system ==================== */
         :root{
             --bg-0:#080b11;

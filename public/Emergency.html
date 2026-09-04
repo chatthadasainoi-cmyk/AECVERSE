@@ -13,6 +13,13 @@
         <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
         <script src="supabaseClient.js"></script>
         <style>
+        .emg-l{display:block;font-size:11px;font-weight:700;color:var(--text-2);margin-bottom:5px;}
+        .emg-in{width:100%;background:var(--panel-2);border:1px solid var(--border);border-radius:8px;
+          padding:9px 11px;color:var(--text-0);font-size:12.5px;font-family:inherit;outline:none;box-sizing:border-box;}
+        .emg-in:focus{border-color:var(--red);}
+        /* เมนูของ select เป็นของระบบ ไม่ใช้สีธีมเรา — บังคับให้เป็นกล่องดำตัวหนังสือขาว */
+        select.emg-in{color-scheme:dark;}
+        select.emg-in option{background:#0b0f17;color:#ffffff;}
         /* ==================== AEC VERSE — shared design system ==================== */
         :root{
             --bg-0:#080b11;
@@ -390,6 +397,36 @@
 
         <div class="page-content">
 
+        <div class="card" style="margin-bottom:14px;border-left:3px solid var(--red);">
+            <div class="card-head" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+                <h3>ประกาศเหตุฉุกเฉิน</h3>
+                <span id="emgState" style="font-size:11.5px;color:var(--text-2);">ไม่มีเหตุฉุกเฉินค้างอยู่</span>
+            </div>
+            <div style="font-size:11.5px;color:var(--text-2);line-height:1.6;margin-bottom:11px;">
+                ประกาศแล้วจะเข้ากระดิ่งแจ้งเตือนของ<b style="color:var(--text-1);">ทุกคน</b>ทันที รวมคนที่ยังไม่ได้เปิดหน้าเว็บอยู่ตอนนั้น —
+                ใช้กับเหตุที่ต้องให้ทุกคนรู้พร้อมกัน เช่น ไฟไหม้ ก๊าซรั่ว หรือสั่งอพยพ
+            </div>
+            <div style="display:flex;gap:9px;flex-wrap:wrap;align-items:flex-end;">
+                <div style="flex:2;min-width:200px;">
+                    <label class="emg-l">หัวข้อ *</label>
+                    <input type="text" id="emgTitle" class="emg-in" placeholder="เช่น ไฟไหม้บริเวณอาคารเครื่องยนต์">
+                </div>
+                <div style="flex:1;min-width:130px;">
+                    <label class="emg-l">ระดับ</label>
+                    <select id="emgLevel" class="emg-in">
+                        <option value="critical">วิกฤต — อพยพทันที</option>
+                        <option value="warning">เตือน — เฝ้าระวัง</option>
+                    </select>
+                </div>
+                <button class="btn" id="emgSend" style="background:var(--red);color:#fff;border:none;">🚨 ประกาศ</button>
+            </div>
+            <div style="margin-top:9px;">
+                <label class="emg-l">รายละเอียด</label>
+                <input type="text" id="emgBody" class="emg-in" placeholder="สิ่งที่ต้องทำต่อ เช่น อพยพไปจุดรวมพลฝั่งตะวันออก">
+            </div>
+            <div id="emgMsg" style="font-size:12px;margin-top:9px;"></div>
+        </div>
+
         <div class="grid g12-3">
             <div class="card">
             <div class="card-head"><h3>Active Alerts (Live)</h3></div>
@@ -512,7 +549,61 @@
         window.location.href = 'Login.html';
     }
     initUserChip();
-  guardAdminOnly();
+  guardAdminOnly(["admin", "engineer"]);   // เหตุฉุกเฉินเป็นงานหน้างาน engineer ต้องเข้าถึงได้
+
+  // ---------- ประกาศเหตุฉุกเฉิน ----------
+  (function () {
+    const $e = id => document.getElementById(id);
+    const say = (t, tone) => { const m = $e('emgMsg'); m.textContent = t || '';
+      m.style.color = tone === 'bad' ? 'var(--red)' : tone === 'ok' ? 'var(--green)' : 'var(--text-2)'; };
+
+    async function auth() {
+      const { data } = await supabaseClient.auth.getSession();
+      const t = data?.session?.access_token;
+      return t ? { Authorization: 'Bearer ' + t } : null;
+    }
+
+    $e('emgSend').addEventListener('click', async () => {
+      const title = $e('emgTitle').value.trim();
+      if (!title) { say('ต้องระบุหัวข้อเหตุฉุกเฉิน', 'bad'); return; }
+      // ประกาศถึงทุกคนแล้วเรียกคืนไม่ได้ — ถามยืนยันก่อนเสมอ
+      if (!confirm('ประกาศเหตุฉุกเฉินนี้ให้ทุกคนทราบทันที?
+
+' + title)) return;
+      const h = await auth();
+      if (!h) { say('ต้องเข้าสู่ระบบก่อน', 'bad'); return; }
+      $e('emgSend').disabled = true;
+      try {
+        const res = await fetch('/api/emergency/announce', {
+          method: 'POST', headers: { 'Content-Type': 'application/json', ...h },
+          body: JSON.stringify({ title, body: $e('emgBody').value.trim(), level: $e('emgLevel').value })
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) { say(body.error || 'ประกาศไม่สำเร็จ', 'bad'); return; }
+        say('ประกาศแล้ว — เข้ากระดิ่งแจ้งเตือนของทุกคนเรียบร้อย', 'ok');
+        $e('emgTitle').value = ''; $e('emgBody').value = '';
+        if (window.AecNotifications) AecNotifications.refresh();
+      } catch (err) { say('ติดต่อเซิร์ฟเวอร์ไม่ได้', 'bad'); }
+      finally { $e('emgSend').disabled = false; }
+    });
+
+    // สถานะการเรียกรวมพลที่ค้างอยู่ในโลก 3D — หน้านี้ต้องเห็นด้วย ไม่ใช่รู้แค่คนที่อยู่ในฉาก
+    window.addEventListener('aec-portal-socket', e => bindEmergency(e.detail));
+    if (window.portalSocket) bindEmergency(window.portalSocket);
+    function bindEmergency(sock) {
+      if (!sock) return;
+      sock.on('emergency_called', d => {
+        $e('emgState').innerHTML = '<span style="color:var(--red);font-weight:800;">🚨 กำลังเรียกรวมพลไปที่ "' +
+          String(d?.name || '').replace(/</g, '&lt;') + '"</span>';
+      });
+      sock.on('emergency_cancelled', () => { $e('emgState').textContent = 'ไม่มีเหตุฉุกเฉินค้างอยู่'; });
+      sock.on('emergency_announced', d => {
+        $e('emgState').innerHTML = '<span style="color:var(--yellow);font-weight:800;">ประกาศล่าสุด: ' +
+          String(d?.title || '').replace(/</g, '&lt;') + '</span>';
+      });
+    }
+  })();
     </script>
-    </body>
+    <script src="notifications.js"></script>
+</body>
     </html>
