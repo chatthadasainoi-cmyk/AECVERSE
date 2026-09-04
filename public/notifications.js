@@ -29,10 +29,12 @@ window.AecNotifications = (function () {
     s.id = 'aec-notif-style';
     s.textContent = `
       .notif-wrap{position:relative;}
-      .notif-dot{position:absolute;bottom:-4px;right:-4px;min-width:16px;height:16px;padding:0 4px;
-        border-radius:9px;background:var(--red);color:#fff;font-size:9.5px;font-weight:800;
-        display:none;align-items:center;justify-content:center;line-height:1;
-        border:2px solid var(--panel);box-sizing:content-box;}
+      /* หน้าตาเดียวกับจุดนับเดิมที่ UI ออกแบบไว้ (.badge-dot) — วงกลมเล็กมุมบนขวา ไม่มีขอบหนา
+         ต่างกันแค่ตัวเลขข้างในเป็นจำนวนแจ้งเตือนจริง ไม่ใช่เลขตายตัวใน markup
+         min-width + padding ไว้เผื่อเลขสองหลัก จะยืดเป็นแคปซูลแทนที่จะล้นวงกลม */
+      .notif-dot{position:absolute;top:-3px;right:-3px;min-width:14px;height:14px;padding:0 3px;
+        border-radius:9px;background:var(--red);color:#fff;font-size:9px;font-weight:800;
+        display:none;align-items:center;justify-content:center;line-height:1;box-sizing:border-box;}
       .notif-dot.on{display:flex;}
       .notif-panel{position:absolute;top:calc(100% + 9px);right:0;width:min(340px,calc(100vw - 24px));
         background:var(--panel);border:1px solid var(--border);border-radius:12px;
@@ -75,11 +77,15 @@ window.AecNotifications = (function () {
   function tameLegacyBadge(bell) {
     const legacy = bell.querySelector('.badge-dot');
     if (!legacy) return;
-    // ปล่อยไว้มุมบนตามเดิม — ตัวมันเล็กกว่าและไม่มีขอบหนา จึงไม่บังรูปกระดิ่ง
-    // ที่ต้องแก้คือมันโชว์เลข 0 ค้างไว้ ซึ่งไม่ได้บอกอะไรเลย
-    const sync = () => { legacy.style.display = (legacy.textContent || '').trim() === '0' ? 'none' : ''; };
-    sync();
-    new MutationObserver(sync).observe(legacy, { childList: true, characterData: true, subtree: true });
+    // เลขเดิมบนกระดิ่งเป็นจำนวน alert ของโรงงาน ไม่ใช่จำนวนแจ้งเตือนของผู้ใช้
+    // อยู่บนกระดิ่งแล้วสื่อผิด (และเคยเป็นเลขตายตัวใน markup ด้วย) — ซ่อนทิ้ง
+    // ให้กระดิ่งบอกอย่างเดียวว่ามีแจ้งเตือนกี่รายการ ส่วน alert โรงงานดูได้ที่หน้า Emergency
+    //
+    // ซ่อนเฉยๆ ไม่ถอด element ออก เพราะสคริปต์ของหน้ายังเขียนค่าลงไปทุกครั้งที่ข้อมูลมา
+    // ถอดทิ้งแล้ว getElementById จะได้ null แล้วพัง handler ทั้งตัว
+    legacy.style.display = 'none';
+    new MutationObserver(() => { legacy.style.display = 'none'; })
+      .observe(legacy, { attributes: true, attributeFilter: ['style'] });
   }
 
   function render() {
