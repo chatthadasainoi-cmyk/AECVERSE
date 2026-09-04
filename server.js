@@ -762,6 +762,48 @@ function pushNotification({ userId, kind, title, body, link }) {
     return n;
 }
 
+// เหตุฉุกเฉินต้องถึงทุกคน รวมคนที่ยังไม่ได้เปิดหน้าเว็บตอนนั้นด้วย
+// เก็บเป็นรายการเดียว userId = "*" แล้วให้ทุกคนเห็น — ดีกว่าปั๊มสำเนาต่อคน
+// ซึ่งต้องรู้รายชื่อผู้ใช้ทั้งหมดก่อน (ต้องมี service key) และไฟล์จะบวมตามจำนวนคน
+// ใครอ่านแล้วบ้างเก็บใน readBy เพราะ readAt เดียวใช้แทนทุกคนไม่ได้
+function pushBroadcast({ kind, title, body, link }) {
+    const n = {
+        id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+        userId: '*',
+        kind: kind || 'info',
+        title: String(title || '').slice(0, 160),
+        body: String(body || '').slice(0, 400),
+        link: String(link || '').slice(0, 200),
+        createdAt: new Date().toISOString(),
+        readAt: null,
+        readBy: []
+    };
+    notifications.unshift(n);
+    if (notifications.length > MAX_NOTIFICATIONS) notifications.length = MAX_NOTIFICATIONS;
+    persistJsonFile(NOTIFICATIONS_FILE, notifications);
+    io.emit('notification', n);
+    return n;
+}
+
+// ---------- ประกาศเหตุฉุกเฉิน ----------
+// แยกจาก "เรียกรวมพล" ในโลก 3D (อันนั้นผูกกับจุดที่ปักไว้) — อันนี้คือประกาศเหตุ
+// ให้ทุกคนรู้ ไม่ต้องมีจุดในฉาก ใช้ได้จากหน้า Emergency และจากบทเรียน type อันตราย
+app.post('/api/emergency/announce', requireStaff, (req, res) => {
+    const b = req.body || {};
+    const title = String(b.title || '').trim().slice(0, 160);
+    if (!title) return res.status(400).json({ error: 'ต้องระบุหัวข้อเหตุฉุกเฉิน' });
+    const level = ['warning', 'critical'].includes(b.level) ? b.level : 'critical';
+    const n = pushBroadcast({
+        kind: 'emergency',
+        title: (level === 'critical' ? '🚨 เหตุฉุกเฉิน: ' : '⚠️ เตือน: ') + title,
+        body: String(b.body || '').trim().slice(0, 400),
+        link: 'Emergency.html'
+    });
+    io.emit('emergency_announced', { title, body: b.body || '', level, by: req.staffUser.email, at: Date.now() });
+    console.log(`[EMERGENCY] ประกาศ "${title}" (${level}) โดย ${req.staffUser.email}`);
+    res.json({ ok: true, notification: n });
+});
+
 // ---------- รายชื่อคนที่มอบหมายงานได้ ----------
 // ต้องใช้ service key ถึงจะอ่านรายชื่อผู้ใช้ทั้งหมดได้ ถ้าไม่ได้ตั้งไว้จะคืนลิสต์ว่าง
 // พร้อมบอกสาเหตุ ดีกว่าปล่อยให้หน้าเว็บขึ้น dropdown เปล่าโดยไม่รู้ว่าทำไม
@@ -878,7 +920,15 @@ app.patch('/api/work-orders/:id', requireStaff, async (req, res) => {
 app.get('/api/notifications', async (req, res) => {
     const user = await userFromRequest(req);
     if (!user) return res.status(401).json({ error: 'ต้องเข้าสู่ระบบก่อน' });
-    const mine = notifications.filter(n => n.userId === user.id).slice(0, 50);
+    // ของตัวเอง + ที่ประกาศถึงทุกคน — แปลง readBy ของ broadcast ให้เป็น readAt ของคนที่ถาม
+    // ฝั่งหน้าเว็บจะได้ไม่ต้องรู้ว่ามีสองแบบ
+    const seen = uid => n => n.userId === '*'
+        ? { ...n, readAt: (n.readBy || []).includes(uid) ? n.createdAt : null, readBy: undefined }
+        : n;
+    const mine = notifications
+        .filter(n => n.userId === user.id || n.userId === '*')
+        .slice(0, 50)
+        .map(seen(user.id));
     res.json({ notifications: mine, unread: mine.filter(n => !n.readAt).length });
 });
 
@@ -889,8 +939,14 @@ app.post('/api/notifications/read', async (req, res) => {
     const now = new Date().toISOString();
     let changed = 0;
     notifications.forEach(n => {
-        if (n.userId !== user.id || n.readAt) return;         // ของคนอื่นแตะไม่ได้เด็ดขาด
         if (ids && !ids.includes(n.id)) return;
+        if (n.userId === '*') {                               // ประกาศถึงทุกคน: จำเป็นรายคน
+            n.readBy = n.readBy || [];
+            if (n.readBy.includes(user.id)) return;
+            n.readBy.push(user.id); changed++;
+            return;
+        }
+        if (n.userId !== user.id || n.readAt) return;         // ของคนอื่นแตะไม่ได้เด็ดขาด
         n.readAt = now; changed++;
     });
     if (changed) persistJsonFile(NOTIFICATIONS_FILE, notifications);
@@ -1618,6 +1674,13 @@ io.on('connection', socket => {
         if (!m) return;
         emergencyCall = { markerId: m.id, name: m.name, x: m.x, y: m.y, z: m.z, by: user?.email || 'ระบบ', at: Date.now() };
         io.emit('emergency_called', emergencyCall);
+        // เข้ากระดิ่งด้วย — คนที่ไม่ได้เปิดโลก 3D ค้างไว้ตอนนั้นจะได้รู้เหมือนกัน
+        pushBroadcast({
+            kind: 'emergency',
+            title: '🚨 เรียกรวมพลฉุกเฉิน',
+            body: `ให้ไปที่จุด "${m.name}" ทันที · สั่งโดย ${emergencyCall.by}`,
+            link: 'Emergency.html'
+        });
         console.log(`[EMERGENCY] เรียกรวมพลไปที่ "${m.name}" โดย ${emergencyCall.by}`);
     });
     socket.on('emergency_cancel', () => {
