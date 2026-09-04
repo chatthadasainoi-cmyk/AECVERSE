@@ -692,6 +692,219 @@ async function persistFeatureToggles() {
 }
 loadFeatureToggles();
 
+
+// ============================================================
+// WORK ORDER + NOTIFICATION
+// ใบสั่งงานมอบหมายให้ "พนักงาน" เท่านั้น — admin กับ engineer
+// role 'user' เป็นผู้เยี่ยมชม ไม่มีหน้าที่รับงาน จึงมอบหมายให้ไม่ได้เด็ดขาด
+// พอสั่งงานแล้วผู้รับจะได้การแจ้งเตือน (กระดิ่งบนแถบบน) ทันทีผ่าน socket
+// ============================================================
+const WORK_ORDERS_FILE = IS_PRODUCTION ? 'work_orders_v1.json' : 'work_orders_dev.json';
+const NOTIFICATIONS_FILE = IS_PRODUCTION ? 'notifications_v1.json' : 'notifications_dev.json';
+
+let workOrders = [];      // ใหม่สุดอยู่หน้าสุด
+let notifications = [];   // ใหม่สุดอยู่หน้าสุด
+const MAX_NOTIFICATIONS = 500;   // กันไฟล์โตไม่จำกัดในระบบที่เดินยาวๆ
+
+const WO_STATUS = ['pending', 'in_progress', 'completed', 'cancelled'];
+const WO_PRIORITY = ['low', 'medium', 'high', 'critical'];
+const WO_TYPE = ['inspection', 'repair', 'maintenance', 'emergency'];
+
+async function loadJsonFile(file, fallback) {
+    try {
+        const res = await fetch(`${SUPABASE_URL}/storage/v1/object/public/models/${file}?t=${Date.now()}`);
+        if (!res.ok) return fallback;
+        const s = await res.json();
+        return Array.isArray(s) ? s : fallback;
+    } catch (err) {
+        console.warn(`[WO] โหลด ${file} ไม่สำเร็จ:`, err.message);
+        return fallback;
+    }
+}
+async function persistJsonFile(file, data) {
+    try {
+        await fetch(`${SUPABASE_URL}/storage/v1/object/models/${file}`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'application/json', 'x-upsert': 'true' },
+            body: JSON.stringify(data)
+        });
+    } catch (err) { console.warn(`[WO] บันทึก ${file} ไม่สำเร็จ:`, err.message); }
+}
+
+// เข้าถึงได้เฉพาะพนักงาน (admin/engineer) — ผู้เยี่ยมชมไม่เกี่ยวกับใบสั่งงานเลย
+async function requireStaff(req, res, next) {
+    const user = await userFromRequest(req);
+    if (!user) return res.status(401).json({ error: 'ต้องเข้าสู่ระบบก่อน' });
+    const role = userRole(user);
+    if (role === 'user') return res.status(403).json({ error: 'บัญชีนี้ไม่มีสิทธิ์ใช้งานใบสั่งงาน' });
+    req.staffUser = user;
+    req.staffRole = role;
+    next();
+}
+
+// ส่งการแจ้งเตือนให้ผู้ใช้คนหนึ่ง + ดันผ่าน socket ให้กระดิ่งเด้งทันทีถ้าเปิดหน้าอยู่
+function pushNotification({ userId, kind, title, body, link }) {
+    if (!userId) return null;
+    const n = {
+        id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+        userId,
+        kind: kind || 'info',              // info | work_order | emergency
+        title: String(title || '').slice(0, 160),
+        body: String(body || '').slice(0, 400),
+        link: String(link || '').slice(0, 200),
+        createdAt: new Date().toISOString(),
+        readAt: null
+    };
+    notifications.unshift(n);
+    if (notifications.length > MAX_NOTIFICATIONS) notifications.length = MAX_NOTIFICATIONS;
+    persistJsonFile(NOTIFICATIONS_FILE, notifications);
+    io.to(`user:${userId}`).emit('notification', n);
+    return n;
+}
+
+// ---------- รายชื่อคนที่มอบหมายงานได้ ----------
+// ต้องใช้ service key ถึงจะอ่านรายชื่อผู้ใช้ทั้งหมดได้ ถ้าไม่ได้ตั้งไว้จะคืนลิสต์ว่าง
+// พร้อมบอกสาเหตุ ดีกว่าปล่อยให้หน้าเว็บขึ้น dropdown เปล่าโดยไม่รู้ว่าทำไม
+app.get('/api/work-orders/assignees', requireStaff, async (req, res) => {
+    if (!supabaseAdmin) {
+        return res.json({ assignees: [], warning: 'เซิร์ฟเวอร์ยังไม่ได้ตั้ง SUPABASE_SERVICE_ROLE_KEY จึงดึงรายชื่อผู้ใช้ไม่ได้' });
+    }
+    const { data, error } = await supabaseAdmin.auth.admin.listUsers();
+    if (error) return res.status(500).json({ error: error.message });
+    const assignees = data.users
+        .map(u => ({ id: u.id, email: u.email, name: u.user_metadata?.display_name || u.email, role: userRole(u) }))
+        .filter(u => u.role !== 'user')      // ผู้เยี่ยมชมรับงานไม่ได้
+        .sort((a, b) => a.name.localeCompare(b.name, 'th'));
+    res.json({ assignees });
+});
+
+// ---------- รายการใบสั่งงาน ----------
+app.get('/api/work-orders', requireStaff, (req, res) => {
+    const mine = req.query.mine === '1';
+    const list = mine ? workOrders.filter(w => w.assigneeId === req.staffUser.id) : workOrders;
+    const counts = WO_STATUS.reduce((acc, s) => { acc[s] = workOrders.filter(w => w.status === s).length; return acc; }, {});
+    res.json({ workOrders: list, counts, total: workOrders.length, me: req.staffUser.id, myRole: req.staffRole });
+});
+
+// ---------- สร้างใบสั่งงาน ----------
+app.post('/api/work-orders', requireStaff, async (req, res) => {
+    const b = req.body || {};
+    const title = String(b.title || '').trim().slice(0, 200);
+    if (!title) return res.status(400).json({ error: 'ต้องระบุชื่องาน' });
+
+    // ผู้รับงานต้องเป็นพนักงานจริงเท่านั้น — เช็คกับ Supabase ไม่ใช่เชื่อค่าที่ client ส่งมา
+    let assigneeId = '', assigneeName = '', assigneeRole = '';
+    if (b.assigneeId) {
+        if (!supabaseAdmin) return res.status(503).json({ error: 'เซิร์ฟเวอร์ยังตรวจสอบผู้รับงานไม่ได้ (ไม่ได้ตั้ง service key)' });
+        const { data, error } = await supabaseAdmin.auth.admin.getUserById(String(b.assigneeId));
+        if (error || !data?.user) return res.status(400).json({ error: 'ไม่พบบัญชีผู้รับงาน' });
+        const role = userRole(data.user);
+        if (role === 'user') return res.status(400).json({ error: 'มอบหมายงานให้บัญชีระดับผู้เยี่ยมชม (user) ไม่ได้ — ได้เฉพาะ Admin และ Engineer' });
+        assigneeId = data.user.id;
+        assigneeName = data.user.user_metadata?.display_name || data.user.email;
+        assigneeRole = role;
+    }
+
+    const seq = String(workOrders.length + 1).padStart(5, '0');
+    const wo = {
+        id: `WO-${new Date().getFullYear()}-${seq}`,
+        title,
+        equipment: String(b.equipment || '').trim().slice(0, 100),
+        type: WO_TYPE.includes(b.type) ? b.type : 'inspection',
+        priority: WO_PRIORITY.includes(b.priority) ? b.priority : 'medium',
+        status: 'pending',
+        assigneeId, assigneeName, assigneeRole,
+        dueDate: String(b.dueDate || '').slice(0, 10),
+        note: String(b.note || '').trim().slice(0, 1000),
+        createdBy: req.staffUser.id,
+        createdByName: req.staffUser.user_metadata?.display_name || req.staffUser.email,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+    };
+    workOrders.unshift(wo);
+    await persistJsonFile(WORK_ORDERS_FILE, workOrders);
+
+    // แจ้งผู้รับงาน — ไม่ต้องแจ้งถ้าสั่งงานให้ตัวเอง
+    if (assigneeId && assigneeId !== req.staffUser.id) {
+        pushNotification({
+            userId: assigneeId, kind: 'work_order',
+            title: `ได้รับมอบหมายงานใหม่ — ${wo.id}`,
+            body: `${wo.title}${wo.equipment ? ` · ${wo.equipment}` : ''} · ความเร่งด่วน ${wo.priority}`,
+            link: 'WorkOrder.html'
+        });
+    }
+    res.json({ workOrder: wo });
+});
+
+// ---------- แก้ไขใบสั่งงาน ----------
+app.patch('/api/work-orders/:id', requireStaff, async (req, res) => {
+    const wo = workOrders.find(w => w.id === req.params.id);
+    if (!wo) return res.status(404).json({ error: 'ไม่พบใบสั่งงานนี้' });
+    const b = req.body || {};
+    const prevAssignee = wo.assigneeId;
+
+    if (b.status !== undefined) {
+        if (!WO_STATUS.includes(b.status)) return res.status(400).json({ error: 'สถานะไม่ถูกต้อง' });
+        wo.status = b.status;
+    }
+    if (b.assigneeId !== undefined) {
+        if (!b.assigneeId) { wo.assigneeId = ''; wo.assigneeName = ''; wo.assigneeRole = ''; }
+        else {
+            if (!supabaseAdmin) return res.status(503).json({ error: 'เซิร์ฟเวอร์ยังตรวจสอบผู้รับงานไม่ได้ (ไม่ได้ตั้ง service key)' });
+            const { data, error } = await supabaseAdmin.auth.admin.getUserById(String(b.assigneeId));
+            if (error || !data?.user) return res.status(400).json({ error: 'ไม่พบบัญชีผู้รับงาน' });
+            const role = userRole(data.user);
+            if (role === 'user') return res.status(400).json({ error: 'มอบหมายงานให้บัญชีระดับผู้เยี่ยมชม (user) ไม่ได้ — ได้เฉพาะ Admin และ Engineer' });
+            wo.assigneeId = data.user.id;
+            wo.assigneeName = data.user.user_metadata?.display_name || data.user.email;
+            wo.assigneeRole = role;
+        }
+    }
+    wo.updatedAt = new Date().toISOString();
+    await persistJsonFile(WORK_ORDERS_FILE, workOrders);
+
+    if (wo.assigneeId && wo.assigneeId !== prevAssignee && wo.assigneeId !== req.staffUser.id) {
+        pushNotification({
+            userId: wo.assigneeId, kind: 'work_order',
+            title: `ได้รับมอบหมายงาน — ${wo.id}`,
+            body: `${wo.title}${wo.equipment ? ` · ${wo.equipment}` : ''}`,
+            link: 'WorkOrder.html'
+        });
+    }
+    res.json({ workOrder: wo });
+});
+
+// ---------- การแจ้งเตือนของตัวเอง ----------
+app.get('/api/notifications', async (req, res) => {
+    const user = await userFromRequest(req);
+    if (!user) return res.status(401).json({ error: 'ต้องเข้าสู่ระบบก่อน' });
+    const mine = notifications.filter(n => n.userId === user.id).slice(0, 50);
+    res.json({ notifications: mine, unread: mine.filter(n => !n.readAt).length });
+});
+
+app.post('/api/notifications/read', async (req, res) => {
+    const user = await userFromRequest(req);
+    if (!user) return res.status(401).json({ error: 'ต้องเข้าสู่ระบบก่อน' });
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids : null;
+    const now = new Date().toISOString();
+    let changed = 0;
+    notifications.forEach(n => {
+        if (n.userId !== user.id || n.readAt) return;         // ของคนอื่นแตะไม่ได้เด็ดขาด
+        if (ids && !ids.includes(n.id)) return;
+        n.readAt = now; changed++;
+    });
+    if (changed) persistJsonFile(NOTIFICATIONS_FILE, notifications);
+    res.json({ ok: true, marked: changed });
+});
+
+// โหลดของเก่ากลับเข้าหน่วยความจำ — ต้องอยู่ท้ายบล็อกนี้ หลังประกาศ const ครบแล้ว
+// (เคยวางไว้ข้างบนแล้วชน temporal dead zone จน server ล้มตั้งแต่บูต)
+(async () => {
+    workOrders = await loadJsonFile(WORK_ORDERS_FILE, []);
+    notifications = await loadJsonFile(NOTIFICATIONS_FILE, []);
+    console.log("[WO] โหลดใบสั่งงาน " + workOrders.length + " รายการ / การแจ้งเตือน " + notifications.length + " รายการ");
+})();
+
 app.get('/api/settings/features', (req, res) => res.json(featureToggles));
 app.post('/api/settings/features', requireAdmin, async (req, res) => {
     const b = req.body || {};
@@ -1139,6 +1352,10 @@ io.on('connection', socket => {
 
     // ทุก socket ที่ยืนยันตัวตนได้นับเป็น "ออนไลน์" ไม่ว่าจะเป็น player หรือ watcher
     if (user) touchPresence(user.id, +1);
+
+    // ห้องส่วนตัวรายบัญชี — ใช้ยิงการแจ้งเตือนถึงเจ้าตัวโดยตรง (io.to("user:<id>"))
+    // ผู้ใช้คนเดียวเปิดหลายแท็บได้ ทุกแท็บอยู่ห้องเดียวกัน กระดิ่งจึงเด้งพร้อมกันหมด
+    if (user) socket.join("user:" + user.id);
 
     // แอดมินที่เปิดหน้า Settings ไว้ ขอรับอัปเดตสถานะออนไลน์แบบ real-time
     socket.on('subscribe_admin_presence', () => {

@@ -107,6 +107,8 @@ async function initPortalLiveFeed() {
 
     const socket = io(SERVER, { transports: ['websocket', 'polling'], auth: { token, role: 'watcher' } });
     window.portalSocket = socket;
+    // กระดิ่งแจ้งเตือนอาจ mount ไปแล้วก่อน socket จะพร้อม — ประกาศให้รู้ว่าต่อไปฟังได้
+    window.dispatchEvent(new CustomEvent('aec-portal-socket', { detail: socket }));
     socket.on('plant_update', data => {
         const set = (id, txt) => { const e = document.getElementById(id); if (e) e.textContent = txt; };
         if (data && data.plant) {
