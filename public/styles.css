@@ -871,6 +871,21 @@ h3, h4 { margin: 0 0 10px 0; font-size: 13px; font-weight: 700; color: var(--tex
 .marker-sos-toggle.on { border-color: rgba(239,68,68,.55); background: rgba(239,68,68,.12); color: #fecaca; }
 .marker-sos-toggle.on .mst-check { background: #ef4444; border-color: #ef4444; color: #fff; }
 
+#drill-banner {
+    /* วางต่ำกว่าแถบฉุกเฉินจริงเสมอ — ของจริงสำคัญกว่า ห้ามให้การซ้อมไปบังมัน
+       (แถบซ้อมยาวกว่าเพราะมีชื่อเหตุการณ์ จึงสูงได้ถึงสองบรรทัด) */
+    position: absolute; top: 58px; left: 50%; transform: translateX(-50%);
+    z-index: 69; display: flex; align-items: center; gap: 9px;
+    padding: 8px 13px; border-radius: 10px; max-width: min(520px, calc(100% - 28px));
+    background: rgba(120, 53, 15, .95); border: 1px solid var(--yellow);
+    color: #fde68a; font-size: 12px; font-weight: 600; line-height: 1.4;
+    box-shadow: 0 8px 28px rgba(245,158,11,.28);
+}
+#drill-banner b { color: #fff; }
+#drill-banner .db-icon { font-size: 15px; flex-shrink: 0; }
+#drill-banner button { background: none; border: none; color: #fcd34d; cursor: pointer; font-size: 13px; padding: 0 2px; }
+#drill-banner button:hover { color: #fff; }
+
 #emergency-banner {
     position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
     z-index: 70; display: flex; align-items: center; gap: 10px;

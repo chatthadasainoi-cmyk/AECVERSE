@@ -669,6 +669,8 @@ const DEFAULT_FEATURE_TOGGLES = {
     qrScanner: true,
     workOrder: true,
     emergency: true,
+    // ซ้อมเหตุฉุกเฉินจากบทเรียน "ลองใช้งาน" ของ type อันตราย — ปิดได้ถ้ารบกวนเกินไป
+    emergencyDrill: true,
     analytics: true
 };
 let featureToggles = { ...DEFAULT_FEATURE_TOGGLES };
@@ -801,6 +803,53 @@ app.post('/api/emergency/announce', requireStaff, (req, res) => {
     });
     io.emit('emergency_announced', { title, body: b.body || '', level, by: req.staffUser.email, at: Date.now() });
     console.log(`[EMERGENCY] ประกาศ "${title}" (${level}) โดย ${req.staffUser.email}`);
+    res.json({ ok: true, notification: n });
+});
+
+// ---------- ซ้อมเหตุฉุกเฉินจากบทเรียน ----------
+// บทเรียน "ลองใช้งาน" ของ type อันตรายที่จบด้วยหายนะ (บ่อหมักระเบิด, โดมฉีก,
+// ไฟย้อนถึงบ่อหมัก ฯลฯ) จะยิงเข้ามาที่นี่ ให้ทุกคนในระบบเห็นว่ามีการซ้อมเกิดขึ้น
+//
+// ต่างจากการประกาศจริงตรงที่:
+//  - ผู้เยี่ยมชม (role user) ยิงได้ด้วย เพราะบทเรียนมีไว้ให้ทุกคนเล่น
+//  - ติดป้าย "ซ้อม" ชัดเจนทุกที่ ไม่ให้ปนกับเหตุจริงเด็ดขาด
+//  - จำกัดความถี่ ไม่งั้นคนเดียวลากสไลเดอร์เล่นก็ยิงเตือนทั้งโรงงานได้ไม่จำกัด
+const DRILL_PER_USER_MS = 120000;   // คนเดิมซ้อมซ้ำได้ทุก 2 นาที
+const DRILL_GLOBAL_MS = 30000;      // ทั้งระบบรวมกันไม่ถี่กว่า 30 วิ
+const drillLastByUser = new Map();
+let drillLastGlobal = 0;
+
+app.post('/api/emergency/drill', async (req, res) => {
+    const user = await userFromRequest(req);
+    if (!user) return res.status(401).json({ error: 'ต้องเข้าสู่ระบบก่อน' });
+    if (!featureToggles.emergencyDrill) {
+        return res.status(403).json({ error: 'ระบบซ้อมเหตุฉุกเฉินถูกปิดไว้', disabled: true });
+    }
+
+    const now = Date.now();
+    const mine = drillLastByUser.get(user.id) || 0;
+    if (now - mine < DRILL_PER_USER_MS) {
+        return res.status(429).json({ error: 'เพิ่งซ้อมไปเมื่อสักครู่ — เว้นระยะสักครู่แล้วลองใหม่', throttled: true });
+    }
+    if (now - drillLastGlobal < DRILL_GLOBAL_MS) {
+        return res.status(429).json({ error: 'มีการซ้อมอื่นเพิ่งเกิดขึ้น — รอสักครู่', throttled: true });
+    }
+
+    const b = req.body || {};
+    const scenario = String(b.scenario || 'เหตุการณ์จากบทเรียน').trim().slice(0, 120);
+    const icon = String(b.icon || '🔥').slice(0, 4);
+    const who = user.user_metadata?.display_name || user.email || 'ผู้เข้าร่วม';
+    drillLastByUser.set(user.id, now);
+    drillLastGlobal = now;
+
+    const n = pushBroadcast({
+        kind: 'emergency',
+        title: `🧪 ซ้อมเหตุฉุกเฉิน: ${icon} ${scenario}`,
+        body: `เกิดจากบทเรียน "ลองใช้งาน" ที่ ${who} กำลังทำอยู่ — ไม่ใช่เหตุการณ์จริง`,
+        link: 'Emergency.html'
+    });
+    io.emit('emergency_drill', { scenario, icon, by: who, at: now });
+    console.log(`[DRILL] ${who} ทำให้เกิด "${scenario}" ในบทเรียน`);
     res.json({ ok: true, notification: n });
 });
 
