@@ -29,7 +29,7 @@ window.AecNotifications = (function () {
     s.id = 'aec-notif-style';
     s.textContent = `
       .notif-wrap{position:relative;}
-      .notif-dot{position:absolute;top:-3px;right:-3px;min-width:16px;height:16px;padding:0 4px;
+      .notif-dot{position:absolute;bottom:-4px;right:-4px;min-width:16px;height:16px;padding:0 4px;
         border-radius:9px;background:var(--red);color:#fff;font-size:9.5px;font-weight:800;
         display:none;align-items:center;justify-content:center;line-height:1;
         border:2px solid var(--panel);box-sizing:content-box;}
@@ -75,8 +75,8 @@ window.AecNotifications = (function () {
   function tameLegacyBadge(bell) {
     const legacy = bell.querySelector('.badge-dot');
     if (!legacy) return;
-    legacy.style.top = 'auto';
-    legacy.style.bottom = '-3px';
+    // ปล่อยไว้มุมบนตามเดิม — ตัวมันเล็กกว่าและไม่มีขอบหนา จึงไม่บังรูปกระดิ่ง
+    // ที่ต้องแก้คือมันโชว์เลข 0 ค้างไว้ ซึ่งไม่ได้บอกอะไรเลย
     const sync = () => { legacy.style.display = (legacy.textContent || '').trim() === '0' ? 'none' : ''; };
     sync();
     new MutationObserver(sync).observe(legacy, { childList: true, characterData: true, subtree: true });
