@@ -845,6 +845,9 @@ let initialFactoryScale = 1;
 let factoryColliders = [];
 
 const HITBOX_PADDING = 0.6; // ขยาย hitbox ให้ชนง่ายขึ้น ไม่ต้องเดินตามขอบโมเดลเป๊ะๆ
+// ชิ้นที่กินพื้นที่เกินสัดส่วนนี้ของโรงงานทั้งหลัง ถือเป็นพื้น/ผนัง/โครงอาคาร
+// มันครอบทุกจุดที่ผู้ใช้ยืนได้ ถ้านับเป็นการเดินชนด้วยก็จะได้ป้ายของมันตลอดเวลา
+const SHELL_FOOTPRINT_RATIO = 0.6;
 
 // รองรับโมเดลที่บีบอัดแบบ Draco (KHR_draco_mesh_compression) — จำเป็นสำหรับโมเดลโรงงาน
 // ที่ export จาก CAD/BIM ซึ่งมักมีจำนวน vertex สูงมากจนไฟล์ใหญ่เกินจะโหลดตรงๆ ได้ไหว
@@ -1363,11 +1366,25 @@ function buildColliders() {
     if (!factoryModel) return;
     factoryModel.updateMatrixWorld(true);
     const padding = HITBOX_PADDING * currentModelScaleFactor();
+
+    // ขนาดของทั้งโมเดล ใช้เทียบว่าชิ้นไหนใหญ่ระดับ "ทั้งโรงงาน"
+    const whole = new THREE.Box3().setFromObject(factoryModel);
+    const wholeSize = whole.getSize(new THREE.Vector3());
+    const wholeFootprint = Math.max(wholeSize.x * wholeSize.z, 1e-6);
+
     factoryModel.traverse(child => {
         if (!child.isMesh) return;
         const box = new THREE.Box3().setFromObject(child);
+        if (box.isEmpty()) return;                      // เมชเปล่า ไม่มีอะไรให้ชน
+        const size = box.getSize(new THREE.Vector3());
         box.expandByScalar(padding);
-        factoryColliders.push({ uuid: child.uuid, mesh: child, box });
+        factoryColliders.push({
+            uuid: child.uuid, mesh: child, box,
+            // ปริมาตรใช้ตัดสินว่าชิ้นไหน "เจาะจงกว่า" เมื่อกล่องซ้อนกันหลายชั้น
+            volume: Math.max(size.x * size.y * size.z, 1e-6),
+            // พื้น/ผนัง/โครงอาคาร: เดินชนไม่ได้ แต่ยังคลิกเลือกดูข้อมูลได้ตามปกติ
+            walkable: (size.x * size.z) / wholeFootprint < SHELL_FOOTPRINT_RATIO
+        });
     });
 }
 
@@ -1558,16 +1575,24 @@ function interactNearestMesh() {
 // เดินผ่านแนวมาแย่งเปลี่ยนป้ายข้อมูล/ไฮไลท์ไปกลางทาง — ผู้ใช้กด "เดินไปที่นี่" เพราะอยากดูข้อมูล
 // ของชิ้นที่เลือกไว้ตอนไปถึง ไม่ใช่ของอย่างอื่นที่บังเอิญอยู่ระหว่างทาง
 function checkWalkCollision(nextX, nextZ, currentY) {
+    // กล่องชนซ้อนกันได้หลายชั้นเสมอ — ปั๊มตั้งอยู่บนแท่น ในอาคาร บนพื้น
+    // เดิมเอาชิ้นแรกที่เจอตามลำดับ traverse ซึ่งไม่ได้เรียงตามความใกล้เลย
+    // ชิ้นใหญ่จึงชนะตลอด ผู้ใช้ยืนตรงไหนก็ได้ป้ายเดิมซ้ำๆ
+    // ตอนนี้ดูให้ครบแล้วเลือกชิ้นที่เล็กที่สุด = ของที่ยืนติดอยู่จริง
+    let best = null;
     for (const col of factoryColliders) {
-        if (autoWalk.active && col.uuid !== selection.uuid) continue;
+        const targeted = autoWalk.active && col.uuid === selection.uuid;
+        if (autoWalk.active && !targeted) continue;
+        // ชิ้นระดับอาคารไม่นับเป็นการเดินชน ยกเว้นกรณีสั่งให้เดินไปหามันเอง
+        if (!col.walkable && !targeted) continue;
         const box = col.box;
         if (nextX + avatarConfig.radius > box.min.x && nextX - avatarConfig.radius < box.max.x &&
             nextZ + avatarConfig.radius > box.min.z && nextZ - avatarConfig.radius < box.max.z &&
             currentY < box.max.y && currentY + 1.6 > box.min.y) {
-            if (selection.uuid !== col.uuid) selectPart(col.mesh, '🚶 ตัวละครเดินชนวัตถุ');
-            return;
+            if (!best || col.volume < best.volume) best = col;
         }
     }
+    if (best && selection.uuid !== best.uuid) selectPart(best.mesh, '🚶 ตัวละครเดินชนวัตถุ');
 }
 
 // REQ 6: เดินออกไปไกลจากจุดที่เลือกไว้ -> ปิดป้ายอัตโนมัติ (เฉพาะป้ายที่เปิดจากการเดินชน

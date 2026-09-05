@@ -300,19 +300,19 @@ function buildAvatarGroups() {
   if (!card) return;
   const builtin = [...card.querySelectorAll(':scope > .model-option[data-model]')];
   const importBox = document.getElementById('avatar-import-box');
+  const pBox = document.getElementById('personal-avatars');
+  const iBox = document.getElementById('imported-avatars');
   avatarGroups = AecCollapseGroup.build(host, [
-    { key:'mine', icon:'✨', label:'ร่างของฉัน', open:true, nodes:[],
+    { key:'mine', icon:'✨', label:'ร่างของฉัน', open:true, nodes:[], countNode: pBox,
       empty:'ยังไม่มีร่างของตัวเอง — กดปุ่มด้านบนเพื่อสร้าง หรืออัปโหลดไฟล์ .glb' },
     { key:'builtin', icon:'🧍', label:'ร่างสำเร็จรูป', open:false, nodes:builtin },
-    { key:'shared', icon:'📚', label:'ร่างที่นำเข้าไว้ให้ทุกคนใช้', open:false, nodes:[],
+    { key:'shared', icon:'📚', label:'ร่างที่นำเข้าไว้ให้ทุกคนใช้', open:false, nodes:[], countNode: iBox,
       empty:'ยังไม่มีร่างกลาง' },
-    { key:'upload', icon:'⬆️', label:'นำเข้าไฟล์ .glb เอง', open:false, nodes:[importBox] }
+    { key:'upload', icon:'⬆️', label:'นำเข้าไฟล์ .glb เอง', open:false, nodes:[importBox], count:false }
   ], { storeKey: 'aec_avatar_groups' });
   // ย้ายที่วางร่างส่วนตัว/ร่างกลางเข้าไปในกลุ่มของมัน แล้วเปิดให้แสดงผลตามปกติ
   const mine = avatarGroups.find(g => g.key === 'mine');
   const shared = avatarGroups.find(g => g.key === 'shared');
-  const pBox = document.getElementById('personal-avatars');
-  const iBox = document.getElementById('imported-avatars');
   if (mine && pBox) { pBox.hidden = false; mine.body.insertBefore(pBox, mine.body.firstChild); }
   if (shared && iBox) shared.body.insertBefore(iBox, shared.body.firstChild);
   // กล่องนำเข้าถูกซ่อนไว้จนกว่าจะรู้ว่าเป็นพนักงาน — ในกลุ่มนี้ให้แสดงเสมอ
@@ -321,27 +321,11 @@ function buildAvatarGroups() {
 }
 
 // นับจำนวนในหัวข้อใหม่หลังรายการเปลี่ยน
+// จำนวนร่างเปลี่ยนได้ตลอด (สร้าง/ลบ) — ตัวเลขและข้อความตอนว่างอัปเดตให้โดย collapse-group
+// ซึ่งนับจาก countNode ที่ผูกไว้ตอน build ไม่ต้องนับซ้ำที่นี่อีก
 function refreshAvatarGroups() {
   if (!avatarGroups) return;
-  const pBox = document.getElementById('personal-avatars');
-  const iBox = document.getElementById('imported-avatars');
-  const mine = avatarGroups.find(g => g.key === 'mine');
-  const shared = avatarGroups.find(g => g.key === 'shared');
-  // นับจากรายการจริงข้างใน ไม่ใช่จำนวนกล่องที่ครอบอยู่
-  if (mine) mine.el.querySelector('.cg-n').textContent = String(pBox ? pBox.children.length : 0);
-  if (shared) shared.el.querySelector('.cg-n').textContent = String(iBox ? iBox.children.length : 0);
-  [mine, shared].forEach(g => {
-    if (!g) return;
-    const box = g.key === 'mine' ? pBox : iBox;
-    let ph = g.body.querySelector(':scope > .cg-empty');
-    const n = box ? box.children.length : 0;
-    if (!n) {
-      if (!ph) { ph = document.createElement('div'); ph.className = 'cg-empty'; g.body.appendChild(ph); }
-      ph.textContent = g.key === 'mine'
-        ? 'ยังไม่มีร่างของตัวเอง — กดปุ่มด้านบนเพื่อสร้าง หรืออัปโหลดไฟล์ .glb'
-        : 'ยังไม่มีร่างกลาง';
-    } else if (ph) ph.remove();
-  });
+  avatarGroups.forEach(g => AecCollapseGroup.refresh(g));
 }
 
 let personalAvatars = [];

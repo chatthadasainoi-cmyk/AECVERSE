@@ -18,6 +18,7 @@
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
 <!-- ต้องมาก่อนสคริปต์ในหน้า เพราะหน้านี้เรียกใช้ทะเบียนร่างตั้งแต่ตอนเปิด -->
 <script src="app-config.js"></script>
+<script src="collapse-group.js"></script>
 <script src="avatar-import.js"></script>
 <script src="avatar-creator.js"></script>
 <style>
@@ -79,7 +80,9 @@
               และเดินได้เหมือนร่างอื่น เก็บไว้ได้ไม่จำกัดจำนวน
             </div>
             <!-- ร่างที่ผู้ใช้คนนี้สร้างเอง — คนอื่นไม่เห็นในรายการนี้ แต่เห็นตอนอยู่ในโลก 3D -->
+            <div id="avatar-groups"></div>
             <div id="my-avatars"></div>
+            <div id="builtin-avatars">
             <div class="model-option" data-model="character" onclick="selectModel('character')">
               <div class="mo-icon">🧍</div>
               <div><div class="mo-name">Character 1</div><div class="mo-desc">ตัวละคร 3D สมจริงพร้อมแอนิเมชันเดิน</div></div>
@@ -100,8 +103,9 @@
               <div class="mo-icon">👷</div>
               <div><div class="mo-name">Engineer (คลาสสิก)</div><div class="mo-desc">วิศวกรชุดส้มสไตล์บล็อก — เบาและโหลดเร็วที่สุด</div></div>
             </div>
+            </div>
 
-            <div class="section-label" style="margin-top:18px;">ท่าเดิน</div>
+            <div id="anim-options">
             <div class="model-option" data-anim="walking" onclick="selectAnim('walking')">
               <div class="mo-icon">🚶</div>
               <div><div class="mo-name">Walking</div><div class="mo-desc">ท่าเดินปกติ เป็นธรรมชาติ</div></div>
@@ -110,10 +114,12 @@
               <div class="mo-icon">💃</div>
               <div><div class="mo-name">Catwalk High Knees</div><div class="mo-desc">ท่าเดินยกเข่าสูงสไตล์แคทวอล์ก</div></div>
             </div>
+            </div>
 
-            <div class="section-label" style="margin-top:18px;">สีประจำตัว</div>
-            <div style="color:var(--text-2);font-size:11px;margin-bottom:10px;">ใช้กับป้ายชื่อ วงแหวนใต้เท้า และสีข้อความแชท — ช่วยให้เพื่อนแยกคุณออกจากคนอื่นได้ทันที</div>
-            <div class="color-swatches" id="color-swatches"></div>
+            <div id="color-block">
+              <div style="color:var(--text-2);font-size:11px;margin-bottom:10px;">ใช้กับป้ายชื่อ วงแหวนใต้เท้า และสีข้อความแชท — ช่วยให้เพื่อนแยกคุณออกจากคนอื่นได้ทันที</div>
+              <div class="color-swatches" id="color-swatches"></div>
+            </div>
 
             <button class="btn primary" style="width:100%;margin-top:20px;" onclick="saveAvatar()">บันทึกตัวละคร</button>
             <div id="save-status"></div>
@@ -178,6 +184,34 @@ function renderCatalogAvatars() {
   refreshOptionUI();
 }
 
+// จัดหน้าเป็นหัวข้อใหญ่กดย่อได้ ผู้ใช้จะได้เจอข้อมูลทีละก้อน ไม่ใช่รายการยาวทั้งหน้า
+// ปุ่มสร้างตัวละครอยู่นอกหัวข้อ เพราะเป็นสิ่งแรกที่อยากให้เห็น ไม่ควรถูกพับซ่อน
+let avatarGroups = null;
+function buildAvatarGroups() {
+  if (avatarGroups || !window.AecCollapseGroup) return;
+  const host = document.getElementById('avatar-groups');
+  const pick = id => document.getElementById(id);
+  if (!host) return;
+  // countNode = นับของจริงข้างในกล่อง ไม่ใช่นับตัวกล่อง (ไม่งั้นได้ 1 ทุกหมวด)
+  avatarGroups = AecCollapseGroup.build(host, [
+    { key: 'mine',    icon: '✨', label: 'ร่างของฉัน', open: true,
+      nodes: [pick('my-avatars')], countNode: pick('my-avatars'),
+      empty: 'ยังไม่มีร่างที่สร้างเอง — กดปุ่มด้านบนเพื่อสร้างร่างของคุณ' },
+    { key: 'builtin', icon: '🧍', label: 'ร่างสำเร็จรูป', open: false,
+      nodes: [pick('builtin-avatars')], countNode: pick('builtin-avatars') },
+    { key: 'anim',    icon: '🚶', label: 'ท่าเดิน', open: false,
+      nodes: [pick('anim-options')], countNode: pick('anim-options') },
+    { key: 'color',   icon: '🎨', label: 'สีประจำตัว', open: false,
+      nodes: [pick('color-block')], count: false }
+  ], { storeKey: 'aec_public_avatar_groups' });
+}
+
+// จำนวนร่างของฉันเปลี่ยนได้ตลอด (สร้างใหม่/ลบทิ้ง) ตัวเลขบนหัวข้อต้องตามด้วย
+function refreshAvatarGroups() {
+  if (!avatarGroups) return;
+  avatarGroups.forEach(g => AecCollapseGroup.refresh(g));
+}
+
 async function deleteMyAvatar(id) {
   const a = personalAvatars.find(x => x.id === id);
   if (!confirm(`ลบร่าง "${a ? a.name : id}" ออกจากบัญชีของคุณ?`)) return;
@@ -194,7 +228,9 @@ async function loadAvatarCatalog() {
   importedAvatars = cat.imported || [];
   personalAvatars = cat.personal || [];
   [...importedAvatars, ...personalAvatars].forEach(a => knownAvatarIds.add(a.id));
+  buildAvatarGroups();
   renderCatalogAvatars();
+  refreshAvatarGroups();
 }
 
 // ทะเบียนมาทางเน็ต แต่ค่าที่บันทึกไว้อ่านได้เร็วกว่า ถ้าไม่รอกันจะตัดสินตอนที่ยัง
