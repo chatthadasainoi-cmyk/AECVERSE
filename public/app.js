@@ -475,6 +475,16 @@ const GROUND_RAY_THROTTLE = 4;       // เช็คทุก 4 เฟรม พ
 const GROUND_CALIBRATE_TOLERANCE = 0.05;
 const GROUND_RAY_MAX_RISE = 1.2;     // ก้าวขึ้นได้ทีละไม่เกินนี้ต่อการอัปเดต (~ความสูงขั้นบันได) กันเดินทะลุแล้ว "ลอย"
 const GROUND_RAY_MAX_DROP = 3;       // กันตกไปพื้นชั้นล่างที่มองทะลุเห็นแต่ไม่ได้ยืนอยู่จริง
+// three.js ยิงรังสีแบบไล่ทดสอบ "ทุกสามเหลี่ยม" ของชิ้นที่รังสีเฉียดกล่องขอบเขต
+// โมเดลจริงมีชิ้นท่อที่รวมกันเป็นก้อนเดียวถึง 5 ล้านสามเหลี่ยม ยืนใกล้มันทีไรก็ต้องไล่
+// ทดสอบทั้งก้อนทุกครั้งที่หาพื้น — นี่คือสาเหตุที่เดินเข้าใกล้ย่านท่อแล้วเครื่องหน่วง
+// ก้อนพวกนี้เป็นท่อ/อุปกรณ์ ไม่ใช่พื้นที่ต้องยืน จึงข้ามไปได้โดยไม่เสียอะไร
+const GROUND_RAY_MAX_TRIS = 120000;
+// รับเฉพาะผิวที่ "หงายขึ้น" พอจะยืนได้ ไม่งั้นตัวละครจะไต่ขึ้นไปเกาะผิวโค้งข้างท่อ
+// แล้วค่อยๆ ลอยสูงขึ้นเรื่อยๆ ระหว่างเดิน
+const GROUND_MIN_UP_NORMAL = 0.6;
+const _groundNormalMat = new THREE.Matrix3();
+const _groundNormal = new THREE.Vector3();
 
 function updateDynamicGroundY() {
     if (!avatarModel || !factoryModel) { dynamicGroundY = null; return; }
@@ -482,9 +492,32 @@ function updateDynamicGroundY() {
     origin.y += 1.5; // ยิงจากเหนือหัวเล็กน้อย กันกรณียืนอยู่ "ใน" เนื้อโมเดลพอดีจนยิงจากในทะลุไม่โดน
     groundRayDown.set(origin, DOWN_VECTOR);
     groundRayDown.far = 1.5 + GROUND_RAY_MAX_DROP + 1;
-    const hits = groundRayDown.intersectObject(factoryModel, true);
+
+    // ยิงเฉพาะชิ้นที่อยู่ใต้เท้าจริงๆ ไม่ใช่ทั้งโมเดล
+    // กรองด้วยกล่องขอบเขตที่คำนวณไว้แล้วตอน buildColliders ซึ่งถูกกว่าการทดสอบสามเหลี่ยมมาก
+    const px = avatarModel.position.x, pz = avatarModel.position.z;
+    const candidates = [];
+    for (const col of factoryColliders) {
+        if (col.tris > GROUND_RAY_MAX_TRIS) continue;
+        const b = col.box;
+        if (px < b.min.x || px > b.max.x || pz < b.min.z || pz > b.max.z) continue;
+        if (b.min.y > origin.y || b.max.y < origin.y - groundRayDown.far) continue;
+        candidates.push(col.mesh);
+    }
+    if (!candidates.length) { dynamicGroundY = null; return; }
+    const hits = groundRayDown.intersectObjects(candidates, false);
     if (!hits.length) { dynamicGroundY = null; return; }
-    const hitY = hits[0].point.y;
+
+    // เอาผิวแรกที่หงายขึ้นพอจะยืนได้ — ข้ามผิวโค้งข้างท่อและผนังตั้ง
+    let hit = null;
+    for (const h of hits) {
+        if (!h.face) { hit = h; break; }               // ไม่มีข้อมูลหน้า ก็รับไปตามเดิม
+        _groundNormalMat.getNormalMatrix(h.object.matrixWorld);
+        _groundNormal.copy(h.face.normal).applyMatrix3(_groundNormalMat).normalize();
+        if (Math.abs(_groundNormal.y) >= GROUND_MIN_UP_NORMAL) { hit = h; break; }
+    }
+    if (!hit) { dynamicGroundY = null; return; }
+    const hitY = hit.point.y;
 
     if (groundFootOffset === null) {
         // calibrate เฉพาะตอนตัวละครยืนนิ่งบนพื้นราบมาตรฐานพอดี — หาว่า "พื้นผิวจริงอยู่ต่ำกว่าจุดหมุน
@@ -843,8 +876,19 @@ let originalMaterials = new Map();
 let currentMaterialMode = 'solid';
 let initialFactoryScale = 1;
 let factoryColliders = [];
+// ดัชนี uuid -> mesh — โมเดลจริงมีเกือบ 2,000 ชิ้น การ traverse หาทีละครั้งทุกเฟรมแพงเกินไป
+let colliderByUuid = new Map();
+// จำไว้ว่าตอนนี้ไฮไลท์ชิ้นไหนอยู่ จะได้คืนวัสดุแค่ชิ้นนั้นตอนเปลี่ยน
+// เดิมวนทั้งโมเดลแล้ว clone วัสดุใหม่ให้ทุกชิ้นทุกครั้งที่ป้ายเปลี่ยน — โมเดลจริงเกือบ 2,000 ชิ้น
+// เท่ากับสร้างวัสดุใหม่ 2,000 ตัวแล้วส่งขึ้นการ์ดจอใหม่ทั้งชุด ทุกครั้งที่เดินชนอะไรสักอย่าง
+// ประกาศไว้ตรงนี้ไม่ใช่ตรงที่ใช้ เพราะ setFactoryMaterialMode อยู่เหนือจุดนั้นและอ้างถึงมัน
+let highlightedUuid = null;
 
-const HITBOX_PADDING = 0.6; // ขยาย hitbox ให้ชนง่ายขึ้น ไม่ต้องเดินตามขอบโมเดลเป๊ะๆ
+// ขยาย hitbox ให้ชนง่ายขึ้นเล็กน้อย ไม่ต้องเดินตามขอบโมเดลเป๊ะๆ
+// เดิม 0.6 ซึ่งกว้างเกินไปกับโมเดลที่ชิ้นส่วนอยู่ชิดกัน (ย่านท่อ) — ป้ายเด้งทั้งที่ยังไม่ถึงตัว
+const HITBOX_PADDING = 0.25;
+// และห้ามพองเกินครึ่งหนึ่งของด้านที่แคบที่สุดของชิ้นนั้น ไม่งั้นชิ้นเล็กๆ จะมีกล่องใหญ่กว่าตัวเองหลายเท่า
+const HITBOX_PADDING_MAX_RATIO = 0.5;
 // ชิ้นที่กินพื้นที่เกินสัดส่วนนี้ของโรงงานทั้งหลัง ถือเป็นพื้น/ผนัง/โครงอาคาร
 // มันครอบทุกจุดที่ผู้ใช้ยืนได้ ถ้านับเป็นการเดินชนด้วยก็จะได้ป้ายของมันตลอดเวลา
 const SHELL_FOOTPRINT_RATIO = 0.6;
@@ -1100,7 +1144,7 @@ function loadModelFromUrlConfirmed(url, fileName, transform) {
     currentSceneModelUrl = url;
     currentSceneModelName = fileName;
     disposeFactoryModel();
-    originalMaterials.clear(); factoryColliders = [];
+    originalMaterials.clear(); factoryColliders = []; colliderByUuid = new Map(); highlightedUuid = null;
 
     (async () => {
         let buf = null;
@@ -1133,7 +1177,7 @@ function loadModelFromUrlConfirmed(url, fileName, transform) {
 
 function loadModelFromBlobUrl(blobUrl, fileName, transform, onDone) {
     disposeFactoryModel();
-    originalMaterials.clear(); factoryColliders = [];
+    originalMaterials.clear(); factoryColliders = []; colliderByUuid = new Map(); highlightedUuid = null;
     $('factory-status').innerText = `⬇️ กำลังโหลดโมเดลจากไฟล์เซฟ...`;
     getLoaderForFile(fileName).load(blobUrl, obj => {
         finalizeModelLoad(obj, { label: `${fileName} (จากไฟล์เซฟ)`, transform });
@@ -1360,6 +1404,7 @@ function currentModelScaleFactor() {
 
 function buildColliders() {
     factoryColliders = [];
+    colliderByUuid = new Map();
     // โมเดล/ตำแหน่ง/สเกลเปลี่ยน — ค่า calibrate พื้นเดิมใช้ไม่ได้แล้ว ต้องหาใหม่
     dynamicGroundY = null;
     groundFootOffset = null;
@@ -1377,19 +1422,27 @@ function buildColliders() {
         const box = new THREE.Box3().setFromObject(child);
         if (box.isEmpty()) return;                      // เมชเปล่า ไม่มีอะไรให้ชน
         const size = box.getSize(new THREE.Vector3());
-        box.expandByScalar(padding);
-        factoryColliders.push({
-            uuid: child.uuid, mesh: child, box,
+        // ชิ้นเล็กต้องไม่ได้กล่องที่ใหญ่กว่าตัวเองหลายเท่า
+        const pad = Math.min(padding, Math.min(size.x, size.y, size.z) * HITBOX_PADDING_MAX_RATIO);
+        box.expandByScalar(pad);
+        // จำนวนสามเหลี่ยม — ใช้ตัดสินว่าคุ้มที่จะยิงรังสีใส่ไหม (ดู updateDynamicGroundY)
+        const g = child.geometry;
+        const tris = g ? ((g.index ? g.index.count : (g.attributes.position ? g.attributes.position.count : 0)) / 3) : 0;
+        const col = {
+            uuid: child.uuid, mesh: child, box, tris,
             // ปริมาตรใช้ตัดสินว่าชิ้นไหน "เจาะจงกว่า" เมื่อกล่องซ้อนกันหลายชั้น
             volume: Math.max(size.x * size.y * size.z, 1e-6),
             // พื้น/ผนัง/โครงอาคาร: เดินชนไม่ได้ แต่ยังคลิกเลือกดูข้อมูลได้ตามปกติ
             walkable: (size.x * size.z) / wholeFootprint < SHELL_FOOTPRINT_RATIO
-        });
+        };
+        factoryColliders.push(col);
+        colliderByUuid.set(child.uuid, col);
     });
 }
 
 function setFactoryMaterialMode(mode) {
     currentMaterialMode = mode;
+    highlightedUuid = null;   // วัสดุถูกเขียนใหม่ทั้งโมเดลข้างล่าง สถานะไฮไลท์เดิมใช้อ้างอิงไม่ได้แล้ว
     ['mode-solid', 'mode-wireframe', 'mode-xray'].forEach(m => { const el = $(m); if (el) el.className = `mode-btn ${m === 'mode-' + mode ? 'active' : ''}`; });
     if (!factoryModel) return;
     factoryModel.traverse(child => {
@@ -1421,13 +1474,21 @@ function isEditingActive() {
     return grp && grp.style.display !== 'none';
 }
 
+function restoreMaterial(uuid) {
+    if (!uuid) return;
+    const col = colliderByUuid.get(uuid);
+    const orig = originalMaterials.get(uuid);
+    if (col && orig) { col.mesh.material.dispose(); col.mesh.material = orig.clone(); }
+}
 function applyHighlight(uuid) {
     if (!factoryModel || currentMaterialMode !== 'solid') return;
-    factoryModel.traverse(child => {
-        if (!child.isMesh) return;
-        if (child.uuid === uuid) child.material = new THREE.MeshStandardMaterial({ color: 0x3b82f6, emissive: 0x0a1f4d });
-        else if (originalMaterials.has(child.uuid)) child.material = originalMaterials.get(child.uuid).clone();
-    });
+    if (highlightedUuid === uuid) return;
+    restoreMaterial(highlightedUuid);
+    highlightedUuid = null;
+    const col = colliderByUuid.get(uuid);
+    if (!col) return;
+    col.mesh.material = new THREE.MeshStandardMaterial({ color: 0x3b82f6, emissive: 0x0a1f4d });
+    highlightedUuid = uuid;
 }
 
 // opts.force = true -> "วาดป้ายใหม่" ไม่ใช่ "สลับเปิด/ปิด"
@@ -1475,10 +1536,11 @@ function deselectPart() {
     $('process-panel').style.display = 'none';
     const walkBtn = $('btn-walk-to');
     if (walkBtn) walkBtn.style.display = 'none';
+    // มีชิ้นเดียวที่ถูกเปลี่ยนวัสดุไป คืนแค่ชิ้นนั้นพอ
+    // เดิมวนคืนให้ทุกชิ้นในโมเดล ซึ่งทำงานทุกครั้งที่ป้ายปิดเอง (เช่นเดินห่างออกมา)
     if (factoryModel && currentMaterialMode === 'solid') {
-        factoryModel.traverse(child => {
-            if (child.isMesh && originalMaterials.has(child.uuid)) child.material = originalMaterials.get(child.uuid).clone();
-        });
+        restoreMaterial(highlightedUuid);
+        highlightedUuid = null;
     }
 }
 
@@ -1600,9 +1662,12 @@ function checkWalkCollision(nextX, nextZ, currentY) {
 function checkAutoDeselect() {
     if (!avatarModel || !factoryModel || !selection.uuid || !selection.viaWalkCollision) return;
     if (isEditingActive()) return;
-    let pos = null;
-    factoryModel.traverse(child => { if (child.isMesh && child.uuid === selection.uuid) { pos = new THREE.Vector3(); child.getWorldPosition(pos); } });
-    if (!pos) return;
+    // ใช้ดัชนีที่ทำไว้ตอน buildColliders — เดิม traverse ทั้งโมเดลทุกเฟรมเพื่อหาชิ้นเดียว
+    // โมเดลจริงมีเกือบ 2,000 ชิ้น เท่ากับไล่ของ 2,000 ชิ้นทิ้งทุกเฟรมเปล่าๆ
+    const col = colliderByUuid.get(selection.uuid);
+    if (!col) return;
+    const pos = new THREE.Vector3();
+    col.mesh.getWorldPosition(pos);
     if (avatarModel.position.distanceTo(pos) > DESELECT_DISTANCE) deselectPart();
 }
 
@@ -4461,6 +4526,8 @@ function clearFactoryModelFromScene() {
     disposeFactoryModel();
     originalMaterials.clear();
     factoryColliders = [];
+    colliderByUuid = new Map();
+    highlightedUuid = null;
     $('mesh-container').innerHTML = '';
     $('model-meta').innerHTML = '';
     $('details-panel').style.display = 'none';
