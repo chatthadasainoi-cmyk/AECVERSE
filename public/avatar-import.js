@@ -199,12 +199,26 @@ window.AecAvatarImport = (function () {
     } catch (err) { return { builtin: [], imported: [], personal: [] }; }
   }
 
+  // ลบไฟล์ .glb ออกจากที่เก็บด้วย ไม่งั้นทะเบียนหายแต่ไฟล์ค้างสะสมไปเรื่อยๆ
+  // ทำหลังจากถอดออกจากทะเบียนสำเร็จแล้วเท่านั้น และถ้าลบไฟล์ไม่ผ่านก็ไม่ถือว่าลบล้มเหลว
+  // (ทะเบียนคือสิ่งที่ผู้ใช้เห็น ไฟล์กำพร้าที่เหลือเป็นเรื่องของการเก็บกวาด ไม่ใช่ของผู้ใช้)
+  async function removeStorageFile(url) {
+    const prefix = `${SUPABASE_URL}/storage/v1/object/public/${BUCKET}/`;
+    if (typeof url !== 'string' || !url.startsWith(prefix)) return;
+    try {
+      await fetch(`${SUPABASE_URL}/storage/v1/object/${BUCKET}/` + url.slice(prefix.length), {
+        method: 'DELETE', headers: { Authorization: 'Bearer ' + SUPABASE_ANON_KEY }
+      });
+    } catch (err) { console.warn('[AVATAR] ลบไฟล์ในที่เก็บไม่สำเร็จ:', err); }
+  }
+
   async function remove(id) {
     const h = await authHeaders();
     if (!h) throw new Error('ต้องเข้าสู่ระบบก่อน');
     const res = await fetch('/api/avatars/' + encodeURIComponent(id), { method: 'DELETE', headers: h });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.error || 'ลบไม่สำเร็จ');
+    if (body.removed) await removeStorageFile(body.removed.url);
     return body;
   }
 

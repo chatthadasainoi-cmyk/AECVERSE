@@ -1100,6 +1100,8 @@ app.get('/api/notifications', async (req, res) => {
         : n;
     const mine = notifications
         .filter(n => n.userId === user.id || n.userId === '*')
+        // ประกาศถึงทุกคนลบทิ้งให้ทั้งบริษัทไม่ได้ ใครกดลบก็ซ่อนเฉพาะคนนั้น
+        .filter(n => !(n.hiddenBy || []).includes(user.id))
         .slice(0, 50)
         .map(seen(user.id));
     res.json({ notifications: mine, unread: mine.filter(n => !n.readAt).length });
@@ -1124,6 +1126,44 @@ app.post('/api/notifications/read', async (req, res) => {
     });
     if (changed) persistJsonFile(NOTIFICATIONS_FILE, notifications);
     res.json({ ok: true, marked: changed });
+});
+
+// ลบการแจ้งเตือนทิ้ง
+// ของตัวเอง = ลบออกจริง  ส่วนประกาศถึงทุกคน (เหตุฉุกเฉิน) ลบให้คนอื่นด้วยไม่ได้
+// จึงจำไว้ว่าใครซ่อนไปแล้วบ้าง แล้วไม่ส่งให้คนนั้นอีก
+app.delete('/api/notifications/:id', async (req, res) => {
+    const user = await userFromRequest(req);
+    if (!user) return res.status(401).json({ error: 'ต้องเข้าสู่ระบบก่อน' });
+    const i = notifications.findIndex(n => n.id === req.params.id);
+    if (i < 0) return res.status(404).json({ error: 'ไม่พบการแจ้งเตือนนี้' });
+    const n = notifications[i];
+    if (n.userId === '*') {
+        n.hiddenBy = n.hiddenBy || [];
+        if (!n.hiddenBy.includes(user.id)) n.hiddenBy.push(user.id);
+    } else if (n.userId === user.id) {
+        notifications.splice(i, 1);
+    } else {
+        return res.status(403).json({ error: 'ลบได้เฉพาะการแจ้งเตือนของตัวเอง' });
+    }
+    persistJsonFile(NOTIFICATIONS_FILE, notifications);
+    res.json({ ok: true });
+});
+
+// ล้างทั้งหมดที่เห็นอยู่ — ปุ่มเดียวจบ ไม่ต้องกดลบทีละอัน
+app.delete('/api/notifications', async (req, res) => {
+    const user = await userFromRequest(req);
+    if (!user) return res.status(401).json({ error: 'ต้องเข้าสู่ระบบก่อน' });
+    let removed = 0;
+    for (let i = notifications.length - 1; i >= 0; i--) {
+        const n = notifications[i];
+        if (n.userId === user.id) { notifications.splice(i, 1); removed++; }
+        else if (n.userId === '*') {
+            n.hiddenBy = n.hiddenBy || [];
+            if (!n.hiddenBy.includes(user.id)) { n.hiddenBy.push(user.id); removed++; }
+        }
+    }
+    if (removed) persistJsonFile(NOTIFICATIONS_FILE, notifications);
+    res.json({ ok: true, removed });
 });
 
 // โหลดของเก่ากลับเข้าหน่วยความจำ — ต้องอยู่ท้ายบล็อกนี้ หลังประกาศ const ครบแล้ว
