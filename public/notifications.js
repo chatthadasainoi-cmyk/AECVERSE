@@ -49,6 +49,10 @@ window.AecNotifications = (function () {
       .notif-list{max-height:min(60vh,380px);overflow-y:auto;}
       .notif-item{display:flex;gap:10px;padding:11px 13px;border-bottom:1px solid var(--border-soft);
         text-decoration:none;color:inherit;}
+      /* แถวไม่ใช่ลิงก์แล้ว แต่ยังกดได้ — ต้องบอกด้วยเคอร์เซอร์ว่ากดได้
+         เฉพาะแถวที่มีหน้าให้ไปต่อเท่านั้น แถวที่ไม่มีลิงก์กดแล้วไม่เกิดอะไร */
+      .notif-item[data-link]{cursor:pointer;}
+      .notif-item:focus-visible{outline:2px solid var(--blue);outline-offset:-2px;}
       .notif-item:last-child{border-bottom:none;}
       .notif-item.unread{background:var(--blue-soft);}
       .notif-item:hover{background:var(--panel-2);}
@@ -106,7 +110,7 @@ window.AecNotifications = (function () {
     if (dot) { dot.classList.toggle('on', unread > 0); dot.textContent = unread > 9 ? '9+' : String(unread); }
     if (!panel) return;
     panel.querySelector('.notif-list').innerHTML = items.length ? items.map(n => `
-      <a class="notif-item${n.readAt ? '' : ' unread'}" href="${esc(n.link || '#')}">
+      <div class="notif-item${n.readAt ? '' : ' unread'}"${n.link ? ` role="link" tabindex="0" data-link="${esc(n.link)}"` : ''}>
         <span class="ni-ic">${ICON[n.kind] || ICON.info}</span>
         <span style="min-width:0;">
           <span class="ni-t">${esc(n.title)}</span>
@@ -114,7 +118,7 @@ window.AecNotifications = (function () {
           <span class="ni-w">${esc(timeAgo(n.createdAt))}</span>
         </span>
         <button type="button" class="ni-x" data-del="${esc(n.id)}" aria-label="ลบการแจ้งเตือนนี้">🗑</button>
-      </a>`).join('')
+      </div>`).join('')
       : '<div class="notif-empty">ยังไม่มีการแจ้งเตือน<br>เมื่อมีคนมอบหมายงานให้คุณ หรือเกิดเหตุฉุกเฉิน จะขึ้นที่นี่</div>';
     const btn = panel.querySelector('[data-readall]');
     if (btn) btn.disabled = unread === 0;
@@ -215,17 +219,27 @@ window.AecNotifications = (function () {
       toggle();
     });
     const panelEl = document.getElementById('aec-notif-panel');
-    panelEl.querySelector('[data-readall]')
-      .addEventListener('click', e => { e.stopPropagation(); markAllRead(); });
-    panelEl.querySelector('[data-clearall]')
-      .addEventListener('click', e => { e.stopPropagation(); clearAll(); });
-    // ปุ่มลบเกิดใหม่ทุกครั้งที่ render จึงดักที่ตัวแผงแทนการผูกทีละปุ่ม
-    // แต่ละรายการเป็นลิงก์ ต้องกันไม่ให้การกดลบพาไปหน้าอื่นด้วย
-    panelEl.querySelector('.notif-list').addEventListener('click', e => {
-      const x = e.target.closest('[data-del]');
-      if (!x) return;
-      e.preventDefault(); e.stopPropagation();
-      removeOne(x.dataset.del);
+
+    // ดักคลิกที่ตัวแผงทีเดียว ไม่ผูกทีละปุ่ม เพราะเนื้อในถูกวาดใหม่ทุกครั้งที่ข้อมูลเปลี่ยน
+    // และไม่ใช้ querySelector(...).addEventListener แบบต่อกันตรงๆ อีก — ถ้าหาอันใดอันหนึ่ง
+    // ไม่เจอ มันจะ throw ตรงนั้นแล้วตัวดักที่เหลือทั้งหมดไม่ถูกติดตั้ง ปุ่มลบจะกลายเป็นปุ่มตาย
+    panelEl.addEventListener('click', e => {
+      e.stopPropagation();                         // อย่าให้ทะลุไปโดนกระดิ่งจนแผงปิด
+      const del = e.target.closest('[data-del]');
+      if (del) { e.preventDefault(); removeOne(del.dataset.del); return; }
+      if (e.target.closest('[data-readall]')) { markAllRead(); return; }
+      if (e.target.closest('[data-clearall]')) { clearAll(); return; }
+      // กดที่ตัวแถว = เปิดหน้าที่เกี่ยวข้อง (แถวไม่ใช่ลิงก์แล้ว จึงต้องพาไปเอง)
+      const row = e.target.closest('[data-link]');
+      if (row) window.location.href = row.dataset.link;
+    });
+    // เข้าถึงด้วยคีย์บอร์ดได้เหมือนตอนที่ยังเป็นลิงก์
+    panelEl.addEventListener('keydown', e => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      const row = e.target.closest('[data-link]');
+      if (!row || e.target.closest('[data-del]')) return;
+      e.preventDefault();
+      window.location.href = row.dataset.link;
     });
     document.addEventListener('click', e => { if (open && !e.target.closest('.notif-wrap')) toggle(false); });
     document.addEventListener('keydown', e => { if (e.key === 'Escape' && open) toggle(false); });

@@ -45,7 +45,10 @@ window.AecCollapseGroup = (function () {
   const save = (k, m) => { try { localStorage.setItem(k, JSON.stringify(m)); } catch (e) { /* โหมดส่วนตัว */ } };
 
   // host   = element ที่จะเอากลุ่มไปวาง (เนื้อในเดิมจะไม่ถูกลบ ย้ายเข้ากลุ่มเท่านั้น)
-  // groups = [{ key, icon, label, nodes:[], open, empty }]
+  // groups = [{ key, icon, label, nodes:[], open, empty, count }]
+  //   count: false = ไม่ต้องโชว์ตัวเลข (บางหมวดนับจำนวนแล้วไม่มีความหมาย เช่น กล่องสีกล่องเดียว)
+  //   countNode  = ให้นับลูกของ element นี้แทน ใช้เมื่อของจริงอยู่ในกล่องครอบอีกชั้น
+  //                (ถ้าไม่ระบุจะนับลูกของตัวหมวดเอง ซึ่งจะได้ 1 = จำนวนกล่องครอบ ไม่ใช่จำนวนของ)
   function build(host, groups, opts) {
     if (!host) return [];
     injectStyle();
@@ -77,7 +80,7 @@ window.AecCollapseGroup = (function () {
       });
 
       host.appendChild(el);
-      built.push({ key: g.key, el, body, empty: g.empty });
+      built.push({ key: g.key, el, body, empty: g.empty, count: g.count !== false, countNode: g.countNode || null });
     });
 
     built.forEach(b => refresh(b));
@@ -88,8 +91,11 @@ window.AecCollapseGroup = (function () {
   // กลุ่มที่ว่างยังต้องเห็นหัวข้ออยู่ ผู้ใช้จะได้รู้ว่ามีหมวดนี้และมันยังไม่มีของ
   function refresh(b) {
     if (!b || !b.el) return;
-    const items = b.body.querySelectorAll(':scope > *:not(.cg-empty)').length;
-    b.el.querySelector('.cg-n').textContent = items ? String(items) : '0';
+    const src = b.countNode || b.body;
+    const items = src.querySelectorAll(':scope > *:not(.cg-empty)').length;
+    const n = b.el.querySelector('.cg-n');
+    if (b.count === false) n.style.display = 'none';
+    else n.textContent = items ? String(items) : '0';
     let ph = b.body.querySelector(':scope > .cg-empty');
     if (!items && b.empty) {
       if (!ph) { ph = document.createElement('div'); ph.className = 'cg-empty'; b.body.appendChild(ph); }
