@@ -57,6 +57,18 @@ window.AecNotifications = (function () {
       .notif-item .ni-b{display:block;font-size:11px;color:var(--text-1);line-height:1.55;margin-top:2px;}
       .notif-item .ni-w{display:block;font-size:10px;color:var(--text-2);margin-top:4px;}
       .notif-empty{padding:26px 14px;text-align:center;color:var(--text-2);font-size:11.5px;line-height:1.7;}
+      /* ปุ่มลบรายการ — จางไว้ก่อน ชัดขึ้นเมื่อเอาเมาส์ไปที่แถวนั้น
+         ไม่ใช้ title ของ browser เพราะป้ายแบบนั้นเด้งช้าและค้างทับของอื่น */
+      .notif-item{position:relative;}
+      .notif-item .ni-x{position:absolute;top:8px;right:8px;background:none;border:none;cursor:pointer;
+        color:var(--text-2);font-size:12px;line-height:1;padding:4px 5px;border-radius:6px;
+        opacity:0;transition:opacity .15s,background .15s;font-family:inherit;}
+      .notif-item:hover .ni-x,.notif-item .ni-x:focus-visible{opacity:1;}
+      .notif-item .ni-x:hover{background:var(--panel);color:var(--red);}
+      .notif-item .ni-w{padding-right:22px;}
+      /* จอสัมผัสไม่มี hover ถ้าซ่อนไว้จะกดลบไม่ได้เลย */
+      @media (hover:none){ .notif-item .ni-x{opacity:.65;} }
+      @media (prefers-reduced-motion: reduce){ .notif-item .ni-x{transition:none;} }
     `;
     document.head.appendChild(s);
   }
@@ -101,6 +113,7 @@ window.AecNotifications = (function () {
           ${n.body ? `<span class="ni-b">${esc(n.body)}</span>` : ''}
           <span class="ni-w">${esc(timeAgo(n.createdAt))}</span>
         </span>
+        <button type="button" class="ni-x" data-del="${esc(n.id)}" aria-label="ลบการแจ้งเตือนนี้">🗑</button>
       </a>`).join('')
       : '<div class="notif-empty">ยังไม่มีการแจ้งเตือน<br>เมื่อมีคนมอบหมายงานให้คุณ หรือเกิดเหตุฉุกเฉิน จะขึ้นที่นี่</div>';
     const btn = panel.querySelector('[data-readall]');
@@ -139,6 +152,39 @@ window.AecNotifications = (function () {
     } catch (err) { console.warn('[NOTIF] ทำเครื่องหมายอ่านแล้วไม่สำเร็จ:', err); }
   }
 
+  // ลบทีละรายการ — ถอดออกจากหน้าจอทันทีไม่ต้องรอ server เพราะแผงเปิดค้างอยู่
+  // ถ้า server ปฏิเสธค่อยดึงของจริงกลับมาแทน
+  async function removeOne(id) {
+    const h = await authHeaders();
+    if (!h) return;
+    const gone = items.find(n => n.id === id);
+    items = items.filter(n => n.id !== id);
+    if (gone && !gone.readAt) unread = Math.max(0, unread - 1);
+    render();
+    try {
+      const res = await fetch('/api/notifications/' + encodeURIComponent(id), { method: 'DELETE', headers: h });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+    } catch (err) {
+      console.warn('[NOTIF] ลบไม่สำเร็จ:', err);
+      refresh();
+    }
+  }
+
+  async function clearAll() {
+    if (!items.length) return;
+    const h = await authHeaders();
+    if (!h) return;
+    const keep = items;
+    items = []; unread = 0; render();
+    try {
+      const res = await fetch('/api/notifications', { method: 'DELETE', headers: h });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+    } catch (err) {
+      console.warn('[NOTIF] ล้างทั้งหมดไม่สำเร็จ:', err);
+      items = keep; refresh();
+    }
+  }
+
   function toggle(force) {
     const panel = document.getElementById('aec-notif-panel');
     if (!panel) return;
@@ -159,7 +205,7 @@ window.AecNotifications = (function () {
     bell.insertAdjacentHTML('beforeend', `
       <span class="notif-dot" id="aec-notif-dot"></span>
       <div class="notif-panel" id="aec-notif-panel" role="dialog" aria-label="การแจ้งเตือน">
-        <div class="notif-head"><b>การแจ้งเตือน</b><button type="button" data-readall>อ่านทั้งหมดแล้ว</button></div>
+        <div class="notif-head"><b>การแจ้งเตือน</b><span style="display:flex;gap:2px;"><button type="button" data-readall>อ่านทั้งหมดแล้ว</button><button type="button" data-clearall style="color:var(--text-2);">ล้างทั้งหมด</button></span></div>
         <div class="notif-list"></div>
       </div>`);
 
@@ -168,8 +214,19 @@ window.AecNotifications = (function () {
       e.stopPropagation();
       toggle();
     });
-    document.getElementById('aec-notif-panel').querySelector('[data-readall]')
+    const panelEl = document.getElementById('aec-notif-panel');
+    panelEl.querySelector('[data-readall]')
       .addEventListener('click', e => { e.stopPropagation(); markAllRead(); });
+    panelEl.querySelector('[data-clearall]')
+      .addEventListener('click', e => { e.stopPropagation(); clearAll(); });
+    // ปุ่มลบเกิดใหม่ทุกครั้งที่ render จึงดักที่ตัวแผงแทนการผูกทีละปุ่ม
+    // แต่ละรายการเป็นลิงก์ ต้องกันไม่ให้การกดลบพาไปหน้าอื่นด้วย
+    panelEl.querySelector('.notif-list').addEventListener('click', e => {
+      const x = e.target.closest('[data-del]');
+      if (!x) return;
+      e.preventDefault(); e.stopPropagation();
+      removeOne(x.dataset.del);
+    });
     document.addEventListener('click', e => { if (open && !e.target.closest('.notif-wrap')) toggle(false); });
     document.addEventListener('keydown', e => { if (e.key === 'Escape' && open) toggle(false); });
 
@@ -203,5 +260,5 @@ window.AecNotifications = (function () {
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
 
-  return { refresh, mount, push: onPush, toggle };
+  return { refresh, mount, push: onPush, toggle, removeOne, clearAll };
 })();
