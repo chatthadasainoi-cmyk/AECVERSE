@@ -3198,7 +3198,8 @@ function mpAppendChat(msg, opts) {
     const log = $('chat-log');
     if (!log) return;
     const d = document.createElement('div');
-    d.className = 'chat-msg';
+    // ข้อความเตือนใช้ฟอนต์และสีคนละชุด แยกออกจากบทสนทนาปกติได้ทันทีที่เห็น
+    d.className = 'chat-msg' + (opts && opts.alert ? ' chat-alert' : '');
     const strong = document.createElement('strong');
     strong.style.color = msg.color || 'var(--text-0, #fff)';
     strong.innerText = msg.name;
@@ -3213,7 +3214,10 @@ function mpAppendChat(msg, opts) {
     if (overlay && overlay.style.display === 'none') {
         chatUnread++;
         updateChatUnreadBadge();
-        if (opts && opts.fromPerson) maybeAutoOpenChat();
+        // ข้อความคนพิมพ์ = สำคัญพอจะเปิดแชทให้ ส่วนเหตุฉุกเฉินสำคัญกว่านั้นอีก
+        // เหตุฉุกเฉินข้าม snooze ด้วย เพราะการที่ผู้ใช้เพิ่งปิดแชทไม่ใช่เหตุผลที่จะไม่บอกว่ามีเหตุ
+        if (opts && opts.alert) maybeAutoOpenChat(true);
+        else if (opts && opts.fromPerson) maybeAutoOpenChat();
     }
 }
 // ชื่อผู้เล่นล็อกตามบัญชีที่ล็อกอิน — ไม่มี setMyName/set_name อีกต่อไป
@@ -3338,6 +3342,32 @@ async function initMultiplayer() {
         mpAppendChat({ name: '🧪 ซ้อม', color: '#f59e0b',
             text: icon + ' ' + (d.scenario || '') + ' — เกิดจากบทเรียน ไม่ใช่เหตุการณ์จริง' });
     });
+
+    // เหตุฉุกเฉินจริงที่เจ้าหน้าที่กด Active จากหน้า Emergency
+    // ต้องถึงทุกคนทุกช่องทางพร้อมกัน: แถบบนจอ ข้อความในแชท และเปิดแชทให้เห็นเลย
+    mpSocket.on('emergency_alert', d => {
+        if (!d) return;
+        const icon = d.icon || '🚨';
+        const where = d.part ? ' · ' + d.part : '';
+        const bar = $('alert-banner');
+        if (bar) {
+            $('alert-banner-text').textContent = icon + ' ' + (d.scenario || '') + where;
+            bar.style.display = 'flex';
+        }
+        mpAppendChat({
+            name: '🚨 เหตุฉุกเฉิน', color: '#ef4444',
+            text: icon + ' ' + (d.scenario || '') + where + (d.detail ? ' — ' + d.detail : '')
+        }, { alert: true });
+    });
+
+    // เจ้าหน้าที่แจ้งว่าเหตุจบแล้ว — เก็บแถบและบอกในแชทด้วย
+    // ไม่งั้นคนที่เพิ่งเข้ามาเห็นแถบค้างจะไม่รู้ว่าเรื่องจบไปแล้ว
+    mpSocket.on('emergency_alert_cleared', () => {
+        const bar = $('alert-banner');
+        if (bar) bar.style.display = 'none';
+        mpAppendChat({ name: '✅ เหตุฉุกเฉิน', color: '#22c55e', text: 'เจ้าหน้าที่แจ้งว่าเหตุการณ์จบแล้ว' });
+    });
+
     mpSocket.on('emergency_cancelled', () => applyEmergencyCall(null));
 
     // REQ 7 — ประกาศในแชทว่าใครเข้า/ออกเขตของจุดไหน ทุกคนในห้องเห็นเหมือนกัน
@@ -3541,11 +3571,14 @@ function toggleChatPanel(force) {
 
 // เปิดหน้าต่างแชทให้เอง เมื่อมี "คน" พิมพ์เข้ามาตอนหน้าต่างปิดอยู่
 // ตั้งใจไม่โฟกัสช่องพิมพ์ เพราะจะไปแย่งคีย์บอร์ดจากงานที่ผู้ใช้ทำค้างไว้ (เดิน WASD, พิมพ์ในช่องค้นหา)
-function maybeAutoOpenChat() {
+// urgent = เหตุฉุกเฉิน ข้ามช่วงพักที่ตั้งไว้หลังผู้ใช้เพิ่งปิดแชท
+// การที่เขาเพิ่งปิดแชทไม่ใช่เหตุผลที่จะไม่บอกว่ากำลังมีเหตุฉุกเฉิน
+// แต่ยังเคารพการปิดแชททั้งระบบอยู่ นั่นเป็นการตั้งค่าที่ตั้งใจ ไม่ใช่การปัดทิ้งชั่วคราว
+function maybeAutoOpenChat(urgent) {
     if (VIEWER_MODE) return;                                        // โหมดจอฉาย ไม่ควรมี UI เด้ง
     if (localStorage.getItem('aec_chat_enabled') === 'off') return; // ปิดแชทไว้ทั้งระบบ
-    if (localStorage.getItem('aec_chat_autoopen') === 'off') return;
-    if (Date.now() - chatClosedByUserAt < CHAT_AUTOOPEN_SNOOZE_MS) return;
+    if (localStorage.getItem('aec_chat_autoopen') === 'off' && !urgent) return;
+    if (!urgent && Date.now() - chatClosedByUserAt < CHAT_AUTOOPEN_SNOOZE_MS) return;
     toggleChatPanel(true);
     // เด้งขึ้นมาเฉยๆ กลางฉาก 3D ที่มีของเยอะ ตากวาดไม่เจอ — กะพริบขอบให้รู้ว่ามีอะไรเพิ่งโผล่
     const overlay = $('chat-overlay');
