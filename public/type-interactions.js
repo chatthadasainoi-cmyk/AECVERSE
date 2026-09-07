@@ -348,31 +348,66 @@ window.AecTypeInteractions = (function () {
   // ผู้ใช้จึงเจอข้อความทีละก้อน ไม่ใช่กำแพงตัวอักษรทั้งหน้าตั้งแต่เปิด
   // ตอนเปิดจะกางเฉพาะแถบที่ต้อง "ลงมือทำ" กับผลลัพธ์ ที่เหลือยุบหมด
   // ══════════════════════════════════════════════════════════
-  // ---------- ซ้อมเหตุฉุกเฉิน ----------
-  // บทเรียนที่จบด้วยหายนะจริงจะแจ้งทั้งระบบว่า "มีการซ้อม" ไม่ใช่เหตุจริง
-  // ยิงครั้งเดียวต่อเหตุการณ์หนึ่ง — ผู้ใช้ลากสไลเดอร์ไปมาผลลัพธ์เดิมจะไม่ยิงซ้ำ
-  // (server ยังจำกัดความถี่ซ้ำอีกชั้น เผื่อเปิดหลายแท็บหรือหลายคนพร้อมกัน)
-  let lastIncidentKey = '';
-  async function raiseDrill(incident) {
+  // ---------- ส่งเรื่องอันตรายไปยัง Emergency ----------
+  // บทเรียนที่จบด้วยหายนะจะขึ้นปุ่มให้ "กดส่งเรื่อง" ไม่ใช่ยิงประกาศเองอัตโนมัติ
+  // เพราะการปลุกทั้งโรงงานควรเป็นการตัดสินใจของคน ไม่ใช่ผลข้างเคียงของการลากสไลเดอร์เล่น
+  //
+  // ส่งแล้วเรื่องจะไปเข้าคิวที่หน้า Emergency ให้เจ้าหน้าที่ตรวจก่อน
+  // ต่อเมื่อมีคนกด Active ถึงจะเตือนทุกคนจริง
+  let reportCtx = { typeKey: '', partName: '' };
+  const reportedKeys = new Set();     // เรื่องที่ส่งไปแล้วในหน้านี้ ไม่ต้องให้กดซ้ำ
+
+  async function sendReport(incident, btn) {
     if (!incident || !incident.label) return;
-    if (incident.label === lastIncidentKey) return;
-    lastIncidentKey = incident.label;
+    const setState = (text, disabled) => {
+      if (!btn) return;
+      btn.textContent = text;
+      btn.disabled = !!disabled;
+    };
     try {
-      if (typeof supabaseClient === 'undefined') return;   // หน้าไม่ได้ต่อบัญชี ก็ไม่ต้องยิง
+      if (typeof supabaseClient === 'undefined') { setState('ส่งไม่ได้ — หน้านี้ไม่ได้ต่อกับบัญชี', true); return; }
       const { data } = await supabaseClient.auth.getSession();
       const token = data?.session?.access_token;
-      if (!token) return;                                   // ยังไม่ล็อกอิน — บทเรียนยังเล่นได้ตามปกติ
-      const res = await fetch('/api/emergency/drill', {
+      if (!token) { setState('ต้องเข้าสู่ระบบก่อนถึงจะส่งเรื่องได้', true); return; }
+
+      setState('กำลังส่ง...', true);
+      const res = await fetch('/api/emergency/reports', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-        body: JSON.stringify({ scenario: incident.label, icon: incident.icon || '🔥' })
+        body: JSON.stringify({
+          scenario: incident.label,
+          icon: incident.icon || '🔥',
+          detail: incident.detail || '',
+          part: reportCtx.partName || '',
+          typeKey: reportCtx.typeKey || ''
+        })
       });
-      if (!res.ok) {
-        const b = await res.json().catch(() => ({}));
-        // ถูกจำกัดความถี่หรือแอดมินปิดไว้ ไม่ใช่ความผิดพลาด — บทเรียนเดินต่อได้ปกติ
-        console.info('[DRILL] ไม่ได้ประกาศ:', b.error || res.status);
-      }
-    } catch (err) { console.warn('[DRILL] ยิงไม่สำเร็จ:', err); }
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) { setState(body.error || 'ส่งไม่สำเร็จ ลองใหม่อีกครั้ง', false); return; }
+      reportedKeys.add(incident.label);
+      setState(body.duplicate ? '✓ เรื่องนี้มีคนแจ้งไว้แล้ว' : '✓ ส่งเรื่องแล้ว — รอเจ้าหน้าที่ตรวจสอบ', true);
+    } catch (err) {
+      console.warn('[EMERGENCY] ส่งเรื่องไม่สำเร็จ:', err);
+      setState('ส่งไม่สำเร็จ — เครือข่ายมีปัญหา', false);
+    }
+  }
+
+  // วางปุ่มไว้ท้ายคำอธิบายผลลัพธ์ที่ถึงขั้นหายนะ
+  function attachReportButton(container, incident) {
+    if (!container || !incident || !incident.label) return;
+    if (container.querySelector('[data-emg-report]')) return;   // วางไปแล้ว ไม่ซ้ำ
+    const wrap = document.createElement('div');
+    wrap.className = 'ati-emg';
+    const already = reportedKeys.has(incident.label);
+    wrap.innerHTML = `
+      <div class="ati-emg-t">เหตุการณ์นี้ร้ายแรงพอที่จะแจ้งเป็นเหตุฉุกเฉิน</div>
+      <div class="ati-emg-d">ส่งแล้วจะเข้าคิวที่หน้า Emergency ให้เจ้าหน้าที่ตรวจก่อน
+        ยังไม่มีใครถูกเตือนจนกว่าจะมีคนกดยืนยัน</div>
+      <button type="button" class="ati-emg-b" data-emg-report ${already ? 'disabled' : ''}></button>`;
+    const btn = wrap.querySelector('[data-emg-report]');
+    btn.textContent = already ? '✓ ส่งเรื่องแล้ว — รอเจ้าหน้าที่ตรวจสอบ' : '🚨 ส่งเรื่องนี้ไปยัง Emergency';
+    btn.addEventListener('click', () => sendReport(incident, btn));
+    container.appendChild(wrap);
   }
 
   const esc = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -420,6 +455,17 @@ window.AecTypeInteractions = (function () {
       .ati-bar.tone-bad>.ati-bar-h{color:var(--red,#ef4444);}
       .ati-bar.tone-info{border-color:rgba(59,130,246,.3);background:var(--blue-soft,rgba(59,130,246,.11));}
       .ati-bar.tone-info>.ati-bar-h{color:#8fb8ff;}
+
+      /* ---------- กล่องแจ้งเหตุฉุกเฉิน ---------- */
+      .ati-emg{margin-top:11px;padding:11px 12px;border-radius:10px;
+        border:1px solid rgba(239,68,68,.45);background:rgba(239,68,68,.10);}
+      .ati-emg-t{font-size:12px;font-weight:800;color:var(--red,#ef4444);line-height:1.5;}
+      .ati-emg-d{font-size:11px;color:var(--text-2,#657182);line-height:1.65;margin-top:4px;}
+      .ati-emg-b{margin-top:9px;width:100%;padding:10px;border-radius:9px;cursor:pointer;
+        font-family:inherit;font-size:12px;font-weight:800;color:#fff;border:none;
+        background:var(--red,#ef4444);}
+      .ati-emg-b:hover:not(:disabled){filter:brightness(1.12);}
+      .ati-emg-b:disabled{cursor:default;background:rgba(148,163,184,.18);color:var(--text-2,#657182);}
 
       /* ---------- ตัวควบคุม ---------- */
       .ati-ctl{margin-bottom:13px;}
@@ -544,12 +590,13 @@ window.AecTypeInteractions = (function () {
       const key = reads.find(r => r.tone === 'bad') || reads.find(r => r.tone === 'warn') || reads[reads.length - 1];
       readBar.setSub(key ? key.value : '');
       const v = def.verdict(state);
-      if (v.incident) raiseDrill(v.incident);
       vBar.setTone(v.tone);
       vBar.querySelector('.bi').textContent = v.tone === 'ok' ? '✅' : v.tone === 'warn' ? '⚠️' : '🛑';
       vBar.setLabel(v.title);
       vBar.setSub('กดดูเหตุผล');
       vBar.content.textContent = v.why;
+      // ถึงขั้นหายนะถึงจะมีปุ่มแจ้ง ผลลัพธ์แย่ระดับทั่วไปไม่ต้องปลุกใคร
+      if (v.incident) attachReportButton(vBar.content, v.incident);
     };
 
     tryBar.querySelectorAll('input[type=range][data-ctl]').forEach(el =>
@@ -635,7 +682,7 @@ window.AecTypeInteractions = (function () {
 
       if (checked) {
         const allRight = def.items.every(it => picked.has(it.id) === !!it.correct);
-        def.items.forEach(it => { if (picked.has(it.id) && it.incident) raiseDrill(it.incident); });
+
         msgBar.setTone(allRight ? 'ok' : 'warn');
         msgBar.querySelector('.bi').textContent = allRight ? '✅' : '⚠️';
         msgBar.setLabel(allRight ? 'ถูกทั้งหมด' : 'ยังไม่ครบถูกทุกข้อ');
@@ -643,6 +690,8 @@ window.AecTypeInteractions = (function () {
         msgBar.content.textContent = allRight
           ? 'เลือกได้ครบและไม่เลือกตัวลวงเลย เหตุผลของแต่ละข้ออยู่ใต้ตัวเลือกด้านบน'
           : 'อ่านคำอธิบายใต้แต่ละข้อดู เหตุผลสำคัญกว่าคำตอบ — ของจริงหน้างานจะไม่มีตัวเลือกให้กด';
+        // เลือกตัวที่นำไปสู่หายนะ = ได้ปุ่มแจ้งเหตุของตัวเลือกนั้น
+        def.items.forEach(it => { if (picked.has(it.id) && it.incident) attachReportButton(msgBar.content, it.incident); });
         msgBar.classList.add('open');
       } else {
         msgBar.setTone('info'); msgBar.querySelector('.bi').textContent = '💡';
@@ -674,6 +723,7 @@ window.AecTypeInteractions = (function () {
   function open(typeKey, partName) {
     const def = INTERACTIONS[typeKey] || INTERACTIONS.default;
     if (!def) return;
+    reportCtx = { typeKey: typeKey || '', partName: partName || '' };
     injectStyle();
     close();
 
