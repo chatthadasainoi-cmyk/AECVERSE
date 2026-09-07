@@ -197,14 +197,6 @@ let currentModelUrl = null;
 let currentModelName = null;
 const workflowDb = {};        // key -> { name, desc, steps, colorClass, requiresPPE }
 const typeAssignments = {};   // key -> typeKey ที่ admin กำหนดเอง
-// ชิ้นส่วนที่ admin ตั้งให้ "ตัน" — เดินทะลุไม่ได้
-// key -> ระยะเผื่อรอบชิ้น (เมตร) 0 = ชนพอดีขอบโมเดล ค่ามากขึ้น = กันห่างขึ้น
-// เก็บเป็นตัวเลขไม่ใช่ true/false เพราะแต่ละชิ้นต้องการระยะกันชนไม่เท่ากัน
-// (ท่อเล็กอยากให้เดินเฉียดได้ ส่วนกำแพงอยากกันแต่ไกลๆ)
-const solidParts = {};
-// ชิ้นที่ admin ชี้ว่าเป็น "พื้นสำหรับเดิน" — key -> true
-// ระบบหาพื้นจะยิงรังสีใส่ชิ้นพวกนี้เสมอแม้จะหนักเกินเพดานปกติ และให้ความสำคัญก่อนชิ้นอื่น
-const groundParts = {};
 // จุดที่ผู้ใช้ปักเอง (marker) — id -> { id, name, color, x, y, z, shape, size, radius, emergency }
 // ต่างจาก typeAssignments ตรงที่ตั้งชื่อ/สีได้อิสระ ไม่ต้องผูกกับประเภทอุปกรณ์ที่มีอยู่
 const markers = {};
@@ -240,7 +232,7 @@ async function persistSceneState() {
         const body = JSON.stringify({
             savedAt: new Date().toISOString(),
             currentModelUrl, currentModelName,
-            workflowDb, typeAssignments, solidParts, groundParts, markers, modelTransform, modelLocked
+            workflowDb, typeAssignments, markers, modelTransform, modelLocked
         });
         const res = await fetch(`${SUPABASE_URL}/storage/v1/object/models/${SCENE_STATE_FILE}`, {
             method: 'POST',
@@ -985,120 +977,6 @@ app.post('/api/emergency/drill', async (req, res) => {
     res.json({ ok: true, notification: n });
 });
 
-
-// ============================================================
-// เรื่องอันตรายที่ส่งมาจากบทเรียน "ลองใช้งาน"
-// ผู้ใช้ทำบทเรียนแล้วเจอผลลัพธ์ระดับหายนะ (บ่อหมักระเบิด ไฟย้อนถึงบ่อ ฯลฯ)
-// กดปุ่มส่งเรื่องเข้ามาที่นี่ได้ — ยังไม่ประกาศอะไรทั้งสิ้น แค่เข้าคิวรอเจ้าหน้าที่ดู
-//
-// แยกเป็นสองจังหวะโดยตั้งใจ: ใครก็ส่งเรื่องได้ แต่การประกาศเตือนทั้งโรงงาน
-// ต้องมีคนที่รับผิดชอบกดยืนยัน ไม่ใช่ให้บทเรียนของใครสักคนไปปลุกทุกคนเองได้
-// ============================================================
-const EMERGENCY_REPORTS_FILE = IS_PRODUCTION ? 'emergency_reports_v1.json' : 'emergency_reports_dev.json';
-const MAX_REPORTS = 200;
-const REPORT_PER_USER_MS = 60000;      // คนเดิมส่งเรื่องได้ทุก 1 นาที
-const reportLastByUser = new Map();
-let emergencyReports = [];
-
-function publicReport(r) {
-    return { id: r.id, icon: r.icon, scenario: r.scenario, detail: r.detail, part: r.part,
-             typeKey: r.typeKey, by: r.by, at: r.at, status: r.status,
-             activatedBy: r.activatedBy || '', activatedAt: r.activatedAt || 0 };
-}
-
-// ส่งเรื่อง — ใครก็ได้ที่ล็อกอินแล้ว เพราะบทเรียนมีไว้ให้ทุกคนเล่น
-app.post('/api/emergency/reports', async (req, res) => {
-    const user = await userFromRequest(req);
-    if (!user) return res.status(401).json({ error: 'ต้องเข้าสู่ระบบก่อน' });
-
-    const now = Date.now();
-    const mine = reportLastByUser.get(user.id) || 0;
-    if (now - mine < REPORT_PER_USER_MS) {
-        return res.status(429).json({ error: 'เพิ่งส่งเรื่องไปเมื่อสักครู่ — เว้นระยะสักครู่แล้วลองใหม่', throttled: true });
-    }
-
-    const b = req.body || {};
-    const scenario = String(b.scenario || '').trim().slice(0, 160);
-    if (!scenario) return res.status(400).json({ error: 'ไม่มีรายละเอียดเหตุการณ์' });
-
-    // เรื่องเดียวกันที่ยังรออยู่ ไม่ต้องมีสองใบ — คิวจะได้ไม่เต็มไปด้วยของซ้ำ
-    const dup = emergencyReports.find(r => r.status === 'pending' && r.scenario === scenario);
-    if (dup) return res.json({ ok: true, report: publicReport(dup), duplicate: true });
-
-    const r = {
-        id: `${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-        icon: String(b.icon || '🔥').slice(0, 4),
-        scenario,
-        detail: String(b.detail || '').trim().slice(0, 600),
-        part: String(b.part || '').trim().slice(0, 120),
-        typeKey: String(b.typeKey || '').trim().slice(0, 60),
-        by: user.user_metadata?.display_name || user.email || 'ผู้เข้าร่วม',
-        byId: user.id,
-        at: now,
-        status: 'pending'
-    };
-    reportLastByUser.set(user.id, now);
-    emergencyReports.unshift(r);
-    if (emergencyReports.length > MAX_REPORTS) emergencyReports.length = MAX_REPORTS;
-    await persistJsonFile(EMERGENCY_REPORTS_FILE, emergencyReports);
-
-    // เจ้าหน้าที่ที่เปิดหน้า Emergency อยู่ เห็นเรื่องใหม่ทันทีไม่ต้องรีเฟรช
-    io.emit('emergency_report_new', publicReport(r));
-    console.log(`[EMERGENCY] ${r.by} ส่งเรื่อง "${scenario}" จากบทเรียน`);
-    res.json({ ok: true, report: publicReport(r) });
-});
-
-app.get('/api/emergency/reports', requireStaff, (req, res) => {
-    res.json({ reports: emergencyReports.map(publicReport) });
-});
-
-// กด Active = ประกาศจริง เตือนทุกคนทุกช่องทาง
-// เข้ากระดิ่งแจ้งเตือน + เด้งในโลก 3D + เด้งในแชทพร้อมรูปแบบพิเศษ
-app.post('/api/emergency/reports/:id/activate', requireStaff, async (req, res) => {
-    const r = emergencyReports.find(x => x.id === req.params.id);
-    if (!r) return res.status(404).json({ error: 'ไม่พบเรื่องนี้' });
-    if (r.status === 'active') return res.status(409).json({ error: 'เรื่องนี้ประกาศไปแล้ว' });
-
-    r.status = 'active';
-    r.activatedBy = req.staffUser.email;
-    r.activatedAt = Date.now();
-    await persistJsonFile(EMERGENCY_REPORTS_FILE, emergencyReports);
-
-    const n = pushBroadcast({
-        kind: 'emergency',
-        title: `🚨 เหตุฉุกเฉิน: ${r.icon} ${r.scenario}`,
-        body: (r.part ? `จุดที่เกี่ยวข้อง: ${r.part} — ` : '') + (r.detail || 'ประกาศจากเรื่องที่แจ้งผ่านบทเรียน'),
-        link: 'Emergency.html'
-    });
-    // ทุกคนที่ออนไลน์อยู่ ไม่ว่าจะอยู่หน้าไหนหรืออยู่ในโลก 3D
-    io.emit('emergency_alert', {
-        id: r.id, icon: r.icon, scenario: r.scenario, detail: r.detail,
-        part: r.part, by: r.activatedBy, at: r.activatedAt
-    });
-    console.log(`[EMERGENCY] ${r.activatedBy} ประกาศเหตุ "${r.scenario}" ให้ทุกคนทราบ`);
-    res.json({ ok: true, report: publicReport(r), notification: n });
-});
-
-// ปิดเรื่อง — ทั้งกรณีตรวจแล้วไม่ต้องประกาศ และกรณีประกาศไปแล้วเหตุการณ์จบลง
-app.post('/api/emergency/reports/:id/close', requireStaff, async (req, res) => {
-    const r = emergencyReports.find(x => x.id === req.params.id);
-    if (!r) return res.status(404).json({ error: 'ไม่พบเรื่องนี้' });
-    const wasActive = r.status === 'active';
-    r.status = 'closed';
-    r.closedBy = req.staffUser.email;
-    r.closedAt = Date.now();
-    await persistJsonFile(EMERGENCY_REPORTS_FILE, emergencyReports);
-    // เคยประกาศไปแล้วต้องบอกด้วยว่าจบแล้ว ไม่งั้นแถบเตือนค้างอยู่กับทุกคน
-    if (wasActive) io.emit('emergency_alert_cleared', { id: r.id, by: r.closedBy });
-    console.log(`[EMERGENCY] ${r.closedBy} ปิดเรื่อง "${r.scenario}"`);
-    res.json({ ok: true, report: publicReport(r) });
-});
-
-(async () => {
-    emergencyReports = await loadJsonFile(EMERGENCY_REPORTS_FILE, []);
-    console.log(`[EMERGENCY] โหลดเรื่องที่แจ้งไว้ ${emergencyReports.length} เรื่อง`);
-})();
-
 // ---------- รายชื่อคนที่มอบหมายงานได้ ----------
 // ต้องใช้ service key ถึงจะอ่านรายชื่อผู้ใช้ทั้งหมดได้ ถ้าไม่ได้ตั้งไว้จะคืนลิสต์ว่าง
 // พร้อมบอกสาเหตุ ดีกว่าปล่อยให้หน้าเว็บขึ้น dropdown เปล่าโดยไม่รู้ว่าทำไม
@@ -1354,8 +1232,6 @@ async function loadSceneState() {
         currentModelName = s.currentModelName || null;
         Object.assign(workflowDb, s.workflowDb || {});
         Object.assign(typeAssignments, s.typeAssignments || {});
-        Object.assign(solidParts, s.solidParts || {});
-        Object.assign(groundParts, s.groundParts || {});
         Object.assign(markers, s.markers || {});
         if (s.modelTransform) modelTransform = s.modelTransform;
         modelLocked = s.modelLocked !== undefined ? !!s.modelLocked : true;
@@ -1375,8 +1251,6 @@ function publicState() {
         modelName: currentModelName,
         workflowDb,
         typeAssignments,
-        solidParts,
-        groundParts,
         markers,
         modelTransform,
         modelLocked,
@@ -1919,26 +1793,6 @@ io.on('connection', socket => {
         socket.broadcast.emit('type_cleared', { key: data.key });
         schedulePersistSceneState();
         console.log(`[WORKFLOW] cleared key:${data.key}`);
-    });
-
-    // ---------- ตั้งให้ชิ้นส่วนตัน (เดินทะลุไม่ได้) ----------
-    // รับเป็นรายการ ไม่ใช่ทีละชิ้น เพราะงานจริงคือ "ทำท่อทั้งกลุ่มให้ตัน"
-    // ยิงทีละชิ้นเป็นร้อยครั้งจะทั้งช้าและทำให้ persist ถูกเรียกรัวๆ
-    socket.on('set_solid', data => {
-        if (!canEditData(user)) return denyAction(socket, 'ตั้งค่าชิ้นส่วนตัน');
-        if (!data || !Array.isArray(data.keys) || !data.keys.length) return;
-        const keys = data.keys.filter(k => typeof k === 'string' && k).slice(0, 3000);
-        // จำกัดระยะเผื่อไว้ ไม่งั้นตั้งพลาดทีเดียวกลายเป็นกำแพงล่องหนทั้งโรงงาน
-        const pad = Math.min(3, Math.max(0, Number(data.pad) || 0));
-        // kind = 'ground' คือชี้ว่าเป็นพื้นสำหรับเดิน ไม่ใช่ของแข็งที่กั้นทาง
-        // สองอย่างนี้ใช้ร่วมกันได้ ชิ้นเดียวเป็นได้ทั้งพื้นที่เดินบนได้และของที่ชนได้
-        const store = data.kind === 'ground' ? groundParts : solidParts;
-        const val = data.kind === 'ground' ? true : pad;
-        if (data.on) keys.forEach(k => { store[k] = val; });
-        else keys.forEach(k => { delete store[k]; });
-        io.emit('solid_updated', { keys, pad, on: !!data.on, kind: data.kind === 'ground' ? 'ground' : 'solid' });
-        schedulePersistSceneState();
-        console.log(`[SOLID] ${data.on ? 'ตั้ง' : 'ยกเลิก'} ${keys.length} ชิ้นเป็น ${data.kind === 'ground' ? 'พื้น' : 'ของตัน (เผื่อ ' + pad + ' ม.)'} โดย ${user?.email || 'unknown'}`);
     });
 
     // ---------- ตั้งชื่อเล่น — เปลี่ยนชื่อตัวละครทันทีโดยไม่ต้องต่อใหม่ ----------

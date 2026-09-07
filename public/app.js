@@ -313,11 +313,6 @@ function getIconForType(typeKeyOrColorClass) {
 
 // mapping ที่ admin กำหนดเอง: meshUUID / originalName -> typeKey
 const userDefinedTypes = {};
-// ชิ้นส่วนที่ admin ตั้งให้ตัน — ชื่อชิ้น -> ระยะเผื่อรอบชิ้น (เมตร)
-// ผูกกับ "ชื่อ" ไม่ใช่ uuid เพราะ uuid เกิดใหม่ทุกครั้งที่โหลดโมเดล ตั้งไว้แล้วจะหาย
-const solidParts = {};
-// ชิ้นที่ admin ชี้ว่าเป็นพื้นสำหรับเดิน — ระบบหาพื้นจะเชื่อชิ้นพวกนี้ก่อนเสมอ
-const groundParts = {};
 
 // เดาชนิดอุปกรณ์จากชื่อ mesh — คืน null ถ้าเดาไม่ได้
 function heuristicTypeFromName(name) {
@@ -474,28 +469,12 @@ const defaultCameraOffset = new THREE.Vector3(0, 2.5, 5);
 const groundRayDown = new THREE.Raycaster();
 const DOWN_VECTOR = new THREE.Vector3(0, -1, 0);
 let dynamicGroundY = null;       // null = ยังไม่พบพื้นจริงที่เชื่อถือได้ ใช้ jumpConfig.groundY แบบเดิม
-let groundFootOffset = null;     // null = ยังไม่รู้ระยะเท้า
-// ระยะจากจุดหมุนของตัวละครลงไปถึงฝ่าเท้า วัดจากร่างที่สวมอยู่จริง
-// เดิมไม่มีค่านี้ ใช้วิธี "ถือว่าความสูงที่ยืนอยู่ตอนนี้ถูกต้อง" แล้วล็อกไว้
-// ซึ่งแปลว่าถ้าตอนเกิดตัวละครจมพื้นอยู่ มันจะจมเท่าเดิมตลอดไปทุกที่ในแมป
-let avatarFootDrop = null;
-// ครั้งแรกที่เจอพื้นจริงหลังโหลดโมเดล ต้องยอมให้ย้ายไปที่ระดับพื้นเลย
-// ไม่งั้นตัวติดเพดาน "ขึ้นได้ทีละ 1.2 เมตร' แล้วค้างจมอยู่ใต้พื้นไม่ขึ้นมาสักที
-let groundSnapped = false;
+let groundFootOffset = null;     // null = ยังไม่ calibrate
 let groundRayFrame = 0;
 const GROUND_RAY_THROTTLE = 4;       // เช็คทุก 4 เฟรม พอสำหรับบันได ไม่หนักเกินไปกับโมเดลใหญ่
+const GROUND_CALIBRATE_TOLERANCE = 0.05;
 const GROUND_RAY_MAX_RISE = 1.2;     // ก้าวขึ้นได้ทีละไม่เกินนี้ต่อการอัปเดต (~ความสูงขั้นบันได) กันเดินทะลุแล้ว "ลอย"
 const GROUND_RAY_MAX_DROP = 3;       // กันตกไปพื้นชั้นล่างที่มองทะลุเห็นแต่ไม่ได้ยืนอยู่จริง
-// three.js ยิงรังสีแบบไล่ทดสอบ "ทุกสามเหลี่ยม" ของชิ้นที่รังสีเฉียดกล่องขอบเขต
-// โมเดลจริงมีชิ้นท่อที่รวมกันเป็นก้อนเดียวถึง 5 ล้านสามเหลี่ยม ยืนใกล้มันทีไรก็ต้องไล่
-// ทดสอบทั้งก้อนทุกครั้งที่หาพื้น — นี่คือสาเหตุที่เดินเข้าใกล้ย่านท่อแล้วเครื่องหน่วง
-// ก้อนพวกนี้เป็นท่อ/อุปกรณ์ ไม่ใช่พื้นที่ต้องยืน จึงข้ามไปได้โดยไม่เสียอะไร
-const GROUND_RAY_MAX_TRIS = 120000;
-// รับเฉพาะผิวที่ "หงายขึ้น" พอจะยืนได้ ไม่งั้นตัวละครจะไต่ขึ้นไปเกาะผิวโค้งข้างท่อ
-// แล้วค่อยๆ ลอยสูงขึ้นเรื่อยๆ ระหว่างเดิน
-const GROUND_MIN_UP_NORMAL = 0.6;
-const _groundNormalMat = new THREE.Matrix3();
-const _groundNormal = new THREE.Vector3();
 
 function updateDynamicGroundY() {
     if (!avatarModel || !factoryModel) { dynamicGroundY = null; return; }
@@ -503,74 +482,27 @@ function updateDynamicGroundY() {
     origin.y += 1.5; // ยิงจากเหนือหัวเล็กน้อย กันกรณียืนอยู่ "ใน" เนื้อโมเดลพอดีจนยิงจากในทะลุไม่โดน
     groundRayDown.set(origin, DOWN_VECTOR);
     groundRayDown.far = 1.5 + GROUND_RAY_MAX_DROP + 1;
-
-    // ยิงเฉพาะชิ้นที่อยู่ใต้เท้าจริงๆ ไม่ใช่ทั้งโมเดล
-    // กรองด้วยกล่องขอบเขตที่คำนวณไว้แล้วตอน buildColliders ซึ่งถูกกว่าการทดสอบสามเหลี่ยมมาก
-    const px = avatarModel.position.x, pz = avatarModel.position.z;
-    const candidates = [];
-    for (const col of factoryColliders) {
-        // ชิ้นที่ admin ชี้ว่าเป็นพื้น ต้องยิงใส่เสมอแม้จะหนักเกินเพดาน
-        // เพราะถ้าข้ามพื้นไป ก็ไม่เหลืออะไรให้ยืนอีกแล้ว
-        if (!col.isGround && col.tris > GROUND_RAY_MAX_TRIS) continue;
-        const b = col.box;
-        if (px < b.min.x || px > b.max.x || pz < b.min.z || pz > b.max.z) continue;
-        if (b.min.y > origin.y || b.max.y < origin.y - groundRayDown.far) continue;
-        candidates.push(col.mesh);
-    }
-    if (!candidates.length) { dynamicGroundY = null; return; }
-    // ยิงใส่ทุกชิ้นที่อยู่ใต้เท้า ไม่ใช่เฉพาะชิ้นที่ถูกชี้ว่าเป็นพื้น
-    // เคยทำแบบนั้นแล้วกลายเป็นว่า พอชี้พื้นลานไว้ บันไดกับพื้นในอาคารถูกเมินหมด
-    // เดินขึ้นบันไดไม่ได้เลยเพราะระบบมองเห็นแต่พื้นลานที่อยู่ข้างล่าง
-    const hits = groundRayDown.intersectObjects(candidates, false);
+    const hits = groundRayDown.intersectObject(factoryModel, true);
     if (!hits.length) { dynamicGroundY = null; return; }
+    const hitY = hits[0].point.y;
 
-    // เก็บเฉพาะผิวที่หงายขึ้นพอจะยืนได้ ข้ามผิวโค้งข้างท่อและผนังตั้ง
-    // three.js คืนผลเรียงตามระยะจากจุดยิงอยู่แล้ว ยิงลงจึงได้เรียงจากผิวสูงสุดลงมา
-    const usable = [];
-    for (const h of hits) {
-        if (h.face) {
-            _groundNormalMat.getNormalMatrix(h.object.matrixWorld);
-            _groundNormal.copy(h.face.normal).applyMatrix3(_groundNormalMat).normalize();
-            if (Math.abs(_groundNormal.y) < GROUND_MIN_UP_NORMAL) continue;
-        }
-        usable.push(h);
-    }
-    if (!usable.length) { dynamicGroundY = null; return; }
-
-    // ระยะจากจุดหมุนลงไปถึงเท้า มาจากการวัดร่างจริง ไม่ใช่การเดา
-    // ของเดิมคำนวณจาก "ความสูงที่ยืนอยู่ตอนนี้" ซึ่งเท่ากับยอมรับว่าท่าที่จมอยู่คือท่าที่ถูก
-    // แล้วรักษาระดับที่จมนั้นไว้ทุกที่ในแมป
     if (groundFootOffset === null) {
-        if (avatarFootDrop === null) { dynamicGroundY = null; return; }
-        groundFootOffset = avatarFootDrop;
-    }
-
-    // ครั้งแรกที่เจอพื้นจริง ให้ย้ายไปที่ระดับพื้นได้เลยไม่ต้องไต่ทีละก้าว
-    // ตำแหน่งเกิดเป็นค่าคงที่ที่เดาไว้ ซึ่งอาจอยู่ใต้พื้นจริงหลายเมตร
-    // ถ้าบังคับให้ไต่ทีละ 1.2 เมตร จะติดเงื่อนไข "ต่างระดับเกินไป" แล้วค้างจมอยู่ตลอด
-    if (!groundSnapped) {
-        groundSnapped = true;
-        const y = usable[0].point.y + groundFootOffset;
-        dynamicGroundY = y;
-        avatarModel.position.y = y;
-        return;
-    }
-
-    // ไล่จากผิวสูงสุดลงมา เอาผิวแรกที่ "ก้าวถึง" จากตรงที่ยืนอยู่
-    // เดิมดูแค่ผิวบนสุดผิวเดียว ถ้ามันสูงเกินก้าวก็ยอมแพ้ทั้งที่มีพื้นจริงอยู่ข้างล่าง
-    // ผลคือยืนใต้ชานพัก/พื้นชั้นลอยแล้วระบบหาพื้นไม่เจอ ตัวละครหล่นไปที่ความสูงเดา
-    //
-    // กติกานี้ทำให้เดินขึ้นบันไดได้เองโดยไม่ต้องมีโค้ดพิเศษ — ขั้นบันไดสูงทีละไม่กี่สิบ
-    // เซนติเมตร จึงอยู่ในระยะก้าวเสมอ ส่วนชานพักที่สูงเกินก้าวจะขึ้นตรงๆ ไม่ได้ ต้องเดินอ้อมไปทางบันได
-    for (const h of usable) {
-        const y = h.point.y + groundFootOffset;
-        if (y <= avatarModel.position.y + GROUND_RAY_MAX_RISE &&
-            y >= avatarModel.position.y - GROUND_RAY_MAX_DROP) {
-            dynamicGroundY = y;
+        // calibrate เฉพาะตอนตัวละครยืนนิ่งบนพื้นราบมาตรฐานพอดี — หาว่า "พื้นผิวจริงอยู่ต่ำกว่าจุดหมุน
+        // ตัวละครเท่าไหร่" โดยไม่ต้องเดารูปแบบของแต่ละโมเดล ถ้ายังไม่เคยเจอจังหวะนี้เลยก็ปิดระบบไปก่อน
+        if (Math.abs(avatarModel.position.y - jumpConfig.groundY) < GROUND_CALIBRATE_TOLERANCE) {
+            groundFootOffset = jumpConfig.groundY - hitY;
+        } else {
+            dynamicGroundY = null;
             return;
         }
     }
-    dynamicGroundY = null;   // ไม่มีผิวไหนก้าวถึงเลย — คงความสูงเดิมไว้ ไม่เดา
+
+    const candidateY = hitY + groundFootOffset;
+    if (candidateY > avatarModel.position.y + GROUND_RAY_MAX_RISE || candidateY < avatarModel.position.y - GROUND_RAY_MAX_DROP) {
+        dynamicGroundY = null; // ต่างระดับเกินสมเหตุสมผลต่อเฟรม (เช่น พื้นชั้นล่างที่มองทะลุเห็น) — เมินไป
+        return;
+    }
+    dynamicGroundY = candidateY;
 }
 
 // ============================================================
@@ -729,18 +661,6 @@ async function setAvatarVisual(container, config, color) {
     if (!visual) visual = createEngineerAvatar(color);
     ud.visual = visual;
     container.add(visual);
-
-    // วัดว่าฝ่าเท้าของร่างนี้อยู่ต่ำกว่าจุดหมุนเท่าไหร่ — แต่ละร่างไม่เท่ากัน
-    // ใช้ค่านี้วางตัวละครบนพื้น แทนการเดาความสูงคงที่แล้วล็อกไว้แบบเดิม
-    if (container === avatarModel) {
-        container.updateMatrixWorld(true);
-        const bb = new THREE.Box3().setFromObject(visual);
-        if (isFinite(bb.min.y)) {
-            avatarFootDrop = container.position.y - bb.min.y;
-            groundFootOffset = null;    // ให้คิดใหม่จากค่าที่เพิ่งวัดได้
-            groundSnapped = false;      // เปลี่ยนร่างแล้วต้องหาระดับพื้นใหม่
-        }
-    }
 
     // วงแหวนสีประจำตัวใต้เท้า — เห็นชัดทันทีว่าใครเป็นใคร (สีเดียวกับป้ายชื่อ/แชท)
     const ring = new THREE.Mesh(
@@ -923,19 +843,8 @@ let originalMaterials = new Map();
 let currentMaterialMode = 'solid';
 let initialFactoryScale = 1;
 let factoryColliders = [];
-// ดัชนี uuid -> mesh — โมเดลจริงมีเกือบ 2,000 ชิ้น การ traverse หาทีละครั้งทุกเฟรมแพงเกินไป
-let colliderByUuid = new Map();
-// จำไว้ว่าตอนนี้ไฮไลท์ชิ้นไหนอยู่ จะได้คืนวัสดุแค่ชิ้นนั้นตอนเปลี่ยน
-// เดิมวนทั้งโมเดลแล้ว clone วัสดุใหม่ให้ทุกชิ้นทุกครั้งที่ป้ายเปลี่ยน — โมเดลจริงเกือบ 2,000 ชิ้น
-// เท่ากับสร้างวัสดุใหม่ 2,000 ตัวแล้วส่งขึ้นการ์ดจอใหม่ทั้งชุด ทุกครั้งที่เดินชนอะไรสักอย่าง
-// ประกาศไว้ตรงนี้ไม่ใช่ตรงที่ใช้ เพราะ setFactoryMaterialMode อยู่เหนือจุดนั้นและอ้างถึงมัน
-let highlightedUuid = null;
 
-// ขยาย hitbox ให้ชนง่ายขึ้นเล็กน้อย ไม่ต้องเดินตามขอบโมเดลเป๊ะๆ
-// เดิม 0.6 ซึ่งกว้างเกินไปกับโมเดลที่ชิ้นส่วนอยู่ชิดกัน (ย่านท่อ) — ป้ายเด้งทั้งที่ยังไม่ถึงตัว
-const HITBOX_PADDING = 0.25;
-// และห้ามพองเกินครึ่งหนึ่งของด้านที่แคบที่สุดของชิ้นนั้น ไม่งั้นชิ้นเล็กๆ จะมีกล่องใหญ่กว่าตัวเองหลายเท่า
-const HITBOX_PADDING_MAX_RATIO = 0.5;
+const HITBOX_PADDING = 0.6; // ขยาย hitbox ให้ชนง่ายขึ้น ไม่ต้องเดินตามขอบโมเดลเป๊ะๆ
 // ชิ้นที่กินพื้นที่เกินสัดส่วนนี้ของโรงงานทั้งหลัง ถือเป็นพื้น/ผนัง/โครงอาคาร
 // มันครอบทุกจุดที่ผู้ใช้ยืนได้ ถ้านับเป็นการเดินชนด้วยก็จะได้ป้ายของมันตลอดเวลา
 const SHELL_FOOTPRINT_RATIO = 0.6;
@@ -1191,7 +1100,7 @@ function loadModelFromUrlConfirmed(url, fileName, transform) {
     currentSceneModelUrl = url;
     currentSceneModelName = fileName;
     disposeFactoryModel();
-    originalMaterials.clear(); factoryColliders = []; colliderByUuid = new Map(); highlightedUuid = null;
+    originalMaterials.clear(); factoryColliders = [];
 
     (async () => {
         let buf = null;
@@ -1224,7 +1133,7 @@ function loadModelFromUrlConfirmed(url, fileName, transform) {
 
 function loadModelFromBlobUrl(blobUrl, fileName, transform, onDone) {
     disposeFactoryModel();
-    originalMaterials.clear(); factoryColliders = []; colliderByUuid = new Map(); highlightedUuid = null;
+    originalMaterials.clear(); factoryColliders = [];
     $('factory-status').innerText = `⬇️ กำลังโหลดโมเดลจากไฟล์เซฟ...`;
     getLoaderForFile(fileName).load(blobUrl, obj => {
         finalizeModelLoad(obj, { label: `${fileName} (จากไฟล์เซฟ)`, transform });
@@ -1449,50 +1358,11 @@ function currentModelScaleFactor() {
     return factoryModel ? factoryModel.scale.x / initialFactoryScale : 1;
 }
 
-// สร้างรูปทรงกันชนให้พอดีกับชิ้นส่วนจริง
-// กล่องสี่เหลี่ยมครอบถังทรงกลมจะมีมุมยื่นเลยตัวถังออกมา 41% ของรัศมี
-// ผู้ใช้จะชนกำแพงล่องหนตรงมุมทั้งที่มองไม่เห็นอะไรตรงนั้น
-// จึงลองทั้งกล่องและทรงกระบอก แล้วเลือกอันที่กินพื้นที่แนวราบน้อยกว่า
-//   ถังกลม  กว้าง=ลึก=2r -> กล่อง 4r² เทียบกับ ทรงกระบอก 3.14r²  (ทรงกระบอกชนะ)
-//   อาคารยาว 40x10      -> กล่อง 400 เทียบกับ ทรงกระบอกรัศมีครึ่งเส้นทแยง 1333  (กล่องชนะ)
-const _solidV = new THREE.Vector3();
-function makeSolidShape(mesh, pad) {
-    const box = new THREE.Box3().setFromObject(mesh);
-    if (box.isEmpty()) return null;
-    const size = box.getSize(new THREE.Vector3());
-    const mid = box.getCenter(new THREE.Vector3());
-    const g = mesh.geometry;
-    const posAttr = g && g.attributes && g.attributes.position;
-    let r = 0;
-    if (posAttr) {
-        // สุ่มจุดยอดพอให้ได้รัศมีจริง ไม่ต้องไล่ครบทุกจุดของชิ้นล้านสามเหลี่ยม
-        const n = posAttr.count;
-        const stride = Math.max(1, Math.floor(n / 4000));
-        for (let i = 0; i < n; i += stride) {
-            _solidV.fromBufferAttribute(posAttr, i).applyMatrix4(mesh.matrixWorld);
-            const dx = _solidV.x - mid.x, dz = _solidV.z - mid.z;
-            const d = dx * dx + dz * dz;
-            if (d > r) r = d;
-        }
-        r = Math.sqrt(r);
-    }
-    const boxArea = size.x * size.z;
-    const cylArea = Math.PI * r * r;
-    if (r > 0 && cylArea < boxArea) {
-        return { type: 'cyl', cx: mid.x, cz: mid.z, r: r + pad,
-                 minY: box.min.y - pad, maxY: box.max.y + pad, size };
-    }
-    if (pad > 0) box.expandByScalar(pad);
-    return { type: 'box', box, size };
-}
-
 function buildColliders() {
     factoryColliders = [];
-    colliderByUuid = new Map();
     // โมเดล/ตำแหน่ง/สเกลเปลี่ยน — ค่า calibrate พื้นเดิมใช้ไม่ได้แล้ว ต้องหาใหม่
     dynamicGroundY = null;
     groundFootOffset = null;
-    groundSnapped = false;   // โมเดลเปลี่ยน ระดับพื้นเปลี่ยน ต้องหาใหม่
     if (!factoryModel) return;
     factoryModel.updateMatrixWorld(true);
     const padding = HITBOX_PADDING * currentModelScaleFactor();
@@ -1507,36 +1377,19 @@ function buildColliders() {
         const box = new THREE.Box3().setFromObject(child);
         if (box.isEmpty()) return;                      // เมชเปล่า ไม่มีอะไรให้ชน
         const size = box.getSize(new THREE.Vector3());
-        // ชิ้นเล็กต้องไม่ได้กล่องที่ใหญ่กว่าตัวเองหลายเท่า
-        const pad = Math.min(padding, Math.min(size.x, size.y, size.z) * HITBOX_PADDING_MAX_RATIO);
-        box.expandByScalar(pad);
-        // จำนวนสามเหลี่ยม — ใช้ตัดสินว่าคุ้มที่จะยิงรังสีใส่ไหม (ดู updateDynamicGroundY)
-        const g = child.geometry;
-        const tris = g ? ((g.index ? g.index.count : (g.attributes.position ? g.attributes.position.count : 0)) / 3) : 0;
-        // ชื่อที่ใช้ผูกข้อมูล — ตัวเดียวกับที่ workflowDatabase/type ใช้
-        const nameKey = child._original3DName || child.name || '';
-        // กล่องกันชนของชิ้นตัน คิดจากขอบจริงของชิ้น ไม่ใช่กล่องป้ายข้อมูลที่พองไว้แล้ว
-        // ถ้าใช้กล่องเดียวกัน ผู้ใช้จะชนกำแพงล่องหนห่างจากตัวโมเดลออกมา 0.25 เมตร
-        const isGround = !!groundParts[nameKey];
-        const solidPad = solidParts[nameKey];
-        const solidShape = (typeof solidPad === 'number')
-            ? makeSolidShape(child, solidPad * currentModelScaleFactor())
-            : null;
-        const col = {
-            uuid: child.uuid, mesh: child, box, tris, nameKey, solidShape, isGround, size,
+        box.expandByScalar(padding);
+        factoryColliders.push({
+            uuid: child.uuid, mesh: child, box,
             // ปริมาตรใช้ตัดสินว่าชิ้นไหน "เจาะจงกว่า" เมื่อกล่องซ้อนกันหลายชั้น
             volume: Math.max(size.x * size.y * size.z, 1e-6),
             // พื้น/ผนัง/โครงอาคาร: เดินชนไม่ได้ แต่ยังคลิกเลือกดูข้อมูลได้ตามปกติ
             walkable: (size.x * size.z) / wholeFootprint < SHELL_FOOTPRINT_RATIO
-        };
-        factoryColliders.push(col);
-        colliderByUuid.set(child.uuid, col);
+        });
     });
 }
 
 function setFactoryMaterialMode(mode) {
     currentMaterialMode = mode;
-    highlightedUuid = null;   // วัสดุถูกเขียนใหม่ทั้งโมเดลข้างล่าง สถานะไฮไลท์เดิมใช้อ้างอิงไม่ได้แล้ว
     ['mode-solid', 'mode-wireframe', 'mode-xray'].forEach(m => { const el = $(m); if (el) el.className = `mode-btn ${m === 'mode-' + mode ? 'active' : ''}`; });
     if (!factoryModel) return;
     factoryModel.traverse(child => {
@@ -1568,21 +1421,13 @@ function isEditingActive() {
     return grp && grp.style.display !== 'none';
 }
 
-function restoreMaterial(uuid) {
-    if (!uuid) return;
-    const col = colliderByUuid.get(uuid);
-    const orig = originalMaterials.get(uuid);
-    if (col && orig) { col.mesh.material.dispose(); col.mesh.material = orig.clone(); }
-}
 function applyHighlight(uuid) {
     if (!factoryModel || currentMaterialMode !== 'solid') return;
-    if (highlightedUuid === uuid) return;
-    restoreMaterial(highlightedUuid);
-    highlightedUuid = null;
-    const col = colliderByUuid.get(uuid);
-    if (!col) return;
-    col.mesh.material = new THREE.MeshStandardMaterial({ color: 0x3b82f6, emissive: 0x0a1f4d });
-    highlightedUuid = uuid;
+    factoryModel.traverse(child => {
+        if (!child.isMesh) return;
+        if (child.uuid === uuid) child.material = new THREE.MeshStandardMaterial({ color: 0x3b82f6, emissive: 0x0a1f4d });
+        else if (originalMaterials.has(child.uuid)) child.material = originalMaterials.get(child.uuid).clone();
+    });
 }
 
 // opts.force = true -> "วาดป้ายใหม่" ไม่ใช่ "สลับเปิด/ปิด"
@@ -1603,7 +1448,6 @@ function selectPart(mesh, method, opts) {
     const key = resolveDatabaseKey(mesh, mesh.name);
     selection.key = key;
     applyHighlight(mesh.uuid);
-    if (typeof refreshSolidUI === 'function') refreshSolidUI();   // ปุ่มตันต้องบอกสถานะของชิ้นที่เพิ่งเลือก
 
     const data = workflowDatabase[key] || workflowDatabase.default;
     renderWorkflowUI(data.name || mesh.name, data.desc, data.steps, method, data.colorClass || 'tag-blue');
@@ -1631,11 +1475,10 @@ function deselectPart() {
     $('process-panel').style.display = 'none';
     const walkBtn = $('btn-walk-to');
     if (walkBtn) walkBtn.style.display = 'none';
-    // มีชิ้นเดียวที่ถูกเปลี่ยนวัสดุไป คืนแค่ชิ้นนั้นพอ
-    // เดิมวนคืนให้ทุกชิ้นในโมเดล ซึ่งทำงานทุกครั้งที่ป้ายปิดเอง (เช่นเดินห่างออกมา)
     if (factoryModel && currentMaterialMode === 'solid') {
-        restoreMaterial(highlightedUuid);
-        highlightedUuid = null;
+        factoryModel.traverse(child => {
+            if (child.isMesh && originalMaterials.has(child.uuid)) child.material = originalMaterials.get(child.uuid).clone();
+        });
     }
 }
 
@@ -1731,67 +1574,6 @@ function interactNearestMesh() {
 // ระหว่างเดินอัตโนมัติไปหาชิ้นส่วนที่เลือกไว้ (walkToSelected) ห้ามให้ชิ้นส่วนอื่นที่บังเอิญ
 // เดินผ่านแนวมาแย่งเปลี่ยนป้ายข้อมูล/ไฮไลท์ไปกลางทาง — ผู้ใช้กด "เดินไปที่นี่" เพราะอยากดูข้อมูล
 // ของชิ้นที่เลือกไว้ตอนไปถึง ไม่ใช่ของอย่างอื่นที่บังเอิญอยู่ระหว่างทาง
-// ความสูงของตัวละครที่ใช้ตัดสินการชน — เตี้ยกว่าตัวจริงเล็กน้อยเพื่อให้ลอดใต้ท่อสูงๆ ได้
-const BODY_HEIGHT = 1.6;
-
-// ตำแหน่งนี้ทับของตันอยู่ไหม
-// ตรวจแกน Y ด้วย ไม่งั้นท่อที่พาดสูงเหนือหัวจะกลายเป็นกำแพงตั้งแต่พื้น
-function hitsSolid(x, z, footY) {
-    const r = avatarConfig.radius;
-    for (const col of factoryColliders) {
-        const sh = col.solidShape;
-        if (!sh) continue;
-        if (sh.type === 'cyl') {
-            // ถังกลม/ท่อ — ชนตามผิวโค้งจริง ไม่ใช่ตามมุมกล่องที่ยื่นออกมา
-            if (footY >= sh.maxY || footY + BODY_HEIGHT <= sh.minY) continue;
-            const dx = x - sh.cx, dz = z - sh.cz;
-            const reach = sh.r + r;
-            if (dx * dx + dz * dz >= reach * reach) continue;
-            return true;
-        }
-        const b = sh.box;
-        if (x + r <= b.min.x || x - r >= b.max.x) continue;
-        if (z + r <= b.min.z || z - r >= b.max.z) continue;
-        if (footY >= b.max.y || footY + BODY_HEIGHT <= b.min.y) continue;
-        return true;
-    }
-    return false;
-}
-
-// เดินชนกำแพงแล้วต้องไถลไปตามกำแพงได้ ไม่ใช่หยุดติดแหง็ก
-// ลองทั้งสองแกนก่อน ถ้าไม่ผ่านค่อยลองทีละแกน — เท่ากับ "เลื่อนไปตามผนัง"
-function stepMove(curX, curZ, nextX, nextZ, footY) {
-    if (!hitsSolid(nextX, nextZ, footY)) return { x: nextX, z: nextZ, blocked: false };
-    if (!hitsSolid(nextX, curZ, footY)) return { x: nextX, z: curZ, blocked: true };
-    if (!hitsSolid(curX, nextZ, footY)) return { x: curX, z: nextZ, blocked: true };
-    return { x: curX, z: curZ, blocked: true };
-}
-
-// ตรวจแค่ปลายทางไม่พอ — ถ้าก้าวเดียวยาวกว่าความหนาของกำแพง ปลายทางจะไปโผล่
-// อีกฝั่งซึ่งไม่ชนอะไร แล้วตัวละครก็เดินทะลุกำแพงไปเฉยๆ (tunnelling)
-// จึงซอยเป็นก้าวย่อยที่สั้นกว่าตัวละคร แล้วเดินทีละก้อนจนกว่าจะชน
-function resolveMove(curX, curZ, nextX, nextZ, footY) {
-    const dx = nextX - curX, dz = nextZ - curZ;
-    const dist = Math.hypot(dx, dz);
-    const maxStep = Math.max(0.05, avatarConfig.radius * 0.75);
-    const steps = Math.max(1, Math.ceil(dist / maxStep));
-    const sx = dx / steps, sz = dz / steps;
-    let x = curX, z = curZ, blocked = false;
-    for (let i = 0; i < steps; i++) {
-        // เลื่อนจาก "ตำแหน่งจริงตอนนี้" ทีละก้อน ไม่ใช่เล็งไปที่จุดบนเส้นทางเดิม
-        // ถ้าเล็งจุดบนเส้นทางเดิม พอโดนกั้นแกนหนึ่งแล้วจุดถัดไปจะไปอยู่อีกฝั่งกำแพง
-        // ก้าวเดียวก็ข้ามไปได้เลย ซึ่งคือการทะลุกำแพงแบบเดิมที่พยายามแก้อยู่
-        const r = stepMove(x, z, x + sx, z + sz, footY);
-        blocked = blocked || r.blocked;
-        if (r.x === x && r.z === z) break;      // ชนแน่นทั้งสองแกน หยุดตรงนี้
-        x = r.x; z = r.z;
-    }
-    // ไม่ได้ชนอะไรเลย = ควรไปถึงเป้าหมายพอดีเป๊ะ
-    // การบวกก้าวย่อยทีละก้อนทำให้ค่าคลาดสะสม เดินนานๆ ตำแหน่งจะเพี้ยนทีละนิด
-    if (!blocked) return { x: nextX, z: nextZ, blocked: false };
-    return { x, z, blocked };
-}
-
 function checkWalkCollision(nextX, nextZ, currentY) {
     // กล่องชนซ้อนกันได้หลายชั้นเสมอ — ปั๊มตั้งอยู่บนแท่น ในอาคาร บนพื้น
     // เดิมเอาชิ้นแรกที่เจอตามลำดับ traverse ซึ่งไม่ได้เรียงตามความใกล้เลย
@@ -1818,12 +1600,9 @@ function checkWalkCollision(nextX, nextZ, currentY) {
 function checkAutoDeselect() {
     if (!avatarModel || !factoryModel || !selection.uuid || !selection.viaWalkCollision) return;
     if (isEditingActive()) return;
-    // ใช้ดัชนีที่ทำไว้ตอน buildColliders — เดิม traverse ทั้งโมเดลทุกเฟรมเพื่อหาชิ้นเดียว
-    // โมเดลจริงมีเกือบ 2,000 ชิ้น เท่ากับไล่ของ 2,000 ชิ้นทิ้งทุกเฟรมเปล่าๆ
-    const col = colliderByUuid.get(selection.uuid);
-    if (!col) return;
-    const pos = new THREE.Vector3();
-    col.mesh.getWorldPosition(pos);
+    let pos = null;
+    factoryModel.traverse(child => { if (child.isMesh && child.uuid === selection.uuid) { pos = new THREE.Vector3(); child.getWorldPosition(pos); } });
+    if (!pos) return;
     if (avatarModel.position.distanceTo(pos) > DESELECT_DISTANCE) deselectPart();
 }
 
@@ -3354,8 +3133,7 @@ function mpAppendChat(msg, opts) {
     const log = $('chat-log');
     if (!log) return;
     const d = document.createElement('div');
-    // ข้อความเตือนใช้ฟอนต์และสีคนละชุด แยกออกจากบทสนทนาปกติได้ทันทีที่เห็น
-    d.className = 'chat-msg' + (opts && opts.alert ? ' chat-alert' : '');
+    d.className = 'chat-msg';
     const strong = document.createElement('strong');
     strong.style.color = msg.color || 'var(--text-0, #fff)';
     strong.innerText = msg.name;
@@ -3370,10 +3148,7 @@ function mpAppendChat(msg, opts) {
     if (overlay && overlay.style.display === 'none') {
         chatUnread++;
         updateChatUnreadBadge();
-        // ข้อความคนพิมพ์ = สำคัญพอจะเปิดแชทให้ ส่วนเหตุฉุกเฉินสำคัญกว่านั้นอีก
-        // เหตุฉุกเฉินข้าม snooze ด้วย เพราะการที่ผู้ใช้เพิ่งปิดแชทไม่ใช่เหตุผลที่จะไม่บอกว่ามีเหตุ
-        if (opts && opts.alert) maybeAutoOpenChat(true);
-        else if (opts && opts.fromPerson) maybeAutoOpenChat();
+        if (opts && opts.fromPerson) maybeAutoOpenChat();
     }
 }
 // ชื่อผู้เล่นล็อกตามบัญชีที่ล็อกอิน — ไม่มี setMyName/set_name อีกต่อไป
@@ -3417,9 +3192,6 @@ async function initMultiplayer() {
         // ส่วนที่ทุก connection ได้รับ (ทั้ง player และ watcher): state กลางของห้อง
         if (data.workflowDb) Object.assign(workflowDatabase, data.workflowDb);
         if (data.typeAssignments) Object.assign(userDefinedTypes, data.typeAssignments);
-        if (data.solidParts) Object.assign(solidParts, data.solidParts);
-        if (data.groundParts) Object.assign(groundParts, data.groundParts);
-        if (data.solidParts || data.groundParts) buildColliders();
         if (data.markers) { Object.assign(markerStore, data.markers); rebuildMarkers(); }
         // เพิ่งเข้ามาแต่มีการเรียกรวมพลค้างอยู่ — ต้องถูกนำทางไปด้วยเหมือนคนอื่น
         if (data.emergencyCall) applyEmergencyCall(data.emergencyCall);
@@ -3501,32 +3273,6 @@ async function initMultiplayer() {
         mpAppendChat({ name: '🧪 ซ้อม', color: '#f59e0b',
             text: icon + ' ' + (d.scenario || '') + ' — เกิดจากบทเรียน ไม่ใช่เหตุการณ์จริง' });
     });
-
-    // เหตุฉุกเฉินจริงที่เจ้าหน้าที่กด Active จากหน้า Emergency
-    // ต้องถึงทุกคนทุกช่องทางพร้อมกัน: แถบบนจอ ข้อความในแชท และเปิดแชทให้เห็นเลย
-    mpSocket.on('emergency_alert', d => {
-        if (!d) return;
-        const icon = d.icon || '🚨';
-        const where = d.part ? ' · ' + d.part : '';
-        const bar = $('alert-banner');
-        if (bar) {
-            $('alert-banner-text').textContent = icon + ' ' + (d.scenario || '') + where;
-            bar.style.display = 'flex';
-        }
-        mpAppendChat({
-            name: '🚨 เหตุฉุกเฉิน', color: '#ef4444',
-            text: icon + ' ' + (d.scenario || '') + where + (d.detail ? ' — ' + d.detail : '')
-        }, { alert: true });
-    });
-
-    // เจ้าหน้าที่แจ้งว่าเหตุจบแล้ว — เก็บแถบและบอกในแชทด้วย
-    // ไม่งั้นคนที่เพิ่งเข้ามาเห็นแถบค้างจะไม่รู้ว่าเรื่องจบไปแล้ว
-    mpSocket.on('emergency_alert_cleared', () => {
-        const bar = $('alert-banner');
-        if (bar) bar.style.display = 'none';
-        mpAppendChat({ name: '✅ เหตุฉุกเฉิน', color: '#22c55e', text: 'เจ้าหน้าที่แจ้งว่าเหตุการณ์จบแล้ว' });
-    });
-
     mpSocket.on('emergency_cancelled', () => applyEmergencyCall(null));
 
     // REQ 7 — ประกาศในแชทว่าใครเข้า/ออกเขตของจุดไหน ทุกคนในห้องเห็นเหมือนกัน
@@ -3629,16 +3375,6 @@ async function initMultiplayer() {
     });
 
     // ---------- sync การล้าง type ----------
-    // admin คนไหนตั้งชิ้นส่วนให้ตัน ทุกคนต้องชนเหมือนกันทันที
-    mpSocket.on('solid_updated', d => {
-        if (!d || !Array.isArray(d.keys)) return;
-        const store = d.kind === 'ground' ? groundParts : solidParts;
-        const val = d.kind === 'ground' ? true : d.pad;
-        d.keys.forEach(k => { if (d.on) store[k] = val; else delete store[k]; });
-        buildColliders();          // กล่องชนคิดจาก solidParts ต้องสร้างใหม่
-        if (typeof refreshSolidUI === 'function') refreshSolidUI();
-    });
-
     mpSocket.on('type_cleared', data => {
         if (!data || !data.key) return;
         delete userDefinedTypes[data.key];
@@ -3740,14 +3476,11 @@ function toggleChatPanel(force) {
 
 // เปิดหน้าต่างแชทให้เอง เมื่อมี "คน" พิมพ์เข้ามาตอนหน้าต่างปิดอยู่
 // ตั้งใจไม่โฟกัสช่องพิมพ์ เพราะจะไปแย่งคีย์บอร์ดจากงานที่ผู้ใช้ทำค้างไว้ (เดิน WASD, พิมพ์ในช่องค้นหา)
-// urgent = เหตุฉุกเฉิน ข้ามช่วงพักที่ตั้งไว้หลังผู้ใช้เพิ่งปิดแชท
-// การที่เขาเพิ่งปิดแชทไม่ใช่เหตุผลที่จะไม่บอกว่ากำลังมีเหตุฉุกเฉิน
-// แต่ยังเคารพการปิดแชททั้งระบบอยู่ นั่นเป็นการตั้งค่าที่ตั้งใจ ไม่ใช่การปัดทิ้งชั่วคราว
-function maybeAutoOpenChat(urgent) {
+function maybeAutoOpenChat() {
     if (VIEWER_MODE) return;                                        // โหมดจอฉาย ไม่ควรมี UI เด้ง
     if (localStorage.getItem('aec_chat_enabled') === 'off') return; // ปิดแชทไว้ทั้งระบบ
-    if (localStorage.getItem('aec_chat_autoopen') === 'off' && !urgent) return;
-    if (!urgent && Date.now() - chatClosedByUserAt < CHAT_AUTOOPEN_SNOOZE_MS) return;
+    if (localStorage.getItem('aec_chat_autoopen') === 'off') return;
+    if (Date.now() - chatClosedByUserAt < CHAT_AUTOOPEN_SNOOZE_MS) return;
     toggleChatPanel(true);
     // เด้งขึ้นมาเฉยๆ กลางฉาก 3D ที่มีของเยอะ ตากวาดไม่เจอ — กะพริบขอบให้รู้ว่ามีอะไรเพิ่งโผล่
     const overlay = $('chat-overlay');
@@ -4728,8 +4461,6 @@ function clearFactoryModelFromScene() {
     disposeFactoryModel();
     originalMaterials.clear();
     factoryColliders = [];
-    colliderByUuid = new Map();
-    highlightedUuid = null;
     $('mesh-container').innerHTML = '';
     $('model-meta').innerHTML = '';
     $('details-panel').style.display = 'none';
@@ -5034,15 +4765,12 @@ function updateAvatarPhysics() {
     updateAvatarMotion(avatarModel, isMoving);
 
     if (isMoving) {
-        const curX = avatarModel.position.x, curZ = avatarModel.position.z;
-        const wantX = curX + moveVector.x;
-        const wantZ = curZ + moveVector.z;
+        const nextX = avatarModel.position.x + moveVector.x;
+        const nextZ = avatarModel.position.z + moveVector.z;
         const currentY = avatarModel.position.y - (groundFootOffset !== null ? groundFootOffset : jumpConfig.groundY);
-        // ชิ้นที่ admin ตั้งให้ตันจะกันไว้ตรงนี้ ที่เหลือยังเดินทะลุได้เหมือนเดิม
-        const moved = resolveMove(curX, curZ, wantX, wantZ, currentY);
-        avatarModel.position.x = moved.x;
-        avatarModel.position.z = moved.z;
-        checkWalkCollision(moved.x, moved.z, currentY);
+        avatarModel.position.x = nextX;
+        avatarModel.position.z = nextZ;
+        checkWalkCollision(nextX, nextZ, currentY);
     }
 
     applyCameraForViewMode();
