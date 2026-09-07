@@ -469,10 +469,16 @@ const defaultCameraOffset = new THREE.Vector3(0, 2.5, 5);
 const groundRayDown = new THREE.Raycaster();
 const DOWN_VECTOR = new THREE.Vector3(0, -1, 0);
 let dynamicGroundY = null;       // null = ยังไม่พบพื้นจริงที่เชื่อถือได้ ใช้ jumpConfig.groundY แบบเดิม
-let groundFootOffset = null;     // null = ยังไม่ calibrate
+let groundFootOffset = null;     // null = ยังไม่รู้ระยะเท้า
+// ระยะจากจุดหมุนของตัวละครลงไปถึงฝ่าเท้า วัดจากร่างที่สวมอยู่จริง
+// เดิมไม่มีค่านี้ ใช้วิธี "ถือว่าความสูงที่ยืนอยู่ตอนนี้ถูกต้อง" แล้วล็อกไว้
+// ซึ่งแปลว่าถ้าตอนเกิดตัวละครจมพื้นอยู่ มันจะจมเท่าเดิมตลอดไปทุกที่ในแมป
+let avatarFootDrop = null;
+// ครั้งแรกที่เจอพื้นจริงหลังโหลดโมเดล ต้องยอมให้ย้ายไปที่ระดับพื้นเลย
+// ไม่งั้นติดกฎ "ขึ้นได้ทีละ 1.2 เมตร" แล้วค้างจมอยู่ใต้พื้นไม่ขึ้นมาสักที
+let groundSnapped = false;
 let groundRayFrame = 0;
 const GROUND_RAY_THROTTLE = 4;       // เช็คทุก 4 เฟรม พอสำหรับบันได ไม่หนักเกินไปกับโมเดลใหญ่
-const GROUND_CALIBRATE_TOLERANCE = 0.05;
 const GROUND_RAY_MAX_RISE = 1.2;     // ก้าวขึ้นได้ทีละไม่เกินนี้ต่อการอัปเดต (~ความสูงขั้นบันได) กันเดินทะลุแล้ว "ลอย"
 const GROUND_RAY_MAX_DROP = 3;       // กันตกไปพื้นชั้นล่างที่มองทะลุเห็นแต่ไม่ได้ยืนอยู่จริง
 
@@ -486,18 +492,25 @@ function updateDynamicGroundY() {
     if (!hits.length) { dynamicGroundY = null; return; }
     const hitY = hits[0].point.y;
 
+    // ระยะจากจุดหมุนลงไปถึงเท้า มาจากการวัดร่างจริง ไม่ใช่การเดา
+    // ของเดิมคำนวณจาก "ความสูงที่ยืนอยู่ตอนนี้" ซึ่งเท่ากับยอมรับว่าท่าที่จมอยู่คือท่าที่ถูก
+    // แล้วรักษาระดับที่จมนั้นไว้ทุกที่ในแมป
     if (groundFootOffset === null) {
-        // calibrate เฉพาะตอนตัวละครยืนนิ่งบนพื้นราบมาตรฐานพอดี — หาว่า "พื้นผิวจริงอยู่ต่ำกว่าจุดหมุน
-        // ตัวละครเท่าไหร่" โดยไม่ต้องเดารูปแบบของแต่ละโมเดล ถ้ายังไม่เคยเจอจังหวะนี้เลยก็ปิดระบบไปก่อน
-        if (Math.abs(avatarModel.position.y - jumpConfig.groundY) < GROUND_CALIBRATE_TOLERANCE) {
-            groundFootOffset = jumpConfig.groundY - hitY;
-        } else {
-            dynamicGroundY = null;
-            return;
-        }
+        if (avatarFootDrop === null) { dynamicGroundY = null; return; }
+        groundFootOffset = avatarFootDrop;
     }
 
     const candidateY = hitY + groundFootOffset;
+
+    // ครั้งแรกที่เจอพื้นจริง ให้ย้ายไปที่ระดับพื้นได้เลยไม่ต้องไต่ทีละก้าว
+    // ตำแหน่งเกิดเป็นค่าคงที่ที่เดาไว้ ซึ่งอาจอยู่ใต้พื้นจริงหลายเมตร
+    if (!groundSnapped) {
+        groundSnapped = true;
+        dynamicGroundY = candidateY;
+        avatarModel.position.y = candidateY;
+        return;
+    }
+
     if (candidateY > avatarModel.position.y + GROUND_RAY_MAX_RISE || candidateY < avatarModel.position.y - GROUND_RAY_MAX_DROP) {
         dynamicGroundY = null; // ต่างระดับเกินสมเหตุสมผลต่อเฟรม (เช่น พื้นชั้นล่างที่มองทะลุเห็น) — เมินไป
         return;
@@ -661,6 +674,18 @@ async function setAvatarVisual(container, config, color) {
     if (!visual) visual = createEngineerAvatar(color);
     ud.visual = visual;
     container.add(visual);
+
+    // วัดว่าฝ่าเท้าของร่างนี้อยู่ต่ำกว่าจุดหมุนเท่าไหร่ — แต่ละร่างไม่เท่ากัน
+    // ใช้ค่านี้วางตัวละครบนพื้น แทนการเดาความสูงคงที่แล้วล็อกไว้แบบเดิม
+    if (container === avatarModel) {
+        container.updateMatrixWorld(true);
+        const bb = new THREE.Box3().setFromObject(visual);
+        if (isFinite(bb.min.y)) {
+            avatarFootDrop = container.position.y - bb.min.y;
+            groundFootOffset = null;    // ให้คิดใหม่จากค่าที่เพิ่งวัดได้
+            groundSnapped = false;      // เปลี่ยนร่างแล้วต้องหาระดับพื้นใหม่
+        }
+    }
 
     // วงแหวนสีประจำตัวใต้เท้า — เห็นชัดทันทีว่าใครเป็นใคร (สีเดียวกับป้ายชื่อ/แชท)
     const ring = new THREE.Mesh(
@@ -1363,6 +1388,7 @@ function buildColliders() {
     // โมเดล/ตำแหน่ง/สเกลเปลี่ยน — ค่า calibrate พื้นเดิมใช้ไม่ได้แล้ว ต้องหาใหม่
     dynamicGroundY = null;
     groundFootOffset = null;
+    groundSnapped = false;   // โมเดลเปลี่ยน ระดับพื้นเปลี่ยน ต้องหาใหม่
     if (!factoryModel) return;
     factoryModel.updateMatrixWorld(true);
     const padding = HITBOX_PADDING * currentModelScaleFactor();
@@ -1455,6 +1481,8 @@ function selectPart(mesh, method, opts) {
     $('process-panel').style.display = 'block';
     const walkBtn = $('btn-walk-to');
     if (walkBtn) walkBtn.style.display = avatarModel ? 'inline-flex' : 'none'; // มีเฉพาะโหมด Metaverse ที่มี avatar
+    const warpBtn = $('btn-warp-to');
+    if (warpBtn) warpBtn.style.display = avatarModel ? 'inline-flex' : 'none';
 }
 
 // เปิดบทเรียน "ลองใช้งาน" ของ type ที่ชิ้นส่วนนี้เป็นอยู่
@@ -1475,6 +1503,8 @@ function deselectPart() {
     $('process-panel').style.display = 'none';
     const walkBtn = $('btn-walk-to');
     if (walkBtn) walkBtn.style.display = 'none';
+    const warpBtn = $('btn-warp-to');
+    if (warpBtn) warpBtn.style.display = 'none';
     if (factoryModel && currentMaterialMode === 'solid') {
         factoryModel.traverse(child => {
             if (child.isMesh && originalMaterials.has(child.uuid)) child.material = originalMaterials.get(child.uuid).clone();
@@ -1484,6 +1514,68 @@ function deselectPart() {
 
 // ปุ่ม "🚶 เดินไปที่นี่" ในป้ายข้อมูล — เดินอัตโนมัติเข้าหาชิ้นส่วนที่เลือกอยู่ ไม่ต้องเดินเองก็ถึง
 // (มีเฉพาะโหมด Metaverse ที่มี avatar — โหมด Digital Twin viewer ไม่มีตัวละครให้เดิน)
+// ============================================================
+// วาร์ป — ย้ายตัวละครไปที่หมายทันที ไม่ต้องเดิน
+// โรงงานกว้างหลายร้อยเมตร การเดินจากมุมหนึ่งไปอีกมุมใช้เวลานานมาก
+// ============================================================
+const WARP_STOP_DIST = 4;      // ไปยืนห่างจากตัวชิ้นส่วนเท่านี้ ไม่ใช่โผล่ทับกลางชิ้น
+
+function warpToPoint(x, z, label) {
+    if (!avatarModel) {
+        mpAppendChat({ name: '⚡ ระบบ', color: '#94a3b8', text: 'โหมดนี้ไม่มีตัวละครให้ย้าย — เปิดในโหมด Metaverse เพื่อใช้งาน' });
+        return false;
+    }
+    autoWalk.active = false;                       // กำลังเดินอัตโนมัติอยู่ก็ยกเลิก
+    const hud = $('walk-arrow-hud'); if (hud) hud.style.display = 'none';
+    const btn = $('btn-walk-to'); if (btn) btn.classList.remove('walk-active');
+    if (isFreeLook) { isFreeLook = false; resetCameraToAvatar(); }
+
+    avatarModel.position.x = x;
+    avatarModel.position.z = z;
+    // ที่ใหม่พื้นอาจอยู่คนละระดับกับที่เดิม สั่งให้หาระดับพื้นใหม่แล้ววางตัวลงไปเลย
+    // ไม่งั้นจะติดกฎ "ขึ้น/ลงได้ทีละไม่เกินกี่เมตร" แล้วค้างลอยหรือจมอยู่
+    groundSnapped = false;
+    jumpConfig.velocity = 0;
+    jumpConfig.isJumping = false;
+    updateDynamicGroundY();
+    if (dynamicGroundY !== null) avatarModel.position.y = dynamicGroundY;
+    resetCameraToAvatar();
+    if (label) mpAppendChat({ name: '⚡ วาร์ป', color: '#a855f7', text: `ย้ายมาที่ "${label}" แล้ว` });
+    return true;
+}
+
+// วาร์ปไปหาชิ้นส่วนที่เลือกอยู่ — ไปยืนด้านที่หันหน้าเข้าหาตัวชิ้น ไม่โผล่ทับกลางชิ้น
+window.warpToSelected = function () {
+    if (!avatarModel || !factoryModel || !selection.uuid) return;
+    const col = factoryColliders.find(c => c.uuid === selection.uuid);
+    let targetPos = null, radius = WARP_STOP_DIST;
+    if (col) {
+        targetPos = col.box.getCenter(new THREE.Vector3());
+        const sz = col.box.getSize(new THREE.Vector3());
+        // ชิ้นใหญ่ต้องยืนห่างขึ้นตามขนาด ไม่งั้นวาร์ปไปโผล่ในเนื้อถัง
+        radius = Math.max(WARP_STOP_DIST, Math.max(sz.x, sz.z) / 2 + 2);
+    } else {
+        factoryModel.traverse(c => { if (!targetPos && c.isMesh && c.uuid === selection.uuid) { targetPos = new THREE.Vector3(); c.getWorldPosition(targetPos); } });
+    }
+    if (!targetPos) return;
+    // เข้าหาจากทิศที่ตัวละครอยู่ตอนนี้ จะได้ไม่ต้องเดาว่าด้านไหนของชิ้นเป็นทางเข้า
+    const dx = avatarModel.position.x - targetPos.x;
+    const dz = avatarModel.position.z - targetPos.z;
+    const len = Math.hypot(dx, dz) || 1;
+    const x = targetPos.x + (dx / len) * radius;
+    const z = targetPos.z + (dz / len) * radius;
+    if (warpToPoint(x, z)) {
+        avatarModel.lookAt(targetPos.x, avatarModel.position.y, targetPos.z);   // หันหน้าเข้าหาชิ้นที่เลือก
+        const name = $('process-title') ? $('process-title').innerText.replace(/^⚙️ โซน: /, '') : '';
+        mpAppendChat({ name: '⚡ วาร์ป', color: '#a855f7', text: `ย้ายมาที่ "${name}" แล้ว` });
+    }
+};
+
+window.warpToMarker = function (id) {
+    const m = markerStore[id];
+    if (m) warpToPoint(m.x, m.z, m.name);
+};
+
 function walkToSelected() {
     if (!avatarModel || !factoryModel || !selection.uuid) return;
     // ใช้จุดกึ่งกลาง "กล่องขอบเขต" ของชิ้นส่วน (เหมือนที่ระบบชนใช้) แทนจุดหมุน (pivot) ของโมเดล —
@@ -2534,6 +2626,7 @@ function renderMarkerList() {
             <div class="mk-meta">${escHtml(meta)}</div>
             <div class="mk-actions">
                 <button class="mk-btn go" data-act="go" title="ให้ตัวละครเดินไปที่จุดนี้">🚶 เดินไป</button>
+                <button class="mk-btn" data-act="warp" title="ย้ายตัวละครมาที่จุดนี้ทันที">⚡ วาร์ป</button>
                 ${editors ? `<button class="mk-btn edit" data-act="edit" title="แก้ชื่อ/สี/รูปทรง/รัศมี">✏️ แก้ไข</button>
                 <button class="mk-btn del" data-act="del" title="ลบเฉพาะจุดนี้">🗑️ ลบ</button>
                 ${m.emergency ? '<button class="mk-btn sos" data-act="sos" title="สั่งให้ทุกคนเดินมาที่จุดนี้">🚨 เรียกรวมพล</button>' : ''}` : ''}
@@ -2550,7 +2643,7 @@ $('marker-list-container')?.addEventListener('click', e => {
     const item = e.target.closest('.mk-item');
     if (!btn || !item) return;
     const id = item.dataset.id;
-    ({ go: walkToMarker, edit: editMarkerById, del: deleteMarkerById, sos: callEmergency })[btn.dataset.act]?.(id);
+    ({ go: walkToMarker, warp: warpToMarker, edit: editMarkerById, del: deleteMarkerById, sos: callEmergency })[btn.dataset.act]?.(id);
 });
 
 $('marker-filter')?.addEventListener('input', function () {
