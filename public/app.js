@@ -508,7 +508,6 @@ function updateDynamicGroundY() {
     // กรองด้วยกล่องขอบเขตที่คำนวณไว้แล้วตอน buildColliders ซึ่งถูกกว่าการทดสอบสามเหลี่ยมมาก
     const px = avatarModel.position.x, pz = avatarModel.position.z;
     const candidates = [];
-    const groundOnly = [];
     for (const col of factoryColliders) {
         // ชิ้นที่ admin ชี้ว่าเป็นพื้น ต้องยิงใส่เสมอแม้จะหนักเกินเพดาน
         // เพราะถ้าข้ามพื้นไป ก็ไม่เหลืออะไรให้ยืนอีกแล้ว
@@ -517,23 +516,26 @@ function updateDynamicGroundY() {
         if (px < b.min.x || px > b.max.x || pz < b.min.z || pz > b.max.z) continue;
         if (b.min.y > origin.y || b.max.y < origin.y - groundRayDown.far) continue;
         candidates.push(col.mesh);
-        if (col.isGround) groundOnly.push(col.mesh);
     }
     if (!candidates.length) { dynamicGroundY = null; return; }
-    // มีพื้นที่ถูกชี้ไว้ก็ใช้พื้นนั้นเลย ไม่ต้องเสี่ยงไปเกาะหลังคาหรือฝาถังที่บังอยู่
-    const hits = groundRayDown.intersectObjects(groundOnly.length ? groundOnly : candidates, false);
+    // ยิงใส่ทุกชิ้นที่อยู่ใต้เท้า ไม่ใช่เฉพาะชิ้นที่ถูกชี้ว่าเป็นพื้น
+    // เคยทำแบบนั้นแล้วกลายเป็นว่า พอชี้พื้นลานไว้ บันไดกับพื้นในอาคารถูกเมินหมด
+    // เดินขึ้นบันไดไม่ได้เลยเพราะระบบมองเห็นแต่พื้นลานที่อยู่ข้างล่าง
+    const hits = groundRayDown.intersectObjects(candidates, false);
     if (!hits.length) { dynamicGroundY = null; return; }
 
-    // เอาผิวแรกที่หงายขึ้นพอจะยืนได้ — ข้ามผิวโค้งข้างท่อและผนังตั้ง
-    let hit = null;
+    // เก็บเฉพาะผิวที่หงายขึ้นพอจะยืนได้ ข้ามผิวโค้งข้างท่อและผนังตั้ง
+    // three.js คืนผลเรียงตามระยะจากจุดยิงอยู่แล้ว ยิงลงจึงได้เรียงจากผิวสูงสุดลงมา
+    const usable = [];
     for (const h of hits) {
-        if (!h.face) { hit = h; break; }               // ไม่มีข้อมูลหน้า ก็รับไปตามเดิม
-        _groundNormalMat.getNormalMatrix(h.object.matrixWorld);
-        _groundNormal.copy(h.face.normal).applyMatrix3(_groundNormalMat).normalize();
-        if (Math.abs(_groundNormal.y) >= GROUND_MIN_UP_NORMAL) { hit = h; break; }
+        if (h.face) {
+            _groundNormalMat.getNormalMatrix(h.object.matrixWorld);
+            _groundNormal.copy(h.face.normal).applyMatrix3(_groundNormalMat).normalize();
+            if (Math.abs(_groundNormal.y) < GROUND_MIN_UP_NORMAL) continue;
+        }
+        usable.push(h);
     }
-    if (!hit) { dynamicGroundY = null; return; }
-    const hitY = hit.point.y;
+    if (!usable.length) { dynamicGroundY = null; return; }
 
     // ระยะจากจุดหมุนลงไปถึงเท้า มาจากการวัดร่างจริง ไม่ใช่การเดา
     // ของเดิมคำนวณจาก "ความสูงที่ยืนอยู่ตอนนี้" ซึ่งเท่ากับยอมรับว่าท่าที่จมอยู่คือท่าที่ถูก
@@ -543,23 +545,32 @@ function updateDynamicGroundY() {
         groundFootOffset = avatarFootDrop;
     }
 
-    const candidateY = hitY + groundFootOffset;
-
     // ครั้งแรกที่เจอพื้นจริง ให้ย้ายไปที่ระดับพื้นได้เลยไม่ต้องไต่ทีละก้าว
     // ตำแหน่งเกิดเป็นค่าคงที่ที่เดาไว้ ซึ่งอาจอยู่ใต้พื้นจริงหลายเมตร
     // ถ้าบังคับให้ไต่ทีละ 1.2 เมตร จะติดเงื่อนไข "ต่างระดับเกินไป" แล้วค้างจมอยู่ตลอด
     if (!groundSnapped) {
         groundSnapped = true;
-        dynamicGroundY = candidateY;
-        avatarModel.position.y = candidateY;
+        const y = usable[0].point.y + groundFootOffset;
+        dynamicGroundY = y;
+        avatarModel.position.y = y;
         return;
     }
 
-    if (candidateY > avatarModel.position.y + GROUND_RAY_MAX_RISE || candidateY < avatarModel.position.y - GROUND_RAY_MAX_DROP) {
-        dynamicGroundY = null; // ต่างระดับเกินสมเหตุสมผลต่อเฟรม (เช่น พื้นชั้นล่างที่มองทะลุเห็น) — เมินไป
-        return;
+    // ไล่จากผิวสูงสุดลงมา เอาผิวแรกที่ "ก้าวถึง" จากตรงที่ยืนอยู่
+    // เดิมดูแค่ผิวบนสุดผิวเดียว ถ้ามันสูงเกินก้าวก็ยอมแพ้ทั้งที่มีพื้นจริงอยู่ข้างล่าง
+    // ผลคือยืนใต้ชานพัก/พื้นชั้นลอยแล้วระบบหาพื้นไม่เจอ ตัวละครหล่นไปที่ความสูงเดา
+    //
+    // กติกานี้ทำให้เดินขึ้นบันไดได้เองโดยไม่ต้องมีโค้ดพิเศษ — ขั้นบันไดสูงทีละไม่กี่สิบ
+    // เซนติเมตร จึงอยู่ในระยะก้าวเสมอ ส่วนชานพักที่สูงเกินก้าวจะขึ้นตรงๆ ไม่ได้ ต้องเดินอ้อมไปทางบันได
+    for (const h of usable) {
+        const y = h.point.y + groundFootOffset;
+        if (y <= avatarModel.position.y + GROUND_RAY_MAX_RISE &&
+            y >= avatarModel.position.y - GROUND_RAY_MAX_DROP) {
+            dynamicGroundY = y;
+            return;
+        }
     }
-    dynamicGroundY = candidateY;
+    dynamicGroundY = null;   // ไม่มีผิวไหนก้าวถึงเลย — คงความสูงเดิมไว้ ไม่เดา
 }
 
 // ============================================================
