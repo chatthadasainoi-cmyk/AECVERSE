@@ -1449,6 +1449,43 @@ function currentModelScaleFactor() {
     return factoryModel ? factoryModel.scale.x / initialFactoryScale : 1;
 }
 
+// สร้างรูปทรงกันชนให้พอดีกับชิ้นส่วนจริง
+// กล่องสี่เหลี่ยมครอบถังทรงกลมจะมีมุมยื่นเลยตัวถังออกมา 41% ของรัศมี
+// ผู้ใช้จะชนกำแพงล่องหนตรงมุมทั้งที่มองไม่เห็นอะไรตรงนั้น
+// จึงลองทั้งกล่องและทรงกระบอก แล้วเลือกอันที่กินพื้นที่แนวราบน้อยกว่า
+//   ถังกลม  กว้าง=ลึก=2r -> กล่อง 4r² เทียบกับ ทรงกระบอก 3.14r²  (ทรงกระบอกชนะ)
+//   อาคารยาว 40x10      -> กล่อง 400 เทียบกับ ทรงกระบอกรัศมีครึ่งเส้นทแยง 1333  (กล่องชนะ)
+const _solidV = new THREE.Vector3();
+function makeSolidShape(mesh, pad) {
+    const box = new THREE.Box3().setFromObject(mesh);
+    if (box.isEmpty()) return null;
+    const size = box.getSize(new THREE.Vector3());
+    const mid = box.getCenter(new THREE.Vector3());
+    const g = mesh.geometry;
+    const posAttr = g && g.attributes && g.attributes.position;
+    let r = 0;
+    if (posAttr) {
+        // สุ่มจุดยอดพอให้ได้รัศมีจริง ไม่ต้องไล่ครบทุกจุดของชิ้นล้านสามเหลี่ยม
+        const n = posAttr.count;
+        const stride = Math.max(1, Math.floor(n / 4000));
+        for (let i = 0; i < n; i += stride) {
+            _solidV.fromBufferAttribute(posAttr, i).applyMatrix4(mesh.matrixWorld);
+            const dx = _solidV.x - mid.x, dz = _solidV.z - mid.z;
+            const d = dx * dx + dz * dz;
+            if (d > r) r = d;
+        }
+        r = Math.sqrt(r);
+    }
+    const boxArea = size.x * size.z;
+    const cylArea = Math.PI * r * r;
+    if (r > 0 && cylArea < boxArea) {
+        return { type: 'cyl', cx: mid.x, cz: mid.z, r: r + pad,
+                 minY: box.min.y - pad, maxY: box.max.y + pad, size };
+    }
+    if (pad > 0) box.expandByScalar(pad);
+    return { type: 'box', box, size };
+}
+
 function buildColliders() {
     factoryColliders = [];
     colliderByUuid = new Map();
@@ -1482,13 +1519,11 @@ function buildColliders() {
         // ถ้าใช้กล่องเดียวกัน ผู้ใช้จะชนกำแพงล่องหนห่างจากตัวโมเดลออกมา 0.25 เมตร
         const isGround = !!groundParts[nameKey];
         const solidPad = solidParts[nameKey];
-        let solidBox = null;
-        if (typeof solidPad === 'number') {
-            solidBox = new THREE.Box3().setFromObject(child);
-            if (solidPad > 0) solidBox.expandByScalar(solidPad * currentModelScaleFactor());
-        }
+        const solidShape = (typeof solidPad === 'number')
+            ? makeSolidShape(child, solidPad * currentModelScaleFactor())
+            : null;
         const col = {
-            uuid: child.uuid, mesh: child, box, tris, nameKey, solidBox, isGround,
+            uuid: child.uuid, mesh: child, box, tris, nameKey, solidShape, isGround, size,
             // ปริมาตรใช้ตัดสินว่าชิ้นไหน "เจาะจงกว่า" เมื่อกล่องซ้อนกันหลายชั้น
             volume: Math.max(size.x * size.y * size.z, 1e-6),
             // พื้น/ผนัง/โครงอาคาร: เดินชนไม่ได้ แต่ยังคลิกเลือกดูข้อมูลได้ตามปกติ
@@ -1704,8 +1739,17 @@ const BODY_HEIGHT = 1.6;
 function hitsSolid(x, z, footY) {
     const r = avatarConfig.radius;
     for (const col of factoryColliders) {
-        const b = col.solidBox;
-        if (!b) continue;
+        const sh = col.solidShape;
+        if (!sh) continue;
+        if (sh.type === 'cyl') {
+            // ถังกลม/ท่อ — ชนตามผิวโค้งจริง ไม่ใช่ตามมุมกล่องที่ยื่นออกมา
+            if (footY >= sh.maxY || footY + BODY_HEIGHT <= sh.minY) continue;
+            const dx = x - sh.cx, dz = z - sh.cz;
+            const reach = sh.r + r;
+            if (dx * dx + dz * dz >= reach * reach) continue;
+            return true;
+        }
+        const b = sh.box;
         if (x + r <= b.min.x || x - r >= b.max.x) continue;
         if (z + r <= b.min.z || z - r >= b.max.z) continue;
         if (footY >= b.max.y || footY + BODY_HEIGHT <= b.min.y) continue;
