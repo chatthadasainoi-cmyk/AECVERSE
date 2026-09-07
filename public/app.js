@@ -316,6 +316,8 @@ const userDefinedTypes = {};
 // ชิ้นส่วนที่ admin ตั้งให้ตัน — ชื่อชิ้น -> ระยะเผื่อรอบชิ้น (เมตร)
 // ผูกกับ "ชื่อ" ไม่ใช่ uuid เพราะ uuid เกิดใหม่ทุกครั้งที่โหลดโมเดล ตั้งไว้แล้วจะหาย
 const solidParts = {};
+// ชิ้นที่ admin ชี้ว่าเป็นพื้นสำหรับเดิน — ระบบหาพื้นจะเชื่อชิ้นพวกนี้ก่อนเสมอ
+const groundParts = {};
 
 // เดาชนิดอุปกรณ์จากชื่อ mesh — คืน null ถ้าเดาไม่ได้
 function heuristicTypeFromName(name) {
@@ -472,10 +474,16 @@ const defaultCameraOffset = new THREE.Vector3(0, 2.5, 5);
 const groundRayDown = new THREE.Raycaster();
 const DOWN_VECTOR = new THREE.Vector3(0, -1, 0);
 let dynamicGroundY = null;       // null = ยังไม่พบพื้นจริงที่เชื่อถือได้ ใช้ jumpConfig.groundY แบบเดิม
-let groundFootOffset = null;     // null = ยังไม่ calibrate
+let groundFootOffset = null;     // null = ยังไม่รู้ระยะเท้า
+// ระยะจากจุดหมุนของตัวละครลงไปถึงฝ่าเท้า วัดจากร่างที่สวมอยู่จริง
+// เดิมไม่มีค่านี้ ใช้วิธี "ถือว่าความสูงที่ยืนอยู่ตอนนี้ถูกต้อง" แล้วล็อกไว้
+// ซึ่งแปลว่าถ้าตอนเกิดตัวละครจมพื้นอยู่ มันจะจมเท่าเดิมตลอดไปทุกที่ในแมป
+let avatarFootDrop = null;
+// ครั้งแรกที่เจอพื้นจริงหลังโหลดโมเดล ต้องยอมให้ย้ายไปที่ระดับพื้นเลย
+// ไม่งั้นตัวติดเพดาน "ขึ้นได้ทีละ 1.2 เมตร' แล้วค้างจมอยู่ใต้พื้นไม่ขึ้นมาสักที
+let groundSnapped = false;
 let groundRayFrame = 0;
 const GROUND_RAY_THROTTLE = 4;       // เช็คทุก 4 เฟรม พอสำหรับบันได ไม่หนักเกินไปกับโมเดลใหญ่
-const GROUND_CALIBRATE_TOLERANCE = 0.05;
 const GROUND_RAY_MAX_RISE = 1.2;     // ก้าวขึ้นได้ทีละไม่เกินนี้ต่อการอัปเดต (~ความสูงขั้นบันได) กันเดินทะลุแล้ว "ลอย"
 const GROUND_RAY_MAX_DROP = 3;       // กันตกไปพื้นชั้นล่างที่มองทะลุเห็นแต่ไม่ได้ยืนอยู่จริง
 // three.js ยิงรังสีแบบไล่ทดสอบ "ทุกสามเหลี่ยม" ของชิ้นที่รังสีเฉียดกล่องขอบเขต
@@ -500,15 +508,20 @@ function updateDynamicGroundY() {
     // กรองด้วยกล่องขอบเขตที่คำนวณไว้แล้วตอน buildColliders ซึ่งถูกกว่าการทดสอบสามเหลี่ยมมาก
     const px = avatarModel.position.x, pz = avatarModel.position.z;
     const candidates = [];
+    const groundOnly = [];
     for (const col of factoryColliders) {
-        if (col.tris > GROUND_RAY_MAX_TRIS) continue;
+        // ชิ้นที่ admin ชี้ว่าเป็นพื้น ต้องยิงใส่เสมอแม้จะหนักเกินเพดาน
+        // เพราะถ้าข้ามพื้นไป ก็ไม่เหลืออะไรให้ยืนอีกแล้ว
+        if (!col.isGround && col.tris > GROUND_RAY_MAX_TRIS) continue;
         const b = col.box;
         if (px < b.min.x || px > b.max.x || pz < b.min.z || pz > b.max.z) continue;
         if (b.min.y > origin.y || b.max.y < origin.y - groundRayDown.far) continue;
         candidates.push(col.mesh);
+        if (col.isGround) groundOnly.push(col.mesh);
     }
     if (!candidates.length) { dynamicGroundY = null; return; }
-    const hits = groundRayDown.intersectObjects(candidates, false);
+    // มีพื้นที่ถูกชี้ไว้ก็ใช้พื้นนั้นเลย ไม่ต้องเสี่ยงไปเกาะหลังคาหรือฝาถังที่บังอยู่
+    const hits = groundRayDown.intersectObjects(groundOnly.length ? groundOnly : candidates, false);
     if (!hits.length) { dynamicGroundY = null; return; }
 
     // เอาผิวแรกที่หงายขึ้นพอจะยืนได้ — ข้ามผิวโค้งข้างท่อและผนังตั้ง
@@ -522,18 +535,26 @@ function updateDynamicGroundY() {
     if (!hit) { dynamicGroundY = null; return; }
     const hitY = hit.point.y;
 
+    // ระยะจากจุดหมุนลงไปถึงเท้า มาจากการวัดร่างจริง ไม่ใช่การเดา
+    // ของเดิมคำนวณจาก "ความสูงที่ยืนอยู่ตอนนี้" ซึ่งเท่ากับยอมรับว่าท่าที่จมอยู่คือท่าที่ถูก
+    // แล้วรักษาระดับที่จมนั้นไว้ทุกที่ในแมป
     if (groundFootOffset === null) {
-        // calibrate เฉพาะตอนตัวละครยืนนิ่งบนพื้นราบมาตรฐานพอดี — หาว่า "พื้นผิวจริงอยู่ต่ำกว่าจุดหมุน
-        // ตัวละครเท่าไหร่" โดยไม่ต้องเดารูปแบบของแต่ละโมเดล ถ้ายังไม่เคยเจอจังหวะนี้เลยก็ปิดระบบไปก่อน
-        if (Math.abs(avatarModel.position.y - jumpConfig.groundY) < GROUND_CALIBRATE_TOLERANCE) {
-            groundFootOffset = jumpConfig.groundY - hitY;
-        } else {
-            dynamicGroundY = null;
-            return;
-        }
+        if (avatarFootDrop === null) { dynamicGroundY = null; return; }
+        groundFootOffset = avatarFootDrop;
     }
 
     const candidateY = hitY + groundFootOffset;
+
+    // ครั้งแรกที่เจอพื้นจริง ให้ย้ายไปที่ระดับพื้นได้เลยไม่ต้องไต่ทีละก้าว
+    // ตำแหน่งเกิดเป็นค่าคงที่ที่เดาไว้ ซึ่งอาจอยู่ใต้พื้นจริงหลายเมตร
+    // ถ้าบังคับให้ไต่ทีละ 1.2 เมตร จะติดเงื่อนไข "ต่างระดับเกินไป" แล้วค้างจมอยู่ตลอด
+    if (!groundSnapped) {
+        groundSnapped = true;
+        dynamicGroundY = candidateY;
+        avatarModel.position.y = candidateY;
+        return;
+    }
+
     if (candidateY > avatarModel.position.y + GROUND_RAY_MAX_RISE || candidateY < avatarModel.position.y - GROUND_RAY_MAX_DROP) {
         dynamicGroundY = null; // ต่างระดับเกินสมเหตุสมผลต่อเฟรม (เช่น พื้นชั้นล่างที่มองทะลุเห็น) — เมินไป
         return;
@@ -697,6 +718,18 @@ async function setAvatarVisual(container, config, color) {
     if (!visual) visual = createEngineerAvatar(color);
     ud.visual = visual;
     container.add(visual);
+
+    // วัดว่าฝ่าเท้าของร่างนี้อยู่ต่ำกว่าจุดหมุนเท่าไหร่ — แต่ละร่างไม่เท่ากัน
+    // ใช้ค่านี้วางตัวละครบนพื้น แทนการเดาความสูงคงที่แล้วล็อกไว้แบบเดิม
+    if (container === avatarModel) {
+        container.updateMatrixWorld(true);
+        const bb = new THREE.Box3().setFromObject(visual);
+        if (isFinite(bb.min.y)) {
+            avatarFootDrop = container.position.y - bb.min.y;
+            groundFootOffset = null;    // ให้คิดใหม่จากค่าที่เพิ่งวัดได้
+            groundSnapped = false;      // เปลี่ยนร่างแล้วต้องหาระดับพื้นใหม่
+        }
+    }
 
     // วงแหวนสีประจำตัวใต้เท้า — เห็นชัดทันทีว่าใครเป็นใคร (สีเดียวกับป้ายชื่อ/แชท)
     const ring = new THREE.Mesh(
@@ -1411,6 +1444,7 @@ function buildColliders() {
     // โมเดล/ตำแหน่ง/สเกลเปลี่ยน — ค่า calibrate พื้นเดิมใช้ไม่ได้แล้ว ต้องหาใหม่
     dynamicGroundY = null;
     groundFootOffset = null;
+    groundSnapped = false;   // โมเดลเปลี่ยน ระดับพื้นเปลี่ยน ต้องหาใหม่
     if (!factoryModel) return;
     factoryModel.updateMatrixWorld(true);
     const padding = HITBOX_PADDING * currentModelScaleFactor();
@@ -1435,6 +1469,7 @@ function buildColliders() {
         const nameKey = child._original3DName || child.name || '';
         // กล่องกันชนของชิ้นตัน คิดจากขอบจริงของชิ้น ไม่ใช่กล่องป้ายข้อมูลที่พองไว้แล้ว
         // ถ้าใช้กล่องเดียวกัน ผู้ใช้จะชนกำแพงล่องหนห่างจากตัวโมเดลออกมา 0.25 เมตร
+        const isGround = !!groundParts[nameKey];
         const solidPad = solidParts[nameKey];
         let solidBox = null;
         if (typeof solidPad === 'number') {
@@ -1442,7 +1477,7 @@ function buildColliders() {
             if (solidPad > 0) solidBox.expandByScalar(solidPad * currentModelScaleFactor());
         }
         const col = {
-            uuid: child.uuid, mesh: child, box, tris, nameKey, solidBox,
+            uuid: child.uuid, mesh: child, box, tris, nameKey, solidBox, isGround,
             // ปริมาตรใช้ตัดสินว่าชิ้นไหน "เจาะจงกว่า" เมื่อกล่องซ้อนกันหลายชั้น
             volume: Math.max(size.x * size.y * size.z, 1e-6),
             // พื้น/ผนัง/โครงอาคาร: เดินชนไม่ได้ แต่ยังคลิกเลือกดูข้อมูลได้ตามปกติ
@@ -3327,7 +3362,9 @@ async function initMultiplayer() {
         // ส่วนที่ทุก connection ได้รับ (ทั้ง player และ watcher): state กลางของห้อง
         if (data.workflowDb) Object.assign(workflowDatabase, data.workflowDb);
         if (data.typeAssignments) Object.assign(userDefinedTypes, data.typeAssignments);
-        if (data.solidParts) { Object.assign(solidParts, data.solidParts); buildColliders(); }
+        if (data.solidParts) Object.assign(solidParts, data.solidParts);
+        if (data.groundParts) Object.assign(groundParts, data.groundParts);
+        if (data.solidParts || data.groundParts) buildColliders();
         if (data.markers) { Object.assign(markerStore, data.markers); rebuildMarkers(); }
         // เพิ่งเข้ามาแต่มีการเรียกรวมพลค้างอยู่ — ต้องถูกนำทางไปด้วยเหมือนคนอื่น
         if (data.emergencyCall) applyEmergencyCall(data.emergencyCall);
@@ -3540,7 +3577,9 @@ async function initMultiplayer() {
     // admin คนไหนตั้งชิ้นส่วนให้ตัน ทุกคนต้องชนเหมือนกันทันที
     mpSocket.on('solid_updated', d => {
         if (!d || !Array.isArray(d.keys)) return;
-        d.keys.forEach(k => { if (d.on) solidParts[k] = d.pad; else delete solidParts[k]; });
+        const store = d.kind === 'ground' ? groundParts : solidParts;
+        const val = d.kind === 'ground' ? true : d.pad;
+        d.keys.forEach(k => { if (d.on) store[k] = val; else delete store[k]; });
         buildColliders();          // กล่องชนคิดจาก solidParts ต้องสร้างใหม่
         if (typeof refreshSolidUI === 'function') refreshSolidUI();
     });
