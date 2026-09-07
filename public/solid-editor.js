@@ -65,6 +65,10 @@ window.AecSolidEditor = (function () {
       .sld-go{background:var(--blue,#3b82f6);color:#fff;}
       .sld-no{background:var(--panel-2,#111826);border:1px solid var(--border,#1c2531)!important;
         color:var(--text-1,#9aa7b8);}
+      .sld-shape{font-size:11px;color:var(--text-1,#9aa7b8);line-height:1.65;margin:-2px 0 11px;
+        padding:8px 10px;border-radius:8px;background:var(--panel-2,#111826);
+        border:1px solid var(--border-soft,#161d29);}
+      .sld-shape b{color:var(--text-0,#eef2f7);}
       .sld-sum{font-size:11px;color:var(--text-2,#657182);line-height:1.6;margin-top:11px;
         padding-top:11px;border-top:1px solid var(--border-soft,#161d29);}
     `;
@@ -103,6 +107,23 @@ window.AecSolidEditor = (function () {
       if (child.isMesh && resolveTypeKey(child, child.name) === key) out.push(child);
     });
     return out;
+  }
+
+  // บอกล่วงหน้าว่าชิ้นนี้จะกันเป็นรูปทรงอะไร ขนาดเท่าไหร่
+  // ชิ้นที่รวมของหลายอย่างไว้ในเมชเดียวจะได้กล่องใหญ่คลุมทั้งย่าน ซึ่งกลายเป็นกำแพงล่องหน
+  // ให้เห็นตัวเลขก่อนกด จะได้รู้ว่าชิ้นไหนไม่ควรตั้ง แทนที่จะไปเจอตอนเดินชนแล้วงง
+  function shapeInfo(mesh, pad) {
+    if (typeof makeSolidShape !== 'function') return '';
+    let sh = null;
+    try { sh = makeSolidShape(mesh, pad || 0); } catch (e) { return ''; }
+    if (!sh) return '';
+    const m = n => Number(n).toFixed(n < 10 ? 1 : 0);
+    const sz = sh.size;
+    if (sh.type === 'cyl') {
+      return `กันเป็น<b>ทรงกระบอก</b> รัศมี ${m(sh.r)} ม. สูง ${m(sh.maxY - sh.minY)} ม. — ` +
+             `พอดีกับผิวโค้ง ไม่มีมุมยื่นเลยตัวโมเดล`;
+    }
+    return `กันเป็น<b>กล่อง</b> ${m(sz.x)} × ${m(sz.z)} ม. สูง ${m(sz.y)} ม.`;
   }
 
   function close() {
@@ -158,6 +179,8 @@ window.AecSolidEditor = (function () {
             <button class="sld-sw${isGround ? ' on' : ''}" data-gsw aria-label="เปิด/ปิด"></button>
           </div>
 
+          <div class="sld-shape" data-shape></div>
+
           <div data-padwrap style="${isOn ? '' : 'opacity:.45;pointer-events:none;'}">
             <div class="sld-lab"><span>ระยะกันชนรอบชิ้น</span><span class="v" data-padv></span></div>
             <input type="range" min="0" max="1.5" step="0.05" value="${startPad}" data-pad>
@@ -202,6 +225,7 @@ window.AecSolidEditor = (function () {
       const n = targetsFor(mode).length;
       el('[data-count]').textContent = n;
       el('[data-go]').firstChild.textContent = on ? 'ตั้งให้ตัน ' : 'ยกเลิกความตันของ ';
+      el('[data-shape]').innerHTML = shapeInfo(mesh, Number(padIn.value) || 0);
       const total = Object.keys(solidParts).length;
       el('[data-sum]').textContent = `ตอนนี้ทั้งโมเดลมีชิ้นที่ตันอยู่ ${total} ชิ้น` +
         (on ? ` — กดแล้วจะเป็น ${total + targetsFor(mode).filter(t => !(nameOf(t) in solidParts)).length} ชิ้น` : '');
