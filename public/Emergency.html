@@ -427,19 +427,6 @@
             <div id="emgMsg" style="font-size:12px;margin-top:9px;"></div>
         </div>
 
-        <!-- เรื่องที่ผู้ใช้ส่งมาจากบทเรียน "ลองใช้งาน" — ยังไม่มีใครถูกเตือนจนกว่าจะกด Active -->
-        <div class="card" style="margin-bottom:14px;border-left:3px solid var(--yellow);">
-            <div class="card-head" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
-                <h3>เรื่องแจ้งจากบทเรียน</h3>
-                <span id="rptCount" style="font-size:11.5px;color:var(--text-2);">กำลังโหลด...</span>
-            </div>
-            <div style="font-size:11.5px;color:var(--text-2);line-height:1.6;margin-bottom:11px;">
-                ผู้ใช้ที่ทำบทเรียน "ลองใช้งาน" แล้วเจอผลลัพธ์ระดับหายนะ สามารถส่งเรื่องเข้ามาที่นี่ได้ —
-                กด <b style="color:var(--text-1);">Active</b> เมื่อไหร่ ทุกคนจะถูกเตือนทันทีทั้งกระดิ่งแจ้งเตือน
-                ในโลก Metaverse และเด้งขึ้นในแชท
-            </div>
-            <div id="rptList" style="display:flex;flex-direction:column;gap:9px;"></div>
-        </div>
         <div class="grid g12-3">
             <div class="card">
             <div class="card-head"><h3>Active Alerts (Live)</h3></div>
@@ -601,113 +588,6 @@
     // สถานะการเรียกรวมพลที่ค้างอยู่ในโลก 3D — หน้านี้ต้องเห็นด้วย ไม่ใช่รู้แค่คนที่อยู่ในฉาก
     window.addEventListener('aec-portal-socket', e => bindEmergency(e.detail));
     if (window.portalSocket) bindEmergency(window.portalSocket);
-
-  // ---------- เรื่องแจ้งจากบทเรียน ----------
-  // ใครก็ส่งเรื่องเข้ามาได้ แต่การประกาศเตือนทั้งโรงงานต้องมีคนกดยืนยัน
-  // จึงแยกเป็นคิวให้ตรวจก่อน ไม่ใช่ประกาศทันทีที่มีคนเล่นบทเรียนแล้วเจอผลลัพธ์แย่
-  (function () {
-    const list = document.getElementById('rptList');
-    const count = document.getElementById('rptCount');
-    if (!list) return;
-    let reports = [];
-
-    const esc = t => String(t == null ? '' : t).replace(/[&<>"]/g,
-      c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-    const ago = ms => {
-      const s = Math.max(0, Math.floor((Date.now() - ms) / 1000));
-      if (s < 60) return 'เมื่อสักครู่';
-      if (s < 3600) return Math.floor(s / 60) + ' นาทีที่แล้ว';
-      if (s < 86400) return Math.floor(s / 3600) + ' ชั่วโมงที่แล้ว';
-      return Math.floor(s / 86400) + ' วันที่แล้ว';
-    };
-
-    async function auth() {
-      const { data } = await supabaseClient.auth.getSession();
-      const t = data?.session?.access_token;
-      return t ? { Authorization: 'Bearer ' + t } : null;
-    }
-
-    function render() {
-      // ปิดไปแล้วไม่ต้องรกหน้าจอ เก็บไว้ในไฟล์อยู่แล้วถ้าต้องย้อนดู
-      const open = reports.filter(r => r.status !== 'closed');
-      const pending = open.filter(r => r.status === 'pending').length;
-      count.textContent = open.length
-        ? `รอตรวจสอบ ${pending} เรื่อง · ประกาศอยู่ ${open.length - pending} เรื่อง`
-        : 'ยังไม่มีเรื่องแจ้งเข้ามา';
-      if (!open.length) {
-        list.innerHTML = '<div style="color:var(--text-2);font-size:11.5px;line-height:1.7;">' +
-          'ยังไม่มีเรื่องแจ้งเข้ามา<br>เมื่อมีคนทำบทเรียนแล้วเจอผลลัพธ์ระดับหายนะ แล้วกดส่งเรื่อง จะขึ้นที่นี่</div>';
-        return;
-      }
-      list.innerHTML = open.map(r => {
-        const on = r.status === 'active';
-        return `<div style="border:1px solid ${on ? 'rgba(239,68,68,.5)' : 'var(--border)'};border-radius:10px;
-             padding:11px 12px;background:${on ? 'rgba(239,68,68,.10)' : 'var(--panel-2)'};">
-          <div style="display:flex;align-items:flex-start;gap:9px;">
-            <span style="font-size:18px;line-height:1.2;flex-shrink:0;">${esc(r.icon)}</span>
-            <div style="flex:1;min-width:0;">
-              <div style="font-size:12.5px;font-weight:800;color:var(--text-0);line-height:1.5;">${esc(r.scenario)}</div>
-              ${r.detail ? `<div style="font-size:11.5px;color:var(--text-1);line-height:1.65;margin-top:4px;">${esc(r.detail)}</div>` : ''}
-              <div style="font-size:10.5px;color:var(--text-2);margin-top:5px;line-height:1.6;">
-                ${r.part ? '📦 ' + esc(r.part) + ' · ' : ''}แจ้งโดย ${esc(r.by)} · ${esc(ago(r.at))}
-                ${on ? ' · <b style="color:var(--red);">ประกาศแล้วโดย ' + esc(r.activatedBy) + '</b>' : ''}
-              </div>
-            </div>
-          </div>
-          <div style="display:flex;gap:7px;margin-top:10px;flex-wrap:wrap;">
-            ${on ? '' : `<button class="btn" data-act="${esc(r.id)}"
-              style="background:var(--red);color:#fff;border:none;font-weight:800;">🚨 Active — เตือนทุกคน</button>`}
-            <button class="btn" data-close="${esc(r.id)}">${on ? 'ปิดเหตุ — แจ้งว่าจบแล้ว' : 'ไม่ต้องประกาศ'}</button>
-          </div>
-        </div>`;
-      }).join('');
-    }
-
-    async function load() {
-      try {
-        const h = await auth();
-        if (!h) return;
-        const res = await fetch('/api/emergency/reports', { headers: h });
-        if (!res.ok) return;
-        reports = (await res.json()).reports || [];
-        render();
-      } catch (err) { console.warn('[EMERGENCY] โหลดเรื่องแจ้งไม่สำเร็จ:', err); }
-    }
-
-    async function act(id, what) {
-      // ประกาศแล้วเรียกคืนไม่ได้ ถามยืนยันก่อนเสมอ
-      const r = reports.find(x => x.id === id);
-      if (what === 'activate' && !confirm('ประกาศเรื่องนี้ให้ทุกคนทราบทันที? ' + (r ? r.scenario : ''))) return;
-      try {
-        const h = await auth();
-        if (!h) return;
-        const res = await fetch(`/api/emergency/reports/${encodeURIComponent(id)}/${what}`,
-          { method: 'POST', headers: h });
-        const body = await res.json().catch(() => ({}));
-        if (!res.ok) { alert(body.error || 'ทำรายการไม่สำเร็จ'); return; }
-        await load();
-      } catch (err) { alert('ทำรายการไม่สำเร็จ — เครือข่ายมีปัญหา'); }
-    }
-
-    list.addEventListener('click', e => {
-      const a = e.target.closest('[data-act]');
-      if (a) { act(a.dataset.act, 'activate'); return; }
-      const c = e.target.closest('[data-close]');
-      if (c) act(c.dataset.close, 'close');
-    });
-
-    load();
-    // เรื่องใหม่เข้ามาระหว่างเปิดหน้าอยู่ ต้องเห็นเลยไม่ต้องรีเฟรช
-    const bind = sock => {
-      if (!sock) return;
-      sock.on('emergency_report_new', () => load());
-      sock.on('emergency_alert', () => load());
-      sock.on('emergency_alert_cleared', () => load());
-    };
-    bind(window.portalSocket);
-    window.addEventListener('aec-portal-socket', e => bind(e.detail));
-  })();
-
     function bindEmergency(sock) {
       if (!sock) return;
       sock.on('emergency_called', d => {
