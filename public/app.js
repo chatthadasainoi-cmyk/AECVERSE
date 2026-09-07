@@ -313,6 +313,9 @@ function getIconForType(typeKeyOrColorClass) {
 
 // mapping ที่ admin กำหนดเอง: meshUUID / originalName -> typeKey
 const userDefinedTypes = {};
+// ชิ้นส่วนที่ admin ตั้งให้ตัน — ชื่อชิ้น -> ระยะเผื่อรอบชิ้น (เมตร)
+// ผูกกับ "ชื่อ" ไม่ใช่ uuid เพราะ uuid เกิดใหม่ทุกครั้งที่โหลดโมเดล ตั้งไว้แล้วจะหาย
+const solidParts = {};
 
 // เดาชนิดอุปกรณ์จากชื่อ mesh — คืน null ถ้าเดาไม่ได้
 function heuristicTypeFromName(name) {
@@ -1428,8 +1431,18 @@ function buildColliders() {
         // จำนวนสามเหลี่ยม — ใช้ตัดสินว่าคุ้มที่จะยิงรังสีใส่ไหม (ดู updateDynamicGroundY)
         const g = child.geometry;
         const tris = g ? ((g.index ? g.index.count : (g.attributes.position ? g.attributes.position.count : 0)) / 3) : 0;
+        // ชื่อที่ใช้ผูกข้อมูล — ตัวเดียวกับที่ workflowDatabase/type ใช้
+        const nameKey = child._original3DName || child.name || '';
+        // กล่องกันชนของชิ้นตัน คิดจากขอบจริงของชิ้น ไม่ใช่กล่องป้ายข้อมูลที่พองไว้แล้ว
+        // ถ้าใช้กล่องเดียวกัน ผู้ใช้จะชนกำแพงล่องหนห่างจากตัวโมเดลออกมา 0.25 เมตร
+        const solidPad = solidParts[nameKey];
+        let solidBox = null;
+        if (typeof solidPad === 'number') {
+            solidBox = new THREE.Box3().setFromObject(child);
+            if (solidPad > 0) solidBox.expandByScalar(solidPad * currentModelScaleFactor());
+        }
         const col = {
-            uuid: child.uuid, mesh: child, box, tris,
+            uuid: child.uuid, mesh: child, box, tris, nameKey, solidBox,
             // ปริมาตรใช้ตัดสินว่าชิ้นไหน "เจาะจงกว่า" เมื่อกล่องซ้อนกันหลายชั้น
             volume: Math.max(size.x * size.y * size.z, 1e-6),
             // พื้น/ผนัง/โครงอาคาร: เดินชนไม่ได้ แต่ยังคลิกเลือกดูข้อมูลได้ตามปกติ
@@ -1509,6 +1522,7 @@ function selectPart(mesh, method, opts) {
     const key = resolveDatabaseKey(mesh, mesh.name);
     selection.key = key;
     applyHighlight(mesh.uuid);
+    if (typeof refreshSolidUI === 'function') refreshSolidUI();   // ปุ่มตันต้องบอกสถานะของชิ้นที่เพิ่งเลือก
 
     const data = workflowDatabase[key] || workflowDatabase.default;
     renderWorkflowUI(data.name || mesh.name, data.desc, data.steps, method, data.colorClass || 'tag-blue');
@@ -1636,6 +1650,58 @@ function interactNearestMesh() {
 // ระหว่างเดินอัตโนมัติไปหาชิ้นส่วนที่เลือกไว้ (walkToSelected) ห้ามให้ชิ้นส่วนอื่นที่บังเอิญ
 // เดินผ่านแนวมาแย่งเปลี่ยนป้ายข้อมูล/ไฮไลท์ไปกลางทาง — ผู้ใช้กด "เดินไปที่นี่" เพราะอยากดูข้อมูล
 // ของชิ้นที่เลือกไว้ตอนไปถึง ไม่ใช่ของอย่างอื่นที่บังเอิญอยู่ระหว่างทาง
+// ความสูงของตัวละครที่ใช้ตัดสินการชน — เตี้ยกว่าตัวจริงเล็กน้อยเพื่อให้ลอดใต้ท่อสูงๆ ได้
+const BODY_HEIGHT = 1.6;
+
+// ตำแหน่งนี้ทับของตันอยู่ไหม
+// ตรวจแกน Y ด้วย ไม่งั้นท่อที่พาดสูงเหนือหัวจะกลายเป็นกำแพงตั้งแต่พื้น
+function hitsSolid(x, z, footY) {
+    const r = avatarConfig.radius;
+    for (const col of factoryColliders) {
+        const b = col.solidBox;
+        if (!b) continue;
+        if (x + r <= b.min.x || x - r >= b.max.x) continue;
+        if (z + r <= b.min.z || z - r >= b.max.z) continue;
+        if (footY >= b.max.y || footY + BODY_HEIGHT <= b.min.y) continue;
+        return true;
+    }
+    return false;
+}
+
+// เดินชนกำแพงแล้วต้องไถลไปตามกำแพงได้ ไม่ใช่หยุดติดแหง็ก
+// ลองทั้งสองแกนก่อน ถ้าไม่ผ่านค่อยลองทีละแกน — เท่ากับ "เลื่อนไปตามผนัง"
+function stepMove(curX, curZ, nextX, nextZ, footY) {
+    if (!hitsSolid(nextX, nextZ, footY)) return { x: nextX, z: nextZ, blocked: false };
+    if (!hitsSolid(nextX, curZ, footY)) return { x: nextX, z: curZ, blocked: true };
+    if (!hitsSolid(curX, nextZ, footY)) return { x: curX, z: nextZ, blocked: true };
+    return { x: curX, z: curZ, blocked: true };
+}
+
+// ตรวจแค่ปลายทางไม่พอ — ถ้าก้าวเดียวยาวกว่าความหนาของกำแพง ปลายทางจะไปโผล่
+// อีกฝั่งซึ่งไม่ชนอะไร แล้วตัวละครก็เดินทะลุกำแพงไปเฉยๆ (tunnelling)
+// จึงซอยเป็นก้าวย่อยที่สั้นกว่าตัวละคร แล้วเดินทีละก้อนจนกว่าจะชน
+function resolveMove(curX, curZ, nextX, nextZ, footY) {
+    const dx = nextX - curX, dz = nextZ - curZ;
+    const dist = Math.hypot(dx, dz);
+    const maxStep = Math.max(0.05, avatarConfig.radius * 0.75);
+    const steps = Math.max(1, Math.ceil(dist / maxStep));
+    const sx = dx / steps, sz = dz / steps;
+    let x = curX, z = curZ, blocked = false;
+    for (let i = 0; i < steps; i++) {
+        // เลื่อนจาก "ตำแหน่งจริงตอนนี้" ทีละก้อน ไม่ใช่เล็งไปที่จุดบนเส้นทางเดิม
+        // ถ้าเล็งจุดบนเส้นทางเดิม พอโดนกั้นแกนหนึ่งแล้วจุดถัดไปจะไปอยู่อีกฝั่งกำแพง
+        // ก้าวเดียวก็ข้ามไปได้เลย ซึ่งคือการทะลุกำแพงแบบเดิมที่พยายามแก้อยู่
+        const r = stepMove(x, z, x + sx, z + sz, footY);
+        blocked = blocked || r.blocked;
+        if (r.x === x && r.z === z) break;      // ชนแน่นทั้งสองแกน หยุดตรงนี้
+        x = r.x; z = r.z;
+    }
+    // ไม่ได้ชนอะไรเลย = ควรไปถึงเป้าหมายพอดีเป๊ะ
+    // การบวกก้าวย่อยทีละก้อนทำให้ค่าคลาดสะสม เดินนานๆ ตำแหน่งจะเพี้ยนทีละนิด
+    if (!blocked) return { x: nextX, z: nextZ, blocked: false };
+    return { x, z, blocked };
+}
+
 function checkWalkCollision(nextX, nextZ, currentY) {
     // กล่องชนซ้อนกันได้หลายชั้นเสมอ — ปั๊มตั้งอยู่บนแท่น ในอาคาร บนพื้น
     // เดิมเอาชิ้นแรกที่เจอตามลำดับ traverse ซึ่งไม่ได้เรียงตามความใกล้เลย
@@ -3261,6 +3327,7 @@ async function initMultiplayer() {
         // ส่วนที่ทุก connection ได้รับ (ทั้ง player และ watcher): state กลางของห้อง
         if (data.workflowDb) Object.assign(workflowDatabase, data.workflowDb);
         if (data.typeAssignments) Object.assign(userDefinedTypes, data.typeAssignments);
+        if (data.solidParts) { Object.assign(solidParts, data.solidParts); buildColliders(); }
         if (data.markers) { Object.assign(markerStore, data.markers); rebuildMarkers(); }
         // เพิ่งเข้ามาแต่มีการเรียกรวมพลค้างอยู่ — ต้องถูกนำทางไปด้วยเหมือนคนอื่น
         if (data.emergencyCall) applyEmergencyCall(data.emergencyCall);
@@ -3470,6 +3537,14 @@ async function initMultiplayer() {
     });
 
     // ---------- sync การล้าง type ----------
+    // admin คนไหนตั้งชิ้นส่วนให้ตัน ทุกคนต้องชนเหมือนกันทันที
+    mpSocket.on('solid_updated', d => {
+        if (!d || !Array.isArray(d.keys)) return;
+        d.keys.forEach(k => { if (d.on) solidParts[k] = d.pad; else delete solidParts[k]; });
+        buildColliders();          // กล่องชนคิดจาก solidParts ต้องสร้างใหม่
+        if (typeof refreshSolidUI === 'function') refreshSolidUI();
+    });
+
     mpSocket.on('type_cleared', data => {
         if (!data || !data.key) return;
         delete userDefinedTypes[data.key];
@@ -4865,12 +4940,15 @@ function updateAvatarPhysics() {
     updateAvatarMotion(avatarModel, isMoving);
 
     if (isMoving) {
-        const nextX = avatarModel.position.x + moveVector.x;
-        const nextZ = avatarModel.position.z + moveVector.z;
+        const curX = avatarModel.position.x, curZ = avatarModel.position.z;
+        const wantX = curX + moveVector.x;
+        const wantZ = curZ + moveVector.z;
         const currentY = avatarModel.position.y - (groundFootOffset !== null ? groundFootOffset : jumpConfig.groundY);
-        avatarModel.position.x = nextX;
-        avatarModel.position.z = nextZ;
-        checkWalkCollision(nextX, nextZ, currentY);
+        // ชิ้นที่ admin ตั้งให้ตันจะกันไว้ตรงนี้ ที่เหลือยังเดินทะลุได้เหมือนเดิม
+        const moved = resolveMove(curX, curZ, wantX, wantZ, currentY);
+        avatarModel.position.x = moved.x;
+        avatarModel.position.z = moved.z;
+        checkWalkCollision(moved.x, moved.z, currentY);
     }
 
     applyCameraForViewMode();

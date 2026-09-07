@@ -197,6 +197,11 @@ let currentModelUrl = null;
 let currentModelName = null;
 const workflowDb = {};        // key -> { name, desc, steps, colorClass, requiresPPE }
 const typeAssignments = {};   // key -> typeKey ที่ admin กำหนดเอง
+// ชิ้นส่วนที่ admin ตั้งให้ "ตัน" — เดินทะลุไม่ได้
+// key -> ระยะเผื่อรอบชิ้น (เมตร) 0 = ชนพอดีขอบโมเดล ค่ามากขึ้น = กันห่างขึ้น
+// เก็บเป็นตัวเลขไม่ใช่ true/false เพราะแต่ละชิ้นต้องการระยะกันชนไม่เท่ากัน
+// (ท่อเล็กอยากให้เดินเฉียดได้ ส่วนกำแพงอยากกันแต่ไกลๆ)
+const solidParts = {};
 // จุดที่ผู้ใช้ปักเอง (marker) — id -> { id, name, color, x, y, z, shape, size, radius, emergency }
 // ต่างจาก typeAssignments ตรงที่ตั้งชื่อ/สีได้อิสระ ไม่ต้องผูกกับประเภทอุปกรณ์ที่มีอยู่
 const markers = {};
@@ -232,7 +237,7 @@ async function persistSceneState() {
         const body = JSON.stringify({
             savedAt: new Date().toISOString(),
             currentModelUrl, currentModelName,
-            workflowDb, typeAssignments, markers, modelTransform, modelLocked
+            workflowDb, typeAssignments, solidParts, markers, modelTransform, modelLocked
         });
         const res = await fetch(`${SUPABASE_URL}/storage/v1/object/models/${SCENE_STATE_FILE}`, {
             method: 'POST',
@@ -1346,6 +1351,7 @@ async function loadSceneState() {
         currentModelName = s.currentModelName || null;
         Object.assign(workflowDb, s.workflowDb || {});
         Object.assign(typeAssignments, s.typeAssignments || {});
+        Object.assign(solidParts, s.solidParts || {});
         Object.assign(markers, s.markers || {});
         if (s.modelTransform) modelTransform = s.modelTransform;
         modelLocked = s.modelLocked !== undefined ? !!s.modelLocked : true;
@@ -1365,6 +1371,7 @@ function publicState() {
         modelName: currentModelName,
         workflowDb,
         typeAssignments,
+        solidParts,
         markers,
         modelTransform,
         modelLocked,
@@ -1907,6 +1914,22 @@ io.on('connection', socket => {
         socket.broadcast.emit('type_cleared', { key: data.key });
         schedulePersistSceneState();
         console.log(`[WORKFLOW] cleared key:${data.key}`);
+    });
+
+    // ---------- ตั้งให้ชิ้นส่วนตัน (เดินทะลุไม่ได้) ----------
+    // รับเป็นรายการ ไม่ใช่ทีละชิ้น เพราะงานจริงคือ "ทำท่อทั้งกลุ่มให้ตัน"
+    // ยิงทีละชิ้นเป็นร้อยครั้งจะทั้งช้าและทำให้ persist ถูกเรียกรัวๆ
+    socket.on('set_solid', data => {
+        if (!canEditData(user)) return denyAction(socket, 'ตั้งค่าชิ้นส่วนตัน');
+        if (!data || !Array.isArray(data.keys) || !data.keys.length) return;
+        const keys = data.keys.filter(k => typeof k === 'string' && k).slice(0, 3000);
+        // จำกัดระยะเผื่อไว้ ไม่งั้นตั้งพลาดทีเดียวกลายเป็นกำแพงล่องหนทั้งโรงงาน
+        const pad = Math.min(3, Math.max(0, Number(data.pad) || 0));
+        if (data.on) keys.forEach(k => { solidParts[k] = pad; });
+        else keys.forEach(k => { delete solidParts[k]; });
+        io.emit('solid_updated', { keys, pad, on: !!data.on });
+        schedulePersistSceneState();
+        console.log(`[SOLID] ${data.on ? 'ตั้ง' : 'ยกเลิก'} ${keys.length} ชิ้น (เผื่อ ${pad} ม.) โดย ${user?.email || 'unknown'}`);
     });
 
     // ---------- ตั้งชื่อเล่น — เปลี่ยนชื่อตัวละครทันทีโดยไม่ต้องต่อใหม่ ----------
