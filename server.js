@@ -202,6 +202,9 @@ const typeAssignments = {};   // key -> typeKey ที่ admin กำหนด�
 // เก็บเป็นตัวเลขไม่ใช่ true/false เพราะแต่ละชิ้นต้องการระยะกันชนไม่เท่ากัน
 // (ท่อเล็กอยากให้เดินเฉียดได้ ส่วนกำแพงอยากกันแต่ไกลๆ)
 const solidParts = {};
+// ชิ้นที่ admin ชี้ว่าเป็น "พื้นสำหรับเดิน" — key -> true
+// ระบบหาพื้นจะยิงรังสีใส่ชิ้นพวกนี้เสมอแม้จะหนักเกินเพดานปกติ และให้ความสำคัญก่อนชิ้นอื่น
+const groundParts = {};
 // จุดที่ผู้ใช้ปักเอง (marker) — id -> { id, name, color, x, y, z, shape, size, radius, emergency }
 // ต่างจาก typeAssignments ตรงที่ตั้งชื่อ/สีได้อิสระ ไม่ต้องผูกกับประเภทอุปกรณ์ที่มีอยู่
 const markers = {};
@@ -237,7 +240,7 @@ async function persistSceneState() {
         const body = JSON.stringify({
             savedAt: new Date().toISOString(),
             currentModelUrl, currentModelName,
-            workflowDb, typeAssignments, solidParts, markers, modelTransform, modelLocked
+            workflowDb, typeAssignments, solidParts, groundParts, markers, modelTransform, modelLocked
         });
         const res = await fetch(`${SUPABASE_URL}/storage/v1/object/models/${SCENE_STATE_FILE}`, {
             method: 'POST',
@@ -1352,6 +1355,7 @@ async function loadSceneState() {
         Object.assign(workflowDb, s.workflowDb || {});
         Object.assign(typeAssignments, s.typeAssignments || {});
         Object.assign(solidParts, s.solidParts || {});
+        Object.assign(groundParts, s.groundParts || {});
         Object.assign(markers, s.markers || {});
         if (s.modelTransform) modelTransform = s.modelTransform;
         modelLocked = s.modelLocked !== undefined ? !!s.modelLocked : true;
@@ -1372,6 +1376,7 @@ function publicState() {
         workflowDb,
         typeAssignments,
         solidParts,
+        groundParts,
         markers,
         modelTransform,
         modelLocked,
@@ -1925,11 +1930,15 @@ io.on('connection', socket => {
         const keys = data.keys.filter(k => typeof k === 'string' && k).slice(0, 3000);
         // จำกัดระยะเผื่อไว้ ไม่งั้นตั้งพลาดทีเดียวกลายเป็นกำแพงล่องหนทั้งโรงงาน
         const pad = Math.min(3, Math.max(0, Number(data.pad) || 0));
-        if (data.on) keys.forEach(k => { solidParts[k] = pad; });
-        else keys.forEach(k => { delete solidParts[k]; });
-        io.emit('solid_updated', { keys, pad, on: !!data.on });
+        // kind = 'ground' คือชี้ว่าเป็นพื้นสำหรับเดิน ไม่ใช่ของแข็งที่กั้นทาง
+        // สองอย่างนี้ใช้ร่วมกันได้ ชิ้นเดียวเป็นได้ทั้งพื้นที่เดินบนได้และของที่ชนได้
+        const store = data.kind === 'ground' ? groundParts : solidParts;
+        const val = data.kind === 'ground' ? true : pad;
+        if (data.on) keys.forEach(k => { store[k] = val; });
+        else keys.forEach(k => { delete store[k]; });
+        io.emit('solid_updated', { keys, pad, on: !!data.on, kind: data.kind === 'ground' ? 'ground' : 'solid' });
         schedulePersistSceneState();
-        console.log(`[SOLID] ${data.on ? 'ตั้ง' : 'ยกเลิก'} ${keys.length} ชิ้น (เผื่อ ${pad} ม.) โดย ${user?.email || 'unknown'}`);
+        console.log(`[SOLID] ${data.on ? 'ตั้ง' : 'ยกเลิก'} ${keys.length} ชิ้นเป็น ${data.kind === 'ground' ? 'พื้น' : 'ของตัน (เผื่อ ' + pad + ' ม.)'} โดย ${user?.email || 'unknown'}`);
     });
 
     // ---------- ตั้งชื่อเล่น — เปลี่ยนชื่อตัวละครทันทีโดยไม่ต้องต่อใหม่ ----------

@@ -121,6 +121,7 @@ window.AecSolidEditor = (function () {
     const cur = solidParts[key];
     const isOn = typeof cur === 'number';
     const startPad = isOn ? cur : 0.1;
+    const isGround = !!groundParts[key];
 
     const colorGroup = groupsByColor().get(colorOf(mesh)) || [mesh];
     const typeGroup = sameTypeMeshes(mesh);
@@ -145,6 +146,15 @@ window.AecSolidEditor = (function () {
               <span>ปิดไว้ = เดินทะลุได้เหมือนเดิม แต่ยังกดดูข้อมูลได้ตามปกติ</span>
             </div>
             <button class="sld-sw${isOn ? ' on' : ''}" data-sw aria-label="เปิด/ปิด"></button>
+          </div>
+
+          <div class="sld-row">
+            <div class="t">
+              <b>พื้นสำหรับเดิน</b>
+              <span>ชี้ว่าชิ้นนี้คือพื้น ระบบจะใช้ความสูงของมันเป็นระดับที่ตัวละครยืน
+                แก้อาการเดินแล้วจมพื้นหรือลอยเหนือพื้น</span>
+            </div>
+            <button class="sld-sw${isGround ? ' on' : ''}" data-gsw aria-label="เปิด/ปิด"></button>
           </div>
 
           <div data-padwrap style="${isOn ? '' : 'opacity:.45;pointer-events:none;'}">
@@ -178,7 +188,7 @@ window.AecSolidEditor = (function () {
       </div>`;
     document.body.appendChild(box);
 
-    let on = isOn, mode = 'one';
+    let on = isOn, ground = isGround, mode = 'one';
     const el = q => box.querySelector(q);
     const padIn = el('[data-pad]');
 
@@ -187,6 +197,7 @@ window.AecSolidEditor = (function () {
       el('[data-padv]').textContent = Number(padIn.value).toFixed(2) + ' ม.';
       el('[data-padwrap]').style.cssText = on ? '' : 'opacity:.45;pointer-events:none;';
       el('[data-sw]').classList.toggle('on', on);
+      el('[data-gsw]').classList.toggle('on', ground);
       const n = targetsFor(mode).length;
       el('[data-count]').textContent = n;
       el('[data-go]').firstChild.textContent = on ? 'ตั้งให้ตัน ' : 'ยกเลิกความตันของ ';
@@ -196,6 +207,7 @@ window.AecSolidEditor = (function () {
     };
 
     el('[data-sw]').addEventListener('click', () => { on = !on; paint(); });
+    el('[data-gsw]').addEventListener('click', () => { ground = !ground; paint(); });
     padIn.addEventListener('input', paint);
     box.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => {
       mode = b.dataset.mode;
@@ -213,11 +225,17 @@ window.AecSolidEditor = (function () {
       const keys = [...new Set(targetsFor(mode).map(nameOf).filter(Boolean))];
       const pad = Number(padIn.value) || 0;
       if (!keys.length) { close(); return; }
-      if (typeof mpSocket !== 'undefined' && mpSocket && mpSocket.connected) {
-        mpSocket.emit('set_solid', { keys, pad, on });
-      }
+      const send = (kind, flag) => {
+        if (typeof mpSocket !== 'undefined' && mpSocket && mpSocket.connected) {
+          mpSocket.emit('set_solid', { keys, pad, on: flag, kind });
+        }
+      };
+      send('solid', on);
+      // ส่งเรื่องพื้นเฉพาะตอนที่ค่าเปลี่ยนจริง จะได้ไม่ไปทับค่าของชิ้นอื่นในกลุ่มโดยไม่ตั้งใจ
+      if (ground !== isGround) send('ground', ground);
       // ทำให้เห็นผลทันทีในเครื่องตัวเอง ไม่ต้องรอ server ตอบกลับ
       keys.forEach(k => { if (on) solidParts[k] = pad; else delete solidParts[k]; });
+      if (ground !== isGround) keys.forEach(k => { if (ground) groundParts[k] = true; else delete groundParts[k]; });
       if (typeof buildColliders === 'function') buildColliders();
       refresh();
       close();
