@@ -4914,11 +4914,34 @@ let viewMode = 'third'; // third = กล้องตามหลังตัว
 // (ผู้ใช้เห็นเลข 38,880 ม. บนแถบทั้งที่โรงงานกว้างไม่ถึงพันเมตร)
 // ใช้หน่วยเดียวกันหมดตั้งแต่ต้นจึงไม่มีทางคูณผิดอีก
 const TOP_VIEW_MIN_H = 6;
-let TOP_VIEW_MAX_H = 260;          // ค่าเริ่มต้นก่อนรู้ขนาดโมเดล
 let topViewHeight = 26;
 let topViewAutoSet = false;        // ตั้งความสูงเริ่มต้นให้ครั้งเดียว ไม่ไปทับค่าที่ผู้ใช้ปรับเอง
+let topViewFitH = 260;             // ความสูงที่พอดีเห็นทั้งโรงงาน — ใช้กับปุ่ม "เห็นทั้งผัง"
+// เพดานของแถบเลื่อน ตั้งไว้สิบเท่าของความสูงที่พอดี = ถอยได้ไกลกว่าที่จำเป็นมาก
+// ผู้ใช้บอกว่าซูมออกสุดแล้วยังเห็นไม่เต็มโรงงาน จึงไม่ตั้งเพดานตายตัวอีก
+// ปล่อยให้ถอยได้เรื่อยๆ แล้วขยายระยะที่กล้องมองเห็นตามไปด้วยทุกครั้ง
+let TOP_VIEW_MAX_H = 2600;
 
-// เรียกหลังโหลดโมเดล — ให้ซูมออกได้จนเห็นทั้งโรงงานพอดีไม่ว่าโมเดลจะใหญ่แค่ไหน
+// ต้องถอยขึ้นไปสูงเท่าไหร่ถึงเห็นทั้งโรงงาน "จากตรงที่ตัวละครยืนอยู่"
+// คิดจากมุมที่ไกลที่สุดของโมเดล ไม่ใช่จากจุดกึ่งกลาง เพราะกล้องมุมบนล็อกอยู่กับตัวละคร
+// ถ้าตัวละครยืนริมโรงงาน ต้องถอยไกลกว่าตอนยืนกลางเกือบเท่าตัว
+// นี่คือเหตุผลที่ซูมออกสุดแล้วยังเห็นไม่ครบ ทั้งที่เพดานคำนวณจากขนาดโมเดลถูกแล้ว
+function fitHeightForWholePlant() {
+    if (!factoryModel) return topViewFitH;
+    const b = new THREE.Box3().setFromObject(factoryModel);
+    if (b.isEmpty()) return topViewFitH;
+    const cx = avatarModel ? avatarModel.position.x : (b.min.x + b.max.x) / 2;
+    const cz = avatarModel ? avatarModel.position.z : (b.min.z + b.max.z) / 2;
+    let far = 0;
+    for (const x of [b.min.x, b.max.x]) {
+        for (const z of [b.min.z, b.max.z]) far = Math.max(far, Math.hypot(x - cx, z - cz));
+    }
+    if (far <= 0) return topViewFitH;
+    // ที่ความสูง h มองเห็นได้ไกล h * tan(fov/2) ในแนวตั้ง เผื่ออีก 15% ไม่ให้ชนขอบจอพอดีเป๊ะ
+    return far / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * 1.15;
+}
+
+// เรียกหลังโหลดโมเดล — อัปเดตความสูงที่พอดีและเพดานของแถบเลื่อน
 function recalcTopViewRange() {
     if (!factoryModel) return;
     const b = new THREE.Box3().setFromObject(factoryModel);
@@ -4927,20 +4950,9 @@ function recalcTopViewRange() {
     const span = Math.max(sz.x, sz.z);
     if (span <= 0) return;
 
-    // ต้องถอยขึ้นไปเท่าไหร่ถึงเห็นด้านกว้างสุดทั้งด้าน ที่มุมมองกล้อง 60 องศา
-    //   ครึ่งด้าน / tan(30°)  แล้วเผื่ออีก 15% ให้เห็นขอบรอบๆ ไม่ชนขอบจอพอดีเป๊ะ
-    const need = (span / 2) / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * 1.15;
-    TOP_VIEW_MAX_H = Math.max(60, need);
+    topViewFitH = Math.max(60, fitHeightForWholePlant());
+    TOP_VIEW_MAX_H = topViewFitH * 10;      // ถอยได้ไกลกว่าที่จำเป็นสิบเท่า = ในทางปฏิบัติคือไม่มีเพดาน
 
-    // ระยะที่กล้องมองเห็นต้องไกลพอกับความสูงที่จะถอยขึ้นไป ไม่งั้นภาพถูกตัดทิ้งทั้งฉาก
-    // ซึ่งเป็นอาการที่เจอ: ซูมออกแล้วเห็นแค่มุมเดียวของพื้น ที่เหลือหายหมด
-    const wantFar = Math.max(6000, TOP_VIEW_MAX_H * 2.2);
-    if (camera.far < wantFar) {
-        camera.far = wantFar;
-        camera.updateProjectionMatrix();
-    }
-
-    // ครั้งแรกที่รู้ขนาดโมเดล ตั้งความสูงเริ่มต้นให้พอเห็นบริเวณรอบตัวละคร
     if (!topViewAutoSet) {
         topViewAutoSet = true;
         topViewHeight = Math.min(TOP_VIEW_MAX_H, Math.max(TOP_VIEW_MIN_H, span * 0.12));
@@ -4958,13 +4970,28 @@ function syncTopZoomSlider() {
     const sl = $('top-zoom-range');
     if (sl) sl.value = String(topZoomToSlider(topViewHeight));
     const lab = $('top-zoom-val');
-    if (lab) lab.textContent = Math.round(topViewHeight) + ' ม.';
+    if (lab) lab.textContent = Math.round(topViewHeight).toLocaleString() + ' ม.';
+}
+
+// ระยะที่กล้องมองเห็นต้องตามความสูงเสมอ ไม่งั้นถอยไปแล้วภาพถูกตัดทิ้งทั้งฉาก
+// และตอนถอยไปไกลมากๆ ต้องขยับระยะใกล้สุดขึ้นด้วย ไม่งั้นความละเอียดของ depth buffer
+// ไม่พอ พื้นผิวที่ซ้อนกันจะกะพริบสลับกันไปมา
+function syncTopViewCameraRange(h) {
+    const wantFar = Math.max(6000, h * 2.5);
+    const wantNear = Math.min(5, Math.max(0.1, h * 0.001));
+    if (camera.far < wantFar || Math.abs(camera.near - wantNear) > 1e-6) {
+        camera.far = Math.max(camera.far, wantFar);
+        camera.near = wantNear;
+        camera.updateProjectionMatrix();
+    }
 }
 
 function setTopViewHeight(h) {
     topViewHeight = Math.min(TOP_VIEW_MAX_H, Math.max(TOP_VIEW_MIN_H, h));
+    syncTopViewCameraRange(topViewHeight);
     syncTopZoomSlider();
 }
+
 
 renderer.domElement.addEventListener('wheel', e => {
     if (viewMode !== 'top' || lobbyActive) return;
@@ -4982,7 +5009,12 @@ renderer.domElement.addEventListener('wheel', e => {
     $('top-zoom-in')?.addEventListener('click', () => step(0.7));
     $('top-zoom-out')?.addEventListener('click', () => step(1 / 0.7));
     // ปุ่มเดียวจบ — ถอยออกไปจนเห็นทั้งโรงงาน ไม่ต้องลากเอง
-    $('top-zoom-fit')?.addEventListener('click', () => { recalcTopViewRange(); setTopViewHeight(TOP_VIEW_MAX_H); });
+    // คิดสดจากตำแหน่งที่ตัวละครยืนอยู่ตอนนั้น ไม่ใช่ค่าที่คำนวณไว้ตอนโหลดโมเดล
+    // เดินไปยืนริมโรงงานแล้วกด ต้องถอยไกลกว่าตอนยืนกลาง
+    $('top-zoom-fit')?.addEventListener('click', () => {
+        recalcTopViewRange();
+        setTopViewHeight(fitHeightForWholePlant());
+    });
 })();
 
 const FIRST_PERSON_EYE = 1.55; // ความสูงระดับสายตาของตัวละคร
@@ -5025,6 +5057,11 @@ function setViewMode(mode) {
     applyCameraForViewMode();
     syncViewDock();
     // แถบเลื่อนซูมใช้เฉพาะมุมมองจากด้านบน มุมอื่นซ่อนไว้ไม่ให้เกะกะ
+    // มุมมองบนอาจดันระยะใกล้สุดของกล้องขึ้นไปไกลตอนถอยสูงมาก
+    // มุมอื่นกล้องอยู่ติดตัวละคร ถ้าไม่คืนค่าจะมองไม่เห็นอะไรที่อยู่ใกล้ตัวเลย
+    if (mode !== 'top' && camera.near !== 0.1) { camera.near = 0.1; camera.updateProjectionMatrix(); }
+    else if (mode === 'top') syncTopViewCameraRange(topViewHeight);
+
     const zoomBox = $('top-zoom');
     if (zoomBox) {
         zoomBox.classList.toggle('on', mode === 'top');
