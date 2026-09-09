@@ -19,7 +19,8 @@ window.AecVR = (function () {
   let session = null;
   let controllers = [];
   let marker = null;         // วงกลมบอกจุดที่จะวาร์ปไป
-  let aimHit = null;         // จุดบนพื้นที่ไกกำลังเล็งอยู่
+  let aimHit = null;         // จุดที่ลำแสงชนอยู่ตอนนี้
+  let aimMesh = null;        // ชิ้นส่วนที่ลำแสงชน — ใช้ตอนจิ้มดูข้อมูล
   let ready = false;
 
   const SPEED = 2.4;         // เมตรต่อวินาที ตอนเดินด้วยอนาล็อก
@@ -68,7 +69,7 @@ window.AecVR = (function () {
     host.appendChild(btn);
     const hint = document.createElement('div');
     hint.id = 'vr-hint';
-    hint.textContent = 'อนาล็อกซ้าย = เดิน · เหนี่ยวไกค้างแล้วเล็งพื้น ปล่อยเพื่อวาร์ปไปจุดนั้น';
+    hint.textContent = 'อนาล็อกซ้าย = เดิน · เหนี่ยวไกเล็งอุปกรณ์แล้วปล่อย = ดูข้อมูลที่ข้อมือ · ปุ่มบีบเล็งพื้นแล้วปล่อย = วาร์ป';
     host.appendChild(hint);
     btn.addEventListener('click', toggle);
 
@@ -105,6 +106,136 @@ window.AecVR = (function () {
     return g;
   }
 
+  // ---------- ป้ายข้อมูลที่ข้อมือ ----------
+  // ใน VR ไม่มีเมาส์และไม่มีแผงข้อมูลบนจอให้ดู (แผงเดิมเป็น HTML อยู่นอกฉาก 3D
+  // ซึ่งในโหมด VR มองไม่เห็นเลย) จึงต้องวาดข้อมูลเป็นวัตถุในฉากแล้วติดไว้กับคอนโทรลเลอร์
+  // เหมือนดูนาฬิกาข้อมือ — ยกมือขึ้นดูได้ทุกเมื่อ ไม่ต้องหันไปหาจอ
+  const PANEL_W = 512, PANEL_H = 320;   // ความละเอียดผืนผ้าใบที่วาดตัวหนังสือ
+  let panel = null, panelCtx = null, panelTex = null;
+
+  function makeWristPanel() {
+    const cv = document.createElement('canvas');
+    cv.width = PANEL_W; cv.height = PANEL_H;
+    panelCtx = cv.getContext('2d');
+    panelTex = new THREE.CanvasTexture(cv);
+    const mesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.26, 0.1625),
+      new THREE.MeshBasicMaterial({ map: panelTex, transparent: true, side: THREE.DoubleSide, depthTest: false })
+    );
+    mesh.renderOrder = 999;      // ให้อยู่หน้าสุดเสมอ ไม่ถูกท่อบัง
+    mesh.visible = false;
+    return mesh;
+  }
+
+  // ตัดข้อความไทยขึ้นบรรทัดใหม่ — วัดความกว้างจริงทีละตัว
+  // ภาษาไทยไม่มีช่องว่างระหว่างคำ ตัดตามช่องว่างอย่างเดียวจะได้บรรทัดยาวล้นขอบ
+  function wrapText(ctx, text, maxW, maxLines) {
+    const out = [];
+    let line = '';
+    for (const ch of String(text || '')) {
+      if (ch === '\n') { out.push(line); line = ''; if (out.length >= maxLines) break; continue; }
+      const next = line + ch;
+      if (ctx.measureText(next).width > maxW && line) {
+        out.push(line);
+        line = ch;
+        if (out.length >= maxLines) break;
+      } else line = next;
+    }
+    if (line && out.length < maxLines) out.push(line);
+    if (out.length === maxLines && line) out[maxLines - 1] = out[maxLines - 1].slice(0, -1) + '…';
+    return out;
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  function drawWristPanel(info) {
+    if (!panelCtx) return;
+    const c = panelCtx;
+    c.clearRect(0, 0, PANEL_W, PANEL_H);
+
+    c.fillStyle = 'rgba(10,15,23,0.96)';
+    roundRect(c, 4, 4, PANEL_W - 8, PANEL_H - 8, 18);
+    c.fill();
+    c.strokeStyle = info.accent || '#3b82f6';
+    c.lineWidth = 3;
+    c.stroke();
+
+    // แถบสีบอกระดับความสำคัญ อ่านได้จากหางตาโดยไม่ต้องอ่านตัวหนังสือ
+    c.fillStyle = info.accent || '#3b82f6';
+    roundRect(c, 4, 4, 10, PANEL_H - 8, 6);
+    c.fill();
+
+    c.textBaseline = 'top';
+    c.fillStyle = '#eef2f7';
+    c.font = 'bold 30px "Sora", system-ui, sans-serif';
+    wrapText(c, info.title || 'ชิ้นส่วน', PANEL_W - 60, 2).forEach((l, i) => c.fillText(l, 34, 24 + i * 36));
+
+    c.font = '20px system-ui, sans-serif';
+    c.fillStyle = '#9aa7b8';
+    const descTop = 100;
+    wrapText(c, info.desc || 'ยังไม่มีข้อมูลความปลอดภัยของชิ้นนี้', PANEL_W - 60, 4)
+      .forEach((l, i) => c.fillText(l, 34, descTop + i * 28));
+
+    if (info.step) {
+      c.fillStyle = 'rgba(59,130,246,0.16)';
+      roundRect(c, 30, PANEL_H - 78, PANEL_W - 64, 52, 10);
+      c.fill();
+      c.fillStyle = '#8fb8ff';
+      c.font = 'bold 18px system-ui, sans-serif';
+      wrapText(c, '● ' + info.step, PANEL_W - 92, 2).forEach((l, i) => c.fillText(l, 44, PANEL_H - 68 + i * 24));
+    }
+    panelTex.needsUpdate = true;
+  }
+
+  // สีขอบตามระดับความสำคัญที่ตั้งไว้ในข้อมูลชิ้นส่วน (colorClass เดียวกับแผงบนจอ)
+  const ACCENT = { 'tag-red': '#ef4444', 'tag-yellow': '#f59e0b', 'tag-green': '#22c55e', 'tag-blue': '#3b82f6' };
+
+  // จิ้มชิ้นส่วนแล้วขึ้นข้อมูล — ใช้ข้อมูลชุดเดียวกับการคลิกบนจอทุกประการ
+  function showPartInfo(mesh, controller) {
+    if (!mesh) return;
+    // สร้างป้ายเมื่อต้องใช้ ไม่ผูกกับการเข้าโหมด VR
+    // จะได้เรียกทดสอบจากคอนโซลบนจอปกติได้ด้วยโดยไม่ต้องมีแว่น
+    if (!panel) panel = makeWristPanel();
+    // เรียกตัวเลือกชิ้นส่วนของระบบเดิมด้วย เพื่อให้ไฮไลท์ ป้ายบนจอ และสถานะอื่นตรงกันหมด
+    // ส่ง force ไว้ เพราะการจิ้มซ้ำชิ้นเดิมใน VR ควรเป็นการ "ดูอีกที" ไม่ใช่ปิดป้ายทิ้ง
+    if (typeof selectPart === 'function') selectPart(mesh, '🥽 จิ้มเลือกใน VR', { force: true });
+
+    let data = null, key = 'default';
+    try {
+      key = typeof resolveDatabaseKey === 'function' ? resolveDatabaseKey(mesh, mesh.name) : 'default';
+      data = (typeof workflowDatabase !== 'undefined') ? (workflowDatabase[key] || workflowDatabase.default) : null;
+    } catch (e) { /* ไม่มีข้อมูลก็ยังโชว์ชื่อชิ้นได้ */ }
+
+    drawWristPanel({
+      title: (data && data.name) || mesh.name || 'ชิ้นส่วน',
+      desc: data && data.desc,
+      step: data && Array.isArray(data.steps) && data.steps.length ? data.steps[0] : '',
+      accent: ACCENT[(data && data.colorClass) || 'tag-blue']
+    });
+
+    // ติดป้ายไว้กับมือที่จิ้ม — เอียงเข้าหาตัวเหมือนดูนาฬิกา
+    const host = controller || controllers[0];
+    if (host && panel) {
+      if (panel.parent !== host) host.add(panel);
+      panel.position.set(0, 0.09, -0.06);
+      panel.rotation.set(-Math.PI / 3.2, 0, 0);
+      panel.visible = true;
+    }
+    say('ดูข้อมูล: ' + ((data && data.name) || mesh.name || 'ชิ้นส่วน'));
+  }
+
+  function hideWristPanel() {
+    if (panel) panel.visible = false;
+  }
+
   // ---------- คอนโทรลเลอร์ ----------
   function setupControllers() {
     controllers = [];
@@ -119,13 +250,25 @@ window.AecVR = (function () {
       line.name = 'aim';
       line.visible = false;
       c.add(line);
-      c.addEventListener('selectstart', () => { c.userData.aiming = true; });
+      // ไก = จิ้มดูข้อมูลชิ้นส่วน (เทียบเท่าการคลิกเมาส์บนจอ)
+      // ปุ่มบีบ (grip) = วาร์ปไปจุดที่เล็ง
+      // แยกสองปุ่มเพราะถ้าใช้ปุ่มเดียวแล้วเดาเอาว่าเล็งพื้นหรือเล็งอุปกรณ์
+      // จะเดาผิดบ่อยมาก — อุปกรณ์ตั้งอยู่บนพื้น เล็งพลาดนิดเดียวก็ได้คนละอย่าง
+      c.addEventListener('selectstart', () => { c.userData.aiming = 'info'; });
       c.addEventListener('selectend', () => {
-        c.userData.aiming = false;
+        c.userData.aiming = null;
+        line.visible = false;
+        if (marker) marker.visible = false;
+        if (aimMesh) showPartInfo(aimMesh, c);
+        aimHit = null; aimMesh = null;
+      });
+      c.addEventListener('squeezestart', () => { c.userData.aiming = 'warp'; });
+      c.addEventListener('squeezeend', () => {
+        c.userData.aiming = null;
         line.visible = false;
         if (marker) marker.visible = false;
         if (aimHit) teleport(aimHit.x, aimHit.z);
-        aimHit = null;
+        aimHit = null; aimMesh = null;
       });
       dolly.add(c);
       controllers.push(c);
@@ -204,13 +347,17 @@ window.AecVR = (function () {
       const hits = raycaster.intersectObjects(targets, true);
       if (hits.length) {
         aimHit = hits[0].point;
+        aimMesh = hits[0].object;
+        // ฟ้าตอนจิ้มดูข้อมูล ม่วงตอนวาร์ป — รู้ได้ทันทีว่ากำลังจะทำอะไร
+        const info = c.userData.aiming === 'info';
+        if (line.material) line.material.color.setHex(info ? 0x22d3ee : 0xa855f7);
         marker.position.set(aimHit.x, aimHit.y + 0.02, aimHit.z);
-        marker.visible = true;
+        marker.visible = !info;      // วงวาร์ปโชว์เฉพาะตอนจะวาร์ป
         shown = true;
       }
       break;
     }
-    if (!shown) { marker.visible = false; aimHit = null; }
+    if (!shown) { marker.visible = false; aimHit = null; aimMesh = null; }
   }
 
   // เรียกจากลูปวาดภาพหลักทุกเฟรม
@@ -229,6 +376,7 @@ window.AecVR = (function () {
     try {
       ensureDolly();
       if (!marker) marker = makeMarker();
+      if (!panel) panel = makeWristPanel();
       renderer.xr.enabled = true;
 
       const s = await navigator.xr.requestSession('immersive-vr', {
@@ -251,7 +399,7 @@ window.AecVR = (function () {
 
       document.getElementById('vr-hint')?.classList.add('on');
       if (btn) { btn.classList.remove('busy'); btn.querySelector('span').textContent = 'ออกจากโหมด VR'; }
-      say('เข้าโหมด VR แล้ว — อนาล็อกซ้ายเดิน เหนี่ยวไกเล็งพื้นเพื่อวาร์ป');
+      say('เข้าโหมด VR แล้ว — อนาล็อกเดิน · ไกจิ้มดูข้อมูล · ปุ่มบีบวาร์ป');
     } catch (err) {
       if (btn) btn.classList.remove('busy');
       console.warn('[VR] เข้าโหมด VR ไม่สำเร็จ:', err);
@@ -265,6 +413,7 @@ window.AecVR = (function () {
     renderer.setAnimationLoop(null);
     renderer.xr.enabled = false;
     if (marker) marker.visible = false;
+    hideWristPanel();
     controllers.forEach(c => { const l = c.getObjectByName('aim'); if (l) l.visible = false; });
     // คืนกล้องให้โค้ดเดิมคุมต่อ — โค้ดเดิมสั่ง camera.position เป็นพิกัดโลก
     // ถ้าปล่อยแท่นยืนค้างไว้ที่อื่น กล้องจะเพี้ยนไปทั้งระบบ
@@ -293,5 +442,5 @@ window.AecVR = (function () {
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
 
-  return { init, enter, toggle, update, isActive: () => !!session };
+  return { init, enter, toggle, update, showPartInfo, hideWristPanel, isActive: () => !!session };
 })();
