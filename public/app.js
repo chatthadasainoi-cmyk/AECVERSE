@@ -4906,11 +4906,17 @@ let viewMode = 'third'; // third = กล้องตามหลังตัว
 // ความสูงกล้องในโหมด Top View — เลื่อน scroll เพื่อซูมเข้า/ออกได้
 // (โหมดนี้ปิด OrbitControls ไว้เพราะโค้ดเราตั้งตำแหน่งกล้องเองทุกเฟรม
 //  ล้อเมาส์ของ OrbitControls จึงใช้ไม่ได้ ต้องดักล้อเองแล้วปรับความสูงแทน)
-// เพดานซูมออกเดิมตายตัวที่ 260 เมตร ซึ่งเตี้ยกว่าตัวโรงงานที่กว้างหลายร้อยเมตร
-// ซูมออกสุดแล้วก็ยังเห็นไม่ทั้งผัง ตอนนี้คิดจากขนาดโมเดลจริงตอนโหลดเสร็จ
+// ความสูงกล้องในมุมมองจากด้านบน — เก็บเป็น "หน่วยในโลกจริง" ตรงๆ
+//
+// เดิมเก็บเป็นค่าก่อนคูณสเกลโมเดล แล้วไปคูณ currentModelScaleFactor() ตอนตั้งกล้อง
+// พอผมคำนวณเพดานจากกล่องขอบเขตซึ่งเป็นหน่วยหลังคูณสเกลแล้ว มันเลยถูกคูณซ้ำสองรอบ
+// กล้องลอยไปไกลกว่าที่ตั้งใจหลายสิบเท่า จนเลยระยะที่กล้องมองเห็นแล้วภาพถูกตัดทิ้ง
+// (ผู้ใช้เห็นเลข 38,880 ม. บนแถบทั้งที่โรงงานกว้างไม่ถึงพันเมตร)
+// ใช้หน่วยเดียวกันหมดตั้งแต่ต้นจึงไม่มีทางคูณผิดอีก
 const TOP_VIEW_MIN_H = 6;
 let TOP_VIEW_MAX_H = 260;          // ค่าเริ่มต้นก่อนรู้ขนาดโมเดล
 let topViewHeight = 26;
+let topViewAutoSet = false;        // ตั้งความสูงเริ่มต้นให้ครั้งเดียว ไม่ไปทับค่าที่ผู้ใช้ปรับเอง
 
 // เรียกหลังโหลดโมเดล — ให้ซูมออกได้จนเห็นทั้งโรงงานพอดีไม่ว่าโมเดลจะใหญ่แค่ไหน
 function recalcTopViewRange() {
@@ -4919,10 +4925,27 @@ function recalcTopViewRange() {
     if (b.isEmpty()) return;
     const sz = b.getSize(new THREE.Vector3());
     const span = Math.max(sz.x, sz.z);
-    // 0.75 เท่าของด้านกว้างสุด ก็เห็นทั้งผังพอดีที่มุมมอง 60 องศา เผื่ออีกนิดให้เห็นขอบ
-    // และไม่ให้เกินระยะที่กล้องมองเห็น (camera.far) ไม่งั้นโมเดลจะหายไปทั้งก้อน
-    TOP_VIEW_MAX_H = Math.max(260, Math.min(camera.far * 0.8, span * 0.9));
-    syncTopZoomSlider();
+    if (span <= 0) return;
+
+    // ต้องถอยขึ้นไปเท่าไหร่ถึงเห็นด้านกว้างสุดทั้งด้าน ที่มุมมองกล้อง 60 องศา
+    //   ครึ่งด้าน / tan(30°)  แล้วเผื่ออีก 15% ให้เห็นขอบรอบๆ ไม่ชนขอบจอพอดีเป๊ะ
+    const need = (span / 2) / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * 1.15;
+    TOP_VIEW_MAX_H = Math.max(60, need);
+
+    // ระยะที่กล้องมองเห็นต้องไกลพอกับความสูงที่จะถอยขึ้นไป ไม่งั้นภาพถูกตัดทิ้งทั้งฉาก
+    // ซึ่งเป็นอาการที่เจอ: ซูมออกแล้วเห็นแค่มุมเดียวของพื้น ที่เหลือหายหมด
+    const wantFar = Math.max(6000, TOP_VIEW_MAX_H * 2.2);
+    if (camera.far < wantFar) {
+        camera.far = wantFar;
+        camera.updateProjectionMatrix();
+    }
+
+    // ครั้งแรกที่รู้ขนาดโมเดล ตั้งความสูงเริ่มต้นให้พอเห็นบริเวณรอบตัวละคร
+    if (!topViewAutoSet) {
+        topViewAutoSet = true;
+        topViewHeight = Math.min(TOP_VIEW_MAX_H, Math.max(TOP_VIEW_MIN_H, span * 0.12));
+    }
+    setTopViewHeight(topViewHeight);   // ตรึงให้อยู่ในช่วงใหม่ + อัปเดตแถบเลื่อน
 }
 
 // แถบเลื่อนซูม — ล้อเมาส์อย่างเดียวช้าเกินไปกับโมเดลสเกลนี้
@@ -4935,7 +4958,7 @@ function syncTopZoomSlider() {
     const sl = $('top-zoom-range');
     if (sl) sl.value = String(topZoomToSlider(topViewHeight));
     const lab = $('top-zoom-val');
-    if (lab) lab.textContent = Math.round(topViewHeight * currentModelScaleFactor()) + ' ม.';
+    if (lab) lab.textContent = Math.round(topViewHeight) + ' ม.';
 }
 
 function setTopViewHeight(h) {
@@ -4966,7 +4989,6 @@ const FIRST_PERSON_EYE = 1.55; // ความสูงระดับสาย�
 
 function applyCameraForViewMode() {
     if (!avatarModel) return;
-    const sf = currentModelScaleFactor();
 
     if (viewMode === 'first') {
         // มุมมองบุคคลที่หนึ่ง — กล้องอยู่ที่หัวตัวละคร มองไปทางที่ตัวละครหันหน้า
@@ -4979,8 +5001,8 @@ function applyCameraForViewMode() {
 
     if (viewMode === 'top') {
         // มุมมองจากด้านบน — มองลงตรงๆ ที่ตัวละคร (เยื้อง z นิดเดียวกันกล้องพลิกตอนมองดิ่ง 90°)
-        // ความสูงปรับได้ด้วยการเลื่อน scroll (topViewHeight) ไม่ใช่ค่าตายตัวเหมือนเดิม
-        const h = topViewHeight * sf;
+        // topViewHeight เป็นหน่วยในโลกจริงอยู่แล้ว ไม่ต้องคูณสเกลโมเดลซ้ำ
+        const h = topViewHeight;
         camera.position.set(avatarModel.position.x, avatarModel.position.y + h, avatarModel.position.z + 0.01);
         controls.target.set(avatarModel.position.x, avatarModel.position.y, avatarModel.position.z);
         return;
