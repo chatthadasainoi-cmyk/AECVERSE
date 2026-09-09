@@ -782,6 +782,24 @@ function isBind(action, e) {
     return false;
 }
 
+// กดปุ่มใน UI แล้วโฟกัสจะค้างอยู่ที่ปุ่มนั้น เบราว์เซอร์จึงเอา Space/Enter ไปกดปุ่มเดิมซ้ำ
+// แทนที่จะเป็นคำสั่งในโลก (กระโดด/พิมพ์แชท) ผู้ใช้เลยต้องคลิกที่ว่างเพื่อ "กลับเข้า" โลก 3D ทุกครั้ง
+// คืนโฟกัสให้ canvas ทันทีหลังปล่อยเมาส์ ยกเว้นตอนคลิกช่องพิมพ์ซึ่งผู้ใช้ตั้งใจโฟกัสอยู่
+if (renderer && renderer.domElement) {
+    renderer.domElement.tabIndex = 0;
+    renderer.domElement.style.outline = 'none';
+    document.addEventListener('pointerup', e => {
+        if (!e.target || !e.target.closest) return;
+        // ช่องพิมพ์และตัวเลือก ต้องคงโฟกัสไว้ให้ผู้ใช้พิมพ์/เลือกต่อได้
+        if (e.target.closest('input, textarea, select, [contenteditable]')) return;
+        // กล่องซ้อนที่เปิดอยู่ (บทเรียน/ตัวแก้จุด) มีปุ่มของตัวเอง ปล่อยให้โฟกัสอยู่ในนั้นตามปกติ
+        if (e.target.closest('#ati-overlay, #chat-overlay, .modal-overlay')) return;
+        const btn = e.target.closest('button');
+        if (btn) btn.blur();
+        renderer.domElement.focus({ preventScroll: true });
+    });
+}
+
 window.addEventListener('keydown', (e) => {
     if (isTypingInField()) return;
     const key = e.key.toLowerCase();
@@ -2725,8 +2743,12 @@ function applyEmergencyCall(call) {
         btn.textContent = call ? '🚨 ยกเลิกการเรียกรวมพล' : '🚨 เรียกรวมพลฉุกเฉิน';
     }
     if (call) {
-        mpAppendChat({ name: '🚨 ฉุกเฉิน', color: '#ef4444', text: `เรียกรวมพลไปที่ "${call.name}" — ทุกคนกำลังถูกนำทางไปที่จุดนั้น` });
-        if (!walkToPoint(call.x, call.z)) return; // โหมด viewer ไม่มีตัวละคร แค่รับรู้ว่ามีการเรียก
+        mpAppendChat({ name: '🚨 ฉุกเฉิน', color: '#ef4444', text: `เรียกรวมพลไปที่ "${call.name}" — พาทุกคนไปที่จุดรวมพลทันที` });
+        // เดิมสั่งให้ "เดิน" ไปเอง ซึ่งโรงงานกว้างหลายร้อยเมตร กว่าจะถึงก็นาน
+        // และถ้าผู้ใช้เผลอกดปุ่มเดินระหว่างทาง การเดินอัตโนมัติจะถูกยกเลิกทันที
+        // แล้วก็ไม่ไปถึงจุดรวมพลเลย — ซึ่งขัดกับความหมายของการเรียกรวมพลฉุกเฉิน
+        // ตอนนี้ย้ายไปที่จุดนั้นทันที ทุกคนจึงไปถึงพร้อมกันแน่นอน
+        if (!warpToPoint(call.x, call.z)) return; // โหมด viewer ไม่มีตัวละคร แค่รับรู้ว่ามีการเรียก
     } else {
         mpAppendChat({ name: '🚨 ฉุกเฉิน', color: '#94a3b8', text: 'ยกเลิกการเรียกรวมพลแล้ว' });
         cancelAutoWalk();
@@ -4379,7 +4401,9 @@ function updatePlantStrip(data) {
     if (data.tank1) {
         const t = data.tank1;
         const set = (id, txt) => { const el = $(id); if (el) el.innerText = txt; };
-        set('dock-tank-pressure', t.pressure + ' bar');
+        // ค่าที่ส่งมาเป็น mbar G ตามสเปกเซนเซอร์ PT01 อยู่แล้ว แต่เดิมติดป้ายว่า bar
+        // ตัวเลขจึงถูกอ่านผิดไป 1,000 เท่า — ใช้หน่วยที่มากับข้อมูลเสมอ ไม่ฮาร์ดโค้ด
+        set('dock-tank-pressure', t.pressure + ' ' + (t.pressureUnit || 'mbar G'));
         set('dock-tank-temp', t.temperature + ' °C');
         set('dock-tank-ph', String(t.ph));
         set('dock-tank-level', t.level.toLocaleString() + ' m³');
@@ -4954,8 +4978,11 @@ window.addEventListener('message', e => {
 });
 
 function animate() {
-    requestAnimationFrame(animate);
+    // ตอนอยู่ในโหมด VR ต้องให้ renderer.setAnimationLoop เป็นคนเรียกแทน
+    // เพราะแว่นวาดคนละจังหวะกับจอ ถ้ายังใช้ requestAnimationFrame ภาพจะไม่ตรงกับการหันหัว
+    if (!window.AEC_XR_ACTIVE) requestAnimationFrame(animate);
     frameDt = animClock.getDelta(); // เวลาต่อเฟรมสำหรับ AnimationMixer ของตัวละคร
+    if (window.AecVR) safeCall(() => AecVR.update(frameDt), 'AecVR.update');
     safeCall(updateAvatarPhysics, 'updateAvatarPhysics');
     safeCall(updateRemoteAvatars, 'updateRemoteAvatars');
     safeCall(updateSpatialAudio, 'updateSpatialAudio');
@@ -4976,13 +5003,15 @@ setInterval(() => {
     if (!selection.uuid) return;
     let pressureVal, tempVal;
     if (selection.key === 'pipe') {
-        pressureVal = (1.5 + Math.random() * 0.5).toFixed(2) + ' bar';
+        // ช่วงค่าอ้างอิงจากสเปกเซนเซอร์ในระบบเอง: PT01/PT02 ท่อก๊าซเข้าเครื่องยนต์ 90–110 mbar G
+        pressureVal = (90 + Math.random() * 20).toFixed(0) + ' mbar G';
         tempVal = (31.2 + Math.random() * 1.5).toFixed(1) + ' °C';
     } else if (selection.key === 'tank') {
-        pressureVal = (0.04 + Math.random() * 0.03).toFixed(3) + ' bar';
+        // โดมบ่อหมักทำงานที่ไม่กี่ mbar — ขีดจำกัดโดมคือ +8/-4 mbar ตามบทเรียนของ type นี้
+        pressureVal = (1.5 + Math.random() * 2).toFixed(1) + ' mbar';
         tempVal = (37.5 + Math.random() * 0.8).toFixed(1) + ' °C';
     } else {
-        pressureVal = '0.00 bar'; tempVal = '28.5 °C';
+        pressureVal = '0 mbar'; tempVal = '28.5 °C';
     }
     $('iot-pressure').innerText = pressureVal;
     $('iot-temp').innerText = tempVal;
