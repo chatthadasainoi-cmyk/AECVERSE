@@ -1430,6 +1430,10 @@ function buildColliders() {
             walkable: (size.x * size.z) / wholeFootprint < SHELL_FOOTPRINT_RATIO
         });
     });
+
+    // ขนาดโมเดลเพิ่งถูกคำนวณใหม่ -> เพดานซูมของมุมมองบนต้องตามไปด้วย
+    // เรียกที่นี่ที่เดียว ครอบคลุมทุกทางที่โมเดลเปลี่ยน (โหลดใหม่ / ย้าย / ขยาย)
+    recalcTopViewRange();
 }
 
 function setFactoryMaterialMode(mode) {
@@ -4902,14 +4906,62 @@ let viewMode = 'third'; // third = กล้องตามหลังตัว
 // ความสูงกล้องในโหมด Top View — เลื่อน scroll เพื่อซูมเข้า/ออกได้
 // (โหมดนี้ปิด OrbitControls ไว้เพราะโค้ดเราตั้งตำแหน่งกล้องเองทุกเฟรม
 //  ล้อเมาส์ของ OrbitControls จึงใช้ไม่ได้ ต้องดักล้อเองแล้วปรับความสูงแทน)
-const TOP_VIEW_MIN_H = 6, TOP_VIEW_MAX_H = 260;
+// เพดานซูมออกเดิมตายตัวที่ 260 เมตร ซึ่งเตี้ยกว่าตัวโรงงานที่กว้างหลายร้อยเมตร
+// ซูมออกสุดแล้วก็ยังเห็นไม่ทั้งผัง ตอนนี้คิดจากขนาดโมเดลจริงตอนโหลดเสร็จ
+const TOP_VIEW_MIN_H = 6;
+let TOP_VIEW_MAX_H = 260;          // ค่าเริ่มต้นก่อนรู้ขนาดโมเดล
 let topViewHeight = 26;
+
+// เรียกหลังโหลดโมเดล — ให้ซูมออกได้จนเห็นทั้งโรงงานพอดีไม่ว่าโมเดลจะใหญ่แค่ไหน
+function recalcTopViewRange() {
+    if (!factoryModel) return;
+    const b = new THREE.Box3().setFromObject(factoryModel);
+    if (b.isEmpty()) return;
+    const sz = b.getSize(new THREE.Vector3());
+    const span = Math.max(sz.x, sz.z);
+    // 0.75 เท่าของด้านกว้างสุด ก็เห็นทั้งผังพอดีที่มุมมอง 60 องศา เผื่ออีกนิดให้เห็นขอบ
+    // และไม่ให้เกินระยะที่กล้องมองเห็น (camera.far) ไม่งั้นโมเดลจะหายไปทั้งก้อน
+    TOP_VIEW_MAX_H = Math.max(260, Math.min(camera.far * 0.8, span * 0.9));
+    syncTopZoomSlider();
+}
+
+// แถบเลื่อนซูม — ล้อเมาส์อย่างเดียวช้าเกินไปกับโมเดลสเกลนี้
+// ระยะจาก 6 ถึงหลายพันเมตร ถ้าเลื่อนแบบเชิงเส้นจะคุมยาก ใช้สเกลลอการิทึม
+// ทำให้ทุกช่วงของแถบรู้สึกเหมือนกันหมด ลากนิดเดียวก็ออกไปได้ไกล
+const topZoomToSlider = h => Math.round(1000 * Math.log(h / TOP_VIEW_MIN_H) / Math.log(TOP_VIEW_MAX_H / TOP_VIEW_MIN_H));
+const sliderToTopZoom = v => TOP_VIEW_MIN_H * Math.pow(TOP_VIEW_MAX_H / TOP_VIEW_MIN_H, v / 1000);
+
+function syncTopZoomSlider() {
+    const sl = $('top-zoom-range');
+    if (sl) sl.value = String(topZoomToSlider(topViewHeight));
+    const lab = $('top-zoom-val');
+    if (lab) lab.textContent = Math.round(topViewHeight * currentModelScaleFactor()) + ' ม.';
+}
+
+function setTopViewHeight(h) {
+    topViewHeight = Math.min(TOP_VIEW_MAX_H, Math.max(TOP_VIEW_MIN_H, h));
+    syncTopZoomSlider();
+}
+
 renderer.domElement.addEventListener('wheel', e => {
     if (viewMode !== 'top' || lobbyActive) return;
     e.preventDefault();                       // กันหน้าเว็บเลื่อนตามไปด้วย
-    const factor = Math.exp(e.deltaY * 0.0012); // คูณแบบ exponential ให้ระยะซูมรู้สึกสม่ำเสมอทุกความสูง
-    topViewHeight = Math.min(TOP_VIEW_MAX_H, Math.max(TOP_VIEW_MIN_H, topViewHeight * factor));
+    // เดิม 0.0012 ต้องหมุนล้อหลายสิบรอบกว่าจะออกมาเห็นทั้งผัง เร่งขึ้นให้ถึงเร็ว
+    const factor = Math.exp(e.deltaY * 0.0035); // คูณแบบ exponential ให้ระยะซูมรู้สึกสม่ำเสมอทุกความสูง
+    setTopViewHeight(topViewHeight * factor);
 }, { passive: false });
+// ต่อสายแถบเลื่อนซูมและปุ่มข้างๆ
+(function () {
+    const range = $('top-zoom-range');
+    if (!range) return;
+    range.addEventListener('input', () => setTopViewHeight(sliderToTopZoom(Number(range.value))));
+    const step = mul => setTopViewHeight(topViewHeight * mul);
+    $('top-zoom-in')?.addEventListener('click', () => step(0.7));
+    $('top-zoom-out')?.addEventListener('click', () => step(1 / 0.7));
+    // ปุ่มเดียวจบ — ถอยออกไปจนเห็นทั้งโรงงาน ไม่ต้องลากเอง
+    $('top-zoom-fit')?.addEventListener('click', () => { recalcTopViewRange(); setTopViewHeight(TOP_VIEW_MAX_H); });
+})();
+
 const FIRST_PERSON_EYE = 1.55; // ความสูงระดับสายตาของตัวละคร
 
 function applyCameraForViewMode() {
@@ -4950,6 +5002,13 @@ function setViewMode(mode) {
     if (isFreeLook && mode !== 'third') isFreeLook = false; // Free Look ใช้ร่วมกับสองโหมดนี้ไม่ได้
     applyCameraForViewMode();
     syncViewDock();
+    // แถบเลื่อนซูมใช้เฉพาะมุมมองจากด้านบน มุมอื่นซ่อนไว้ไม่ให้เกะกะ
+    const zoomBox = $('top-zoom');
+    if (zoomBox) {
+        zoomBox.classList.toggle('on', mode === 'top');
+        zoomBox.setAttribute('aria-hidden', mode === 'top' ? 'false' : 'true');
+        if (mode === 'top') syncTopZoomSlider();
+    }
     mpAppendChat({
         name: '🎥 มุมกล้อง', color: '#22d3ee',
         text: mode === 'first' ? 'มุมมองบุคคลที่หนึ่ง' : (mode === 'top' ? 'มุมมองจากด้านบน' : 'มุมมอง 3D ตามหลังตัวละคร')
