@@ -4978,8 +4978,11 @@ window.addEventListener('message', e => {
 });
 
 function animate() {
-    requestAnimationFrame(animate);
+    // ตอนอยู่ในโหมด VR ต้องให้ renderer.setAnimationLoop เป็นคนเรียกแทน
+    // เพราะแว่นวาดคนละจังหวะกับจอ ถ้ายังใช้ requestAnimationFrame ภาพจะไม่ตรงกับการหันหัว
+    if (!window.AEC_XR_ACTIVE) requestAnimationFrame(animate);
     frameDt = animClock.getDelta(); // เวลาต่อเฟรมสำหรับ AnimationMixer ของตัวละคร
+    if (window.AecVR) safeCall(() => AecVR.update(frameDt), 'AecVR.update');
     safeCall(updateAvatarPhysics, 'updateAvatarPhysics');
     safeCall(updateRemoteAvatars, 'updateRemoteAvatars');
     safeCall(updateSpatialAudio, 'updateSpatialAudio');
