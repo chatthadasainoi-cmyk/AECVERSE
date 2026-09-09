@@ -4917,10 +4917,11 @@ const TOP_VIEW_MIN_H = 6;
 let topViewHeight = 26;
 let topViewAutoSet = false;        // ตั้งความสูงเริ่มต้นให้ครั้งเดียว ไม่ไปทับค่าที่ผู้ใช้ปรับเอง
 let topViewFitH = 260;             // ความสูงที่พอดีเห็นทั้งโรงงาน — ใช้กับปุ่ม "เห็นทั้งผัง"
-// เพดานของแถบเลื่อน ตั้งไว้สิบเท่าของความสูงที่พอดี = ถอยได้ไกลกว่าที่จำเป็นมาก
-// ผู้ใช้บอกว่าซูมออกสุดแล้วยังเห็นไม่เต็มโรงงาน จึงไม่ตั้งเพดานตายตัวอีก
-// ปล่อยให้ถอยได้เรื่อยๆ แล้วขยายระยะที่กล้องมองเห็นตามไปด้วยทุกครั้ง
-let TOP_VIEW_MAX_H = 2600;
+// เพดานของแถบเลื่อน = กี่เท่าของความสูงที่พอดีเห็นทั้งผัง
+// ผู้ใช้ขอ 100 เท่า เพื่อถอยออกไปดูโรงงานเทียบกับพื้นที่รอบๆ ได้
+// (โรงงาน 550 ม. ยืนริมผัง -> ถอยได้ถึงราวแสนห้าหมื่นเมตร)
+const TOP_VIEW_MAX_MULT = 100;
+let TOP_VIEW_MAX_H = 26000;
 
 // ต้องถอยขึ้นไปสูงเท่าไหร่ถึงเห็นทั้งโรงงาน "จากตรงที่ตัวละครยืนอยู่"
 // คิดจากมุมที่ไกลที่สุดของโมเดล ไม่ใช่จากจุดกึ่งกลาง เพราะกล้องมุมบนล็อกอยู่กับตัวละคร
@@ -4951,7 +4952,7 @@ function recalcTopViewRange() {
     if (span <= 0) return;
 
     topViewFitH = Math.max(60, fitHeightForWholePlant());
-    TOP_VIEW_MAX_H = topViewFitH * 10;      // ถอยได้ไกลกว่าที่จำเป็นสิบเท่า = ในทางปฏิบัติคือไม่มีเพดาน
+    TOP_VIEW_MAX_H = topViewFitH * TOP_VIEW_MAX_MULT;
 
     if (!topViewAutoSet) {
         topViewAutoSet = true;
@@ -4978,7 +4979,10 @@ function syncTopZoomSlider() {
 // ไม่พอ พื้นผิวที่ซ้อนกันจะกะพริบสลับกันไปมา
 function syncTopViewCameraRange(h) {
     const wantFar = Math.max(6000, h * 2.5);
-    const wantNear = Math.min(5, Math.max(0.1, h * 0.001));
+    // ยิ่งถอยไกล ยิ่งต้องดันระยะใกล้สุดขึ้นตาม ไม่งั้นอัตราส่วน far/near สูงจน
+    // ความละเอียดของ depth buffer ไม่พอ พื้นผิวที่ซ้อนกันจะกะพริบสลับไปมา
+    // ที่ความสูงระดับแสนเมตร ระยะใกล้สุด 200 ม. ไม่ตัดอะไรทิ้งเลย เพราะพื้นอยู่ไกลกว่านั้นมาก
+    const wantNear = Math.min(200, Math.max(0.1, h * 0.002));
     if (camera.far < wantFar || Math.abs(camera.near - wantNear) > 1e-6) {
         camera.far = Math.max(camera.far, wantFar);
         camera.near = wantNear;
