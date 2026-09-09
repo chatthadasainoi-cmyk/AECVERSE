@@ -393,7 +393,7 @@
         <div class="grid g12-8-4">
             <div class="card">
             <div class="card-head">
-                <h3>Pressure Trend (bar) — TANK-01</h3>
+                <h3>Pressure Trend (mbar) — TANK-01</h3>
                 <div style="display:flex;gap:14px;font-size:11px;color:var(--text-2);">
                 <span><span class="dot-sm" style="background:#3b82f6;"></span> Actual Value</span>
                 <span><span class="dot-sm" style="background:#ef4444;"></span> PSM Limit (High)</span>
@@ -515,9 +515,9 @@
             document.getElementById('ch4-chart').innerHTML = buildLineChart(allCh4, 340, 120, '#22c55e');
 
             const avg = allPressures.reduce((a, b) => a + b, 0) / allPressures.length;
-            document.getElementById('stat-avg').textContent = avg.toFixed(2) + ' bar';
-            document.getElementById('stat-max').textContent = Math.max(...allPressures).toFixed(2) + ' bar';
-            document.getElementById('stat-min').textContent = Math.min(...allPressures).toFixed(2) + ' bar';
+            document.getElementById('stat-avg').textContent = avg.toFixed(2) + ' mbar';
+            document.getElementById('stat-max').textContent = Math.max(...allPressures).toFixed(2) + ' mbar';
+            document.getElementById('stat-min').textContent = Math.min(...allPressures).toFixed(2) + ' mbar';
             document.getElementById('stat-exceed').textContent = allPressures.filter(v => v > PSM_LIMIT).length + ' Times';
             document.getElementById('stat-datapoints').textContent = allPressures.length.toLocaleString();
             document.getElementById('last-update').textContent = new Date(data.updatedAt).toLocaleString('th-TH');

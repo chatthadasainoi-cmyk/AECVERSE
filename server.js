@@ -613,7 +613,7 @@ const DEFAULT_GENERAL_SETTINGS = {
     dateFormat: 'DD/MM/YYYY',
     language: 'th',
     tempUnit: 'C',
-    pressureUnit: 'bar',
+    pressureUnit: 'mbar',
     flowUnit: 'm3h',
     maintenanceMode: false,
     publicRegistration: true
