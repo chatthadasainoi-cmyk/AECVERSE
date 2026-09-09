@@ -305,6 +305,17 @@
 
         <!-- สลับมุมกล้อง — ลอยมุมขวาบนของจอ 3D เอาเมาส์ชี้แล้วมีคำอธิบายขึ้น
              เดิมอยู่บนหน้าแม่นอก iframe ต้องละสายตาออกจากฉากไปหา -->
+        <!-- แถบเลื่อนซูมของมุมมองจากด้านบน — ล้อเมาส์อย่างเดียวช้าเกินไปกับโรงงานสเกลนี้
+             ขึ้นเฉพาะตอนอยู่มุมมองบนเท่านั้น มุมอื่นไม่ได้ใช้ -->
+        <div id="top-zoom" aria-hidden="true">
+            <button type="button" id="top-zoom-in" aria-label="ซูมเข้า">+</button>
+            <input type="range" id="top-zoom-range" min="0" max="1000" value="300"
+                   orient="vertical" aria-label="ระดับการซูมมุมมองจากด้านบน">
+            <button type="button" id="top-zoom-out" aria-label="ซูมออก">−</button>
+            <button type="button" id="top-zoom-fit" aria-label="ให้เห็นทั้งโรงงาน">⤢</button>
+            <span id="top-zoom-val">26 ม.</span>
+        </div>
+
         <div id="view-dock" role="group" aria-label="สลับมุมกล้อง">
             <button class="view-dock-btn active" data-view="third" data-tip="มุมมอง 3D — กล้องลอยตามหลังตัวละคร ลากเมาส์หมุนดูรอบตัวได้" aria-label="มุมมอง 3D">
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l9 5v10l-9 5-9-5V7l9-5z"/><path d="M3 7l9 5 9-5M12 12v10"/></svg>

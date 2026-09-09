@@ -871,6 +871,34 @@ h3, h4 { margin: 0 0 10px 0; font-size: 13px; font-weight: 700; color: var(--tex
 .marker-sos-toggle.on { border-color: rgba(239,68,68,.55); background: rgba(239,68,68,.12); color: #fecaca; }
 .marker-sos-toggle.on .mst-check { background: #ef4444; border-color: #ef4444; color: #fff; }
 
+/* แถบเลื่อนซูมของมุมมองจากด้านบน วางใต้ปุ่มสลับมุมกล้องฝั่งขวา */
+#top-zoom {
+    position: absolute; top: 96px; right: 14px; z-index: 68;
+    display: none; flex-direction: column; align-items: center; gap: 7px;
+    padding: 9px 7px; border-radius: 11px;
+    background: rgba(10, 15, 23, .82); border: 1px solid var(--border);
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+}
+#top-zoom.on { display: flex; }
+#top-zoom button {
+    width: 26px; height: 26px; border-radius: 7px; cursor: pointer;
+    background: var(--panel-2); border: 1px solid var(--border);
+    color: var(--text-1); font-family: inherit; font-size: 14px; font-weight: 800;
+    line-height: 1; display: flex; align-items: center; justify-content: center;
+}
+#top-zoom button:hover { color: var(--text-0); border-color: var(--blue); }
+#top-zoom #top-zoom-fit { font-size: 12px; }
+/* แถบแนวตั้ง — เบราว์เซอร์แต่ละตัวสั่งคนละทาง ใส่ให้ครบทั้งสองแบบ */
+#top-zoom-range {
+    -webkit-appearance: slider-vertical; appearance: slider-vertical;
+    writing-mode: vertical-lr; direction: rtl;
+    width: 22px; height: 130px; cursor: pointer; accent-color: var(--blue);
+}
+#top-zoom-val {
+    font-size: 9.5px; font-weight: 700; color: var(--text-2);
+    font-family: "Sora", sans-serif; white-space: nowrap;
+}
+
 #drill-banner {
     /* วางต่ำกว่าแถบฉุกเฉินจริงเสมอ — ของจริงสำคัญกว่า ห้ามให้การซ้อมไปบังมัน
        (แถบซ้อมยาวกว่าเพราะมีชื่อเหตุการณ์ จึงสูงได้ถึงสองบรรทัด) */
