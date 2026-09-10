@@ -50,10 +50,6 @@ window.AecVR = (function () {
       #vr-enter:hover{filter:brightness(1.1);}
       #vr-enter.on{display:inline-flex;}
       #vr-enter.busy{opacity:.6;cursor:default;}
-      /* เข้า VR ไม่ได้ก็ยังโชว์ปุ่มไว้ แต่ทำให้ดูจางลงและบอกสาเหตุตอนกด
-         ดีกว่าซ่อนหายจนผู้ใช้เห็นจอเปล่าแล้วไม่รู้ว่าเกิดอะไรขึ้น */
-      #vr-enter.off{background:rgba(148,163,184,.22);color:var(--text-1,#9aa7b8);
-        box-shadow:none;font-weight:700;}
       #vr-hint{position:absolute;top:56px;right:14px;z-index:70;display:none;max-width:250px;
         padding:9px 12px;border-radius:9px;background:rgba(4,7,12,.9);border:1px solid var(--border,#1c2531);
         color:var(--text-1,#9aa7b8);font-size:10.5px;line-height:1.65;}
@@ -77,46 +73,34 @@ window.AecVR = (function () {
     host.appendChild(hint);
     btn.addEventListener('click', toggle);
 
-    // ปุ่มต้องโผล่เสมอ
+    // ปุ่มโผล่เฉพาะเครื่องที่เข้าโหมด VR ได้จริงเท่านั้น
+    // บนคอมทั่วไปที่ไม่มีแว่น ปุ่มนี้ไม่มีประโยชน์อะไรเลย มีแต่เกะกะมุมจอ
     //
-    // เดิมซ่อนปุ่มไว้ถ้า isSessionSupported ตอบว่าไม่รองรับ ผลคือผู้ใช้ที่ใส่แว่นจริง
-    // เห็นแค่หน้าเว็บแบนๆ ลอยอยู่ ไม่มีอะไรให้กด และไม่รู้ว่าทำไม
-    // สาเหตุที่เจอจริง: หน้าเว็บถูกฝังใน iframe ที่ไม่ได้ให้สิทธิ์ xr-spatial-tracking
-    // เบราว์เซอร์จึงตอบว่าไม่รองรับทั้งที่แว่นรองรับเต็มที่
-    //
-    // ตอนนี้โชว์ปุ่มเสมอแล้วบอกสาเหตุตรงๆ ตอนกด — รู้ปัญหาได้ทันทีดีกว่าจอเปล่า
-    btn.classList.add('on');
+    // ที่เคยเจอว่าใส่แว่นแล้วไม่มีปุ่ม สาเหตุจริงคือหน้าเว็บถูกฝังใน iframe ที่ไม่ได้
+    // ให้สิทธิ์ xr-spatial-tracking เบราว์เซอร์เลยตอบว่าไม่รองรับทั้งที่แว่นรองรับ
+    // แก้ที่ต้นเหตุไปแล้ว (ให้สิทธิ์ครบทั้งสี่หน้า) จึงไม่ต้องโชว์ปุ่มค้างไว้อีก
     refreshSupport();
+
+    // แว่นอาจถูกเสียบทีหลัง หรือสิทธิ์เพิ่งถูกให้ — เช็คซ้ำเมื่อกลับมาที่แท็บนี้
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshSupport(); });
+    if (navigator.xr && navigator.xr.addEventListener) {
+        try { navigator.xr.addEventListener('devicechange', refreshSupport); } catch (e) { /* บางเบราว์เซอร์ไม่มี */ }
+    }
   }
 
   // ตรวจว่าเครื่องนี้เข้า VR ได้ไหม แล้วปรับข้อความบนปุ่มให้ตรงความจริง
   let vrSupported = null;      // null = ยังไม่รู้ผล
   function refreshSupport() {
     const btn = document.getElementById('vr-enter');
-    const label = btn && btn.querySelector('span');
-    if (!navigator.xr || !navigator.xr.isSessionSupported) {
-      vrSupported = false;
-      if (label) label.textContent = 'เบราว์เซอร์นี้ไม่รองรับ VR';
-      if (btn) btn.classList.add('off');
-      return Promise.resolve(false);
-    }
-    return navigator.xr.isSessionSupported('immersive-vr').then(yes => {
+    const show = yes => {
       vrSupported = !!yes;
-      if (label) label.textContent = yes ? 'เข้าโหมด VR' : 'กดเพื่อเปิดโลกแบบเต็มหน้า';
-      if (btn) btn.classList.toggle('off', !yes);
+      if (btn) btn.classList.toggle('on', vrSupported);   // ไม่รองรับ = ไม่ต้องมีปุ่ม
       return vrSupported;
-    }).catch(() => { vrSupported = false; return false; });
+    };
+    if (!navigator.xr || !navigator.xr.isSessionSupported) return Promise.resolve(show(false));
+    return navigator.xr.isSessionSupported('immersive-vr').then(show).catch(() => show(false));
   }
 
-  // อยู่ใน iframe หรือเปล่า — ถ้าใช่และเข้า VR ไม่ได้ ให้เปิดหน้าโลกตรงๆ แทน
-  // WebXR ทำงานได้ดีที่สุดตอนเป็นหน้าบนสุด ไม่ได้ถูกฝังในหน้าอื่น
-  const inFrame = () => { try { return window.self !== window.top; } catch (e) { return true; } };
-
-  function openWorldDirectly() {
-    const url = window.location.pathname.replace(/[^/]*$/, 'index.html');
-    try { window.top.location.href = url; }
-    catch (e) { window.open(url, '_blank', 'noopener'); }
-  }
 
   // ---------- แท่นยืนของผู้เล่น ----------
   // ในโหมด VR ตำแหน่งกล้องถูกแว่นกำหนดเอง เราแตะ camera.position ตรงๆ ไม่ได้
@@ -543,12 +527,7 @@ window.AecVR = (function () {
     // เช็คสดทุกครั้งที่กด สิทธิ์อาจเพิ่งถูกให้หลังโหลดหน้าไปแล้ว
     const okNow = await refreshSupport();
     if (okNow) { enter(); return; }
-    // เข้าไม่ได้เพราะถูกฝังใน iframe -> พาไปเปิดหน้าโลกตรงๆ ซึ่ง WebXR ทำงานได้แน่นอน
-    if (inFrame()) {
-      say('หน้านี้ถูกฝังอยู่ในหน้าอื่น กำลังเปิดโลก 3D แบบเต็มหน้าให้ — กดปุ่มแว่นอีกครั้งที่หน้านั้น', '#f59e0b');
-      openWorldDirectly();
-      return;
-    }
+    // ปกติปุ่มจะหายไปเองแล้วถ้าเข้าไม่ได้ — มาถึงตรงนี้แปลว่าสิทธิ์เพิ่งหลุดไประหว่างทาง
     say('เครื่องนี้เข้าโหมด VR ไม่ได้ — ต้องเปิดผ่านเบราว์เซอร์ในแว่น (เช่น Meta Quest Browser) และหน้าเว็บต้องเป็น HTTPS', '#ef4444');
   }
 
