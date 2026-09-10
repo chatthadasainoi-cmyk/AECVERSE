@@ -73,7 +73,7 @@ window.AecVR = (function () {
     host.appendChild(btn);
     const hint = document.createElement('div');
     hint.id = 'vr-hint';
-    hint.textContent = 'อนาล็อกซ้าย = เดิน · เหนี่ยวไกเล็งอุปกรณ์แล้วปล่อย = ดูข้อมูลที่ข้อมือ · ปุ่มบีบเล็งพื้นแล้วปล่อย = วาร์ป';
+    hint.textContent = 'อนาล็อกซ้าย = เดิน · เหนี่ยวไกเล็งอุปกรณ์แล้วปล่อย = ดูข้อมูลที่ข้อมือ (จิ้มซ้ำได้เรื่อยๆ เล็งที่ว่างแล้วปล่อย = ปิดป้าย) · ปุ่มบีบเล็งพื้นแล้วปล่อย = วาร์ป';
     host.appendChild(hint);
     btn.addEventListener('click', toggle);
 
@@ -148,7 +148,9 @@ window.AecVR = (function () {
   // ใน VR ไม่มีเมาส์และไม่มีแผงข้อมูลบนจอให้ดู (แผงเดิมเป็น HTML อยู่นอกฉาก 3D
   // ซึ่งในโหมด VR มองไม่เห็นเลย) จึงต้องวาดข้อมูลเป็นวัตถุในฉากแล้วติดไว้กับคอนโทรลเลอร์
   // เหมือนดูนาฬิกาข้อมือ — ยกมือขึ้นดูได้ทุกเมื่อ ไม่ต้องหันไปหาจอ
-  const PANEL_W = 512, PANEL_H = 320;   // ความละเอียดผืนผ้าใบที่วาดตัวหนังสือ
+  // ผืนผ้าใบใหญ่ ตัวหนังสือจึงคมและใส่ข้อมูลได้ครบทั้งชุด
+  // ของเดิม 512x320 เล็กเกินจนต้องตัดคำอธิบายทิ้งด้วย "…" และโชว์ขั้นตอนได้ข้อเดียว
+  const PANEL_W = 1024, PANEL_H = 768;
   let panel = null, panelCtx = null, panelTex = null;
 
   function makeWristPanel() {
@@ -157,10 +159,16 @@ window.AecVR = (function () {
     panelCtx = cv.getContext('2d');
     panelTex = new THREE.CanvasTexture(cv);
     const mesh = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.26, 0.1625),
-      new THREE.MeshBasicMaterial({ map: panelTex, transparent: true, side: THREE.DoubleSide, depthTest: false })
+      new THREE.PlaneGeometry(0.34, 0.255),
+      new THREE.MeshBasicMaterial({
+        map: panelTex, transparent: true, side: THREE.DoubleSide,
+        // depthTest ปิด = วาดทับทุกอย่าง ไม่ถูกท่อบัง
+        // depthWrite ต้องปิดตามด้วย ไม่งั้นป้ายจะเขียนค่าความลึกของตัวเอง (ซึ่งใกล้ตามาก)
+        // ลงบัฟเฟอร์ แล้วไปบังของที่วาดทีหลังจนฉากหายเป็นแถบ
+        depthTest: false, depthWrite: false
+      })
     );
-    mesh.renderOrder = 999;      // ให้อยู่หน้าสุดเสมอ ไม่ถูกท่อบัง
+    mesh.renderOrder = 999;      // ให้อยู่หน้าสุดเสมอ
     mesh.visible = false;
     return mesh;
   }
@@ -194,41 +202,87 @@ window.AecVR = (function () {
     ctx.closePath();
   }
 
+  // วาดข้อมูลลงป้าย — ต้องได้ครบทั้งชุด ไม่ใช่ตัดทิ้งด้วย "…"
+  // วิธี: ลองย่อขนาดตัวหนังสือลงทีละขั้น จนกว่าทุกอย่างจะลงพอดีในกรอบ
+  // ข้อมูลสั้นก็ได้ตัวใหญ่อ่านสบาย ข้อมูลยาวก็ยังได้อ่านครบ ไม่หายไปไหน
+  const PAD = 46;                       // ขอบใน
+  const SCALES = [1, 0.9, 0.8, 0.72, 0.64, 0.56, 0.5, 0.45, 0.4];
+
+  // จัดหน้าเป็นรายการบรรทัดพร้อมสไตล์ คืน null ถ้าเกินกรอบ (จะได้ลองย่อลงอีกขั้น)
+  function layoutPanel(c, info, k) {
+    const maxW = PANEL_W - PAD * 2;
+    const lines = [];
+    let y = PAD;
+
+    const put = (text, font, color, lh, gapBefore, indent) => {
+      c.font = font;
+      const rows = wrapText(c, text, maxW - (indent || 0), 999);
+      y += gapBefore || 0;
+      for (const r of rows) {
+        lines.push({ text: r, font, color, x: PAD + (indent || 0), y });
+        y += lh;
+      }
+    };
+
+    put(info.title || 'ชิ้นส่วน', 'bold ' + Math.round(44 * k) + 'px "Sora", system-ui, sans-serif',
+        '#eef2f7', Math.round(54 * k), 0, 22);
+
+    const divider = { rule: true, y: y + Math.round(10 * k) };
+    lines.push(divider);
+    y += Math.round(26 * k);
+
+    put(info.desc || 'ยังไม่มีข้อมูลความปลอดภัยของชิ้นนี้',
+        Math.round(30 * k) + 'px system-ui, sans-serif', '#b8c4d4', Math.round(40 * k), 0, 22);
+
+    const steps = Array.isArray(info.steps) ? info.steps.filter(Boolean) : [];
+    if (steps.length) {
+      put('ขั้นตอนการทำงาน', 'bold ' + Math.round(26 * k) + 'px system-ui, sans-serif',
+          '#8fb8ff', Math.round(38 * k), Math.round(26 * k), 22);
+      steps.forEach((st, i) => {
+        put((i + 1) + '. ' + st, Math.round(27 * k) + 'px system-ui, sans-serif',
+            '#dbe4f0', Math.round(36 * k), Math.round(6 * k), 34);
+      });
+    }
+
+    return y <= PANEL_H - PAD ? lines : null;
+  }
+
   function drawWristPanel(info) {
     if (!panelCtx) return;
     const c = panelCtx;
     c.clearRect(0, 0, PANEL_W, PANEL_H);
 
-    c.fillStyle = 'rgba(10,15,23,0.96)';
-    roundRect(c, 4, 4, PANEL_W - 8, PANEL_H - 8, 18);
+    c.fillStyle = 'rgba(10,15,23,0.97)';
+    roundRect(c, 6, 6, PANEL_W - 12, PANEL_H - 12, 26);
     c.fill();
     c.strokeStyle = info.accent || '#3b82f6';
-    c.lineWidth = 3;
+    c.lineWidth = 5;
     c.stroke();
 
     // แถบสีบอกระดับความสำคัญ อ่านได้จากหางตาโดยไม่ต้องอ่านตัวหนังสือ
     c.fillStyle = info.accent || '#3b82f6';
-    roundRect(c, 4, 4, 10, PANEL_H - 8, 6);
+    roundRect(c, 6, 6, 16, PANEL_H - 12, 8);
     c.fill();
 
     c.textBaseline = 'top';
-    c.fillStyle = '#eef2f7';
-    c.font = 'bold 30px "Sora", system-ui, sans-serif';
-    wrapText(c, info.title || 'ชิ้นส่วน', PANEL_W - 60, 2).forEach((l, i) => c.fillText(l, 34, 24 + i * 36));
+    let lines = null;
+    for (const k of SCALES) {
+      lines = layoutPanel(c, info, k);
+      if (lines) break;
+    }
+    // ยาวเกินจริงๆ แม้ย่อสุดแล้ว — ใช้ขนาดเล็กสุดแล้ววาดเท่าที่กรอบรับไหว
+    if (!lines) lines = layoutPanel(c, info, SCALES[SCALES.length - 1]) || [];
 
-    c.font = '20px system-ui, sans-serif';
-    c.fillStyle = '#9aa7b8';
-    const descTop = 100;
-    wrapText(c, info.desc || 'ยังไม่มีข้อมูลความปลอดภัยของชิ้นนี้', PANEL_W - 60, 4)
-      .forEach((l, i) => c.fillText(l, 34, descTop + i * 28));
-
-    if (info.step) {
-      c.fillStyle = 'rgba(59,130,246,0.16)';
-      roundRect(c, 30, PANEL_H - 78, PANEL_W - 64, 52, 10);
-      c.fill();
-      c.fillStyle = '#8fb8ff';
-      c.font = 'bold 18px system-ui, sans-serif';
-      wrapText(c, '● ' + info.step, PANEL_W - 92, 2).forEach((l, i) => c.fillText(l, 44, PANEL_H - 68 + i * 24));
+    for (const l of lines) {
+      if (l.rule) {
+        c.fillStyle = 'rgba(148,163,184,0.28)';
+        c.fillRect(PAD + 22, l.y, PANEL_W - PAD * 2 - 22, 2);
+        continue;
+      }
+      if (l.y > PANEL_H - PAD) break;
+      c.font = l.font;
+      c.fillStyle = l.color;
+      c.fillText(l.text, l.x, l.y);
     }
     panelTex.needsUpdate = true;
   }
@@ -242,9 +296,6 @@ window.AecVR = (function () {
     // สร้างป้ายเมื่อต้องใช้ ไม่ผูกกับการเข้าโหมด VR
     // จะได้เรียกทดสอบจากคอนโซลบนจอปกติได้ด้วยโดยไม่ต้องมีแว่น
     if (!panel) panel = makeWristPanel();
-    // เรียกตัวเลือกชิ้นส่วนของระบบเดิมด้วย เพื่อให้ไฮไลท์ ป้ายบนจอ และสถานะอื่นตรงกันหมด
-    // ส่ง force ไว้ เพราะการจิ้มซ้ำชิ้นเดิมใน VR ควรเป็นการ "ดูอีกที" ไม่ใช่ปิดป้ายทิ้ง
-    if (typeof selectPart === 'function') selectPart(mesh, '🥽 จิ้มเลือกใน VR', { force: true });
 
     let data = null, key = 'default';
     try {
@@ -252,22 +303,37 @@ window.AecVR = (function () {
       data = (typeof workflowDatabase !== 'undefined') ? (workflowDatabase[key] || workflowDatabase.default) : null;
     } catch (e) { /* ไม่มีข้อมูลก็ยังโชว์ชื่อชิ้นได้ */ }
 
+    const title = (data && data.name) || mesh.name || 'ชิ้นส่วน';
+
+    // วาดป้าย VR ก่อนเสมอ แล้วค่อยไปยุ่งกับแผงบนจอ
+    // ถ้าแผงบนจอพังขึ้นมา (มันเป็นโค้ดคนละส่วน แตะ DOM หลายจุด) ป้ายในแว่นต้อง
+    // เปลี่ยนตามไปแล้ว ไม่งั้นจะกลายเป็น "จิ้มได้ครั้งเดียว" — ป้ายค้างข้อมูลชิ้นแรกตลอด
     drawWristPanel({
-      title: (data && data.name) || mesh.name || 'ชิ้นส่วน',
+      title,
       desc: data && data.desc,
-      step: data && Array.isArray(data.steps) && data.steps.length ? data.steps[0] : '',
+      steps: data && Array.isArray(data.steps) ? data.steps : [],
       accent: ACCENT[(data && data.colorClass) || 'tag-blue']
     });
 
-    // ติดป้ายไว้กับมือที่จิ้ม — เอียงเข้าหาตัวเหมือนดูนาฬิกา
+    // ติดป้ายไว้กับมือที่จิ้ม — ยกขึ้นมาดูเหมือนดูนาฬิกา
+    // วางไว้ "เหนือและเยื้องมาทางตัว" ไม่ใช่ปลายลำแสง ป้ายจะได้ไม่บังเป้าที่กำลังเล็ง
     const host = controller || controllers[0];
     if (host && panel) {
       if (panel.parent !== host) host.add(panel);
-      panel.position.set(0, 0.09, -0.06);
-      panel.rotation.set(-Math.PI / 3.2, 0, 0);
+      panel.position.set(0, 0.17, 0.03);
+      panel.rotation.set(-Math.PI / 3, 0, 0);
       panel.visible = true;
     }
-    say('ดูข้อมูล: ' + ((data && data.name) || mesh.name || 'ชิ้นส่วน'));
+
+    // เรียกตัวเลือกชิ้นส่วนของระบบเดิมด้วย เพื่อให้ไฮไลท์และป้ายบนจอตรงกัน
+    // ส่ง force ไว้ เพราะการจิ้มซ้ำชิ้นเดิมใน VR ควรเป็นการ "ดูอีกที" ไม่ใช่ปิดป้ายทิ้ง
+    try {
+      if (typeof selectPart === 'function') selectPart(mesh, '🥽 จิ้มเลือกใน VR', { force: true });
+    } catch (err) {
+      console.warn('[VR] แผงข้อมูลบนจอทำงานไม่สำเร็จ แต่ป้ายในแว่นยังใช้ได้:', err);
+    }
+
+    say('ดูข้อมูล: ' + title);
   }
 
   function hideWristPanel() {
@@ -294,19 +360,27 @@ window.AecVR = (function () {
       // จะเดาผิดบ่อยมาก — อุปกรณ์ตั้งอยู่บนพื้น เล็งพลาดนิดเดียวก็ได้คนละอย่าง
       c.addEventListener('selectstart', () => { c.userData.aiming = 'info'; });
       c.addEventListener('selectend', () => {
+        // เก็บเป้าไว้ก่อน แล้วล้างสถานะให้เรียบร้อยทันที
+        // ถ้าปล่อยให้ล้างทีหลังแล้วโค้ดตรงกลางพลาดขึ้นมา สถานะจะค้าง
+        // และการจิ้มครั้งต่อไปจะไม่ทำงาน — กลายเป็น "จิ้มได้ครั้งเดียว"
+        const target = aimMesh;
         c.userData.aiming = null;
         line.visible = false;
         if (marker) marker.visible = false;
-        if (aimMesh) showPartInfo(aimMesh, c);
         aimHit = null; aimMesh = null;
+        // จิ้มโดนชิ้นส่วน = ดูข้อมูล · จิ้มที่ว่างเปล่า = ปิดป้ายทิ้ง (วิธีปิดป้ายในแว่น)
+        try { if (target) showPartInfo(target, c); else hideWristPanel(); }
+        catch (err) { console.warn('[VR] จิ้มดูข้อมูลไม่สำเร็จ:', err); }
       });
       c.addEventListener('squeezestart', () => { c.userData.aiming = 'warp'; });
       c.addEventListener('squeezeend', () => {
+        const to = aimHit;
         c.userData.aiming = null;
         line.visible = false;
         if (marker) marker.visible = false;
-        if (aimHit) teleport(aimHit.x, aimHit.z);
         aimHit = null; aimMesh = null;
+        try { if (to) teleport(to.x, to.z); }
+        catch (err) { console.warn('[VR] วาร์ปไม่สำเร็จ:', err); }
       });
       dolly.add(c);
       controllers.push(c);
@@ -437,7 +511,7 @@ window.AecVR = (function () {
 
       document.getElementById('vr-hint')?.classList.add('on');
       if (btn) { btn.classList.remove('busy'); btn.querySelector('span').textContent = 'ออกจากโหมด VR'; }
-      say('เข้าโหมด VR แล้ว — อนาล็อกเดิน · ไกจิ้มดูข้อมูล · ปุ่มบีบวาร์ป');
+      say('เข้าโหมด VR แล้ว — อนาล็อกเดิน · ไกจิ้มดูข้อมูล (เล็งที่ว่างแล้วปล่อย = ปิดป้าย) · ปุ่มบีบวาร์ป');
     } catch (err) {
       if (btn) btn.classList.remove('busy');
       console.warn('[VR] เข้าโหมด VR ไม่สำเร็จ:', err);
