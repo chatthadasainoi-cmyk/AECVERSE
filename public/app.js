@@ -176,6 +176,27 @@ window.addEventListener('resize', fitRendererToContainer);
 if (window.ResizeObserver) new ResizeObserver(fitRendererToContainer).observe(canvasContainer);
 
 // ============================================================
+// หน่วยแรงดัน — โรงงานก๊าซชีวภาพทำงานที่หลักมิลลิบาร์ ไม่ใช่บาร์
+// ข้อมูลชิ้นส่วนบางรายการถูกพิมพ์ไว้ตั้งแต่ตอนที่ยังใช้หน่วย bar และเก็บอยู่บนเซิร์ฟเวอร์
+// จึงแปลงป้ายหน่วยตอนรับข้อมูลเข้ามา ไม่ต้องไปไล่แก้ทีละรายการในฐานข้อมูล
+// แปลงเฉพาะ 'ตัวเลข + bar' ที่เป็นหน่วยจริงๆ ไม่แตะคำอื่นที่บังเอิญมี bar อยู่ข้างใน
+const PRESSURE_UNIT_RE = /(\d(?:[\d.,]*\d)?)\s*(mbar\b|bar\b|มิลลิบาร์|บาร์)/gi;
+function fixPressureUnits(text) {
+    if (typeof text !== 'string' || !text) return text;
+    return text.replace(PRESSURE_UNIT_RE, (m, num, unit) => {
+        if (/^m/i.test(unit) || unit.indexOf('มิลลิ') === 0) return m;   // เป็นมิลลิบาร์อยู่แล้ว
+        return num + ' ' + (/^bar/i.test(unit) ? 'mbar' : 'มิลลิบาร์');
+    });
+}
+function fixRecordUnits(rec) {
+    if (!rec || typeof rec !== 'object') return rec;
+    if (typeof rec.desc === 'string') rec.desc = fixPressureUnits(rec.desc);
+    if (typeof rec.tagText === 'string') rec.tagText = fixPressureUnits(rec.tagText);
+    if (Array.isArray(rec.steps)) rec.steps = rec.steps.map(fixPressureUnits);
+    return rec;
+}
+
+// ============================================================
 // 2. SAFETY DATABASE — ตามคู่มือ "Interactive Biogas Safety Standard Metaverse"
 // requiresPPE: true  => จุดนี้จะมีวงกลมเตือน PPE รัศมี 15 เมตร (REQ 5)
 // ============================================================
@@ -3309,7 +3330,10 @@ async function initMultiplayer() {
 
     mpSocket.on('self_init', data => {
         // ส่วนที่ทุก connection ได้รับ (ทั้ง player และ watcher): state กลางของห้อง
-        if (data.workflowDb) Object.assign(workflowDatabase, data.workflowDb);
+        if (data.workflowDb) {
+            Object.values(data.workflowDb).forEach(fixRecordUnits);
+            Object.assign(workflowDatabase, data.workflowDb);
+        }
         if (data.typeAssignments) Object.assign(userDefinedTypes, data.typeAssignments);
         if (data.markers) { Object.assign(markerStore, data.markers); rebuildMarkers(); }
         // เพิ่งเข้ามาแต่มีการเรียกรวมพลค้างอยู่ — ต้องถูกนำทางไปด้วยเหมือนคนอื่น
@@ -3460,7 +3484,7 @@ async function initMultiplayer() {
     mpSocket.on('model_transform_updated', t => { applyTransform(t); buildProximityTags(); buildPPEZones(); });
 
     mpSocket.on('workflow_updated', data => {
-        const record = { name: data.name, desc: data.desc, steps: data.steps, colorClass: data.colorClass || 'tag-blue', requiresPPE: !!data.requiresPPE };
+        const record = fixRecordUnits({ name: data.name, desc: data.desc, steps: data.steps, colorClass: data.colorClass || 'tag-blue', requiresPPE: !!data.requiresPPE });
         workflowDatabase[data.key] = record;
         if (data.targetUuid) workflowDatabase[data.targetUuid] = record;
         if (data.assignedTypeKey) userDefinedTypes[data.key] = data.assignedTypeKey;

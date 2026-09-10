@@ -618,6 +618,15 @@ const DEFAULT_GENERAL_SETTINGS = {
     maintenanceMode: false,
     publicRegistration: true
 };
+// โรงงานก๊าซชีวภาพทำงานที่หลักมิลลิบาร์ ไม่ใช่บาร์ — ค่าที่ตั้งไว้เป็น 'bar' สมัยก่อน
+// ยังค้างอยู่ในไฟล์ตั้งค่าบน Storage ทำให้หน้าเว็บติดป้ายหน่วยผิดไป 1,000 เท่า
+// แปลงให้ตอนอ่านและตอนบันทึก จะได้ไม่ต้องไปไล่แก้ทีละหน้า
+function normalizePressureUnit(u) {
+    const v = String(u == null ? '' : u).trim();
+    if (!v) return 'mbar';
+    return /^bar( ?g)?$/i.test(v) ? v.replace(/^bar/i, 'mbar') : v;
+}
+
 let generalSettings = { ...DEFAULT_GENERAL_SETTINGS };
 
 async function loadGeneralSettings() {
@@ -625,7 +634,10 @@ async function loadGeneralSettings() {
         const res = await fetch(`${SUPABASE_URL}/storage/v1/object/public/models/${GENERAL_SETTINGS_FILE}?t=${Date.now()}`);
         if (!res.ok) return;
         const s = await res.json();
-        if (s && typeof s === 'object') generalSettings = { ...DEFAULT_GENERAL_SETTINGS, ...s };
+        if (s && typeof s === 'object') {
+            generalSettings = { ...DEFAULT_GENERAL_SETTINGS, ...s };
+            generalSettings.pressureUnit = normalizePressureUnit(generalSettings.pressureUnit);
+        }
     } catch (err) { console.warn('[SETTINGS] โหลด general settings ไม่สำเร็จ:', err.message); }
 }
 async function persistGeneralSettings() {
@@ -648,7 +660,7 @@ app.post('/api/settings/general', requireAdmin, async (req, res) => {
         dateFormat: String(b.dateFormat || generalSettings.dateFormat).slice(0, 40),
         language: String(b.language || generalSettings.language).slice(0, 20),
         tempUnit: String(b.tempUnit || generalSettings.tempUnit).slice(0, 10),
-        pressureUnit: String(b.pressureUnit || generalSettings.pressureUnit).slice(0, 10),
+        pressureUnit: normalizePressureUnit(String(b.pressureUnit || generalSettings.pressureUnit).slice(0, 10)),
         flowUnit: String(b.flowUnit || generalSettings.flowUnit).slice(0, 10),
         maintenanceMode: !!b.maintenanceMode,
         publicRegistration: b.publicRegistration !== undefined ? !!b.publicRegistration : generalSettings.publicRegistration
@@ -1393,7 +1405,6 @@ const plant = { ch4Percent: 55, flowRate: 750, efficiency: 82.4 };
 const equipment = {
     'TANK-01':   { name: 'ถังหมักที่ 1', wear: 20, rate: 0.010, dailyRate: 0.9, pressure: 2.15, temperature: 38.6, ph: 7.21, level: 1250 },
     'PUMP-02':   { name: 'ปั๊มที่ 2', wear: 78, rate: 0.050, dailyRate: 1.8 },
-    'BOILER-01': { name: 'หม้อไอน้ำที่ 1', wear: 65, rate: 0.040, dailyRate: 1.9 },
     'PUMP-01':   { name: 'ปั๊มที่ 1', wear: 54, rate: 0.030, dailyRate: 2.0 },
     'TANK-02':   { name: 'ถังหมักที่ 2', wear: 42, rate: 0.020, dailyRate: 1.9 },
     'FILTER-01': { name: 'ตัวกรองที่ 1', wear: 35, rate: 0.015, dailyRate: 1.4 }
@@ -1507,7 +1518,7 @@ function computePlantSnapshot() {
         },
         tank1: {
             pressure: Math.round(t1.pressure * 10) / 10,
-            pressureUnit: pt01.unit,          // 'mbar G' ตามเอกสาร (เดิม hardcode เป็น bar)
+            pressureUnit: normalizePressureUnit(pt01.unit),   // 'mbar G' ตามเอกสาร (เดิม hardcode เป็น bar)
             temperature: Math.round(t1.temperature * 10) / 10,
             temperatureUnit: tt03.unit,
             ph: Math.round(t1.ph * 100) / 100,
