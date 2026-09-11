@@ -352,15 +352,30 @@ window.AecTypeInteractions = (function () {
   // บทเรียนที่จบด้วยหายนะจริงจะแจ้งทั้งระบบว่า "มีการซ้อม" ไม่ใช่เหตุจริง
   // ยิงครั้งเดียวต่อเหตุการณ์หนึ่ง — ผู้ใช้ลากสไลเดอร์ไปมาผลลัพธ์เดิมจะไม่ยิงซ้ำ
   // (server ยังจำกัดความถี่ซ้ำอีกชั้น เผื่อเปิดหลายแท็บหรือหลายคนพร้อมกัน)
+  // อ่าน token ของบัญชีที่ล็อกอินอยู่ — แต่ละหน้าต่อ Supabase คนละแบบ
+  // หน้าโลก 3D (index.html) ไม่มีตัวแปร supabaseClient แต่มี aecAccessToken() ของ app.js
+  // ส่วนหน้าอื่นในระบบหลังบ้านมี supabaseClient ตรงๆ — ลองทั้งสองทางก่อนยอมแพ้
+  async function authToken() {
+    try {
+      if (typeof aecAccessToken === 'function') {
+        const t = await aecAccessToken();
+        if (t) return t;
+      }
+      if (typeof supabaseClient !== 'undefined' && supabaseClient) {
+        const { data } = await supabaseClient.auth.getSession();
+        return data?.session?.access_token || null;
+      }
+    } catch (err) { console.warn('[ATI] อ่าน session ไม่สำเร็จ:', err); }
+    return null;
+  }
+
   let lastIncidentKey = '';
   async function raiseDrill(incident) {
     if (!incident || !incident.label) return;
     if (incident.label === lastIncidentKey) return;
     lastIncidentKey = incident.label;
     try {
-      if (typeof supabaseClient === 'undefined') return;   // หน้าไม่ได้ต่อบัญชี ก็ไม่ต้องยิง
-      const { data } = await supabaseClient.auth.getSession();
-      const token = data?.session?.access_token;
+      const token = await authToken();
       if (!token) return;                                   // ยังไม่ล็อกอิน — บทเรียนยังเล่นได้ตามปกติ
       const res = await fetch('/api/emergency/drill', {
         method: 'POST',
@@ -380,9 +395,7 @@ window.AecTypeInteractions = (function () {
   // จึงถูกบันทึกเป็นเรื่องที่ค้างอยู่จนกว่าจะมีคนมาปิด และแจ้งเตือนสองทางพร้อมกัน:
   // กระดิ่งแจ้งเตือนของทุกคน (นอกโลก 3D) + แถบเตือนกับข้อความ alert ในแชท (ในโลก 3D)
   async function sendToEmergency(incident, why, summon) {
-    if (typeof supabaseClient === 'undefined') return { error: 'หน้านี้ไม่ได้ต่อกับบัญชีผู้ใช้' };
-    const { data } = await supabaseClient.auth.getSession();
-    const token = data?.session?.access_token;
+    const token = await authToken();
     if (!token) return { error: 'ต้องเข้าสู่ระบบก่อนถึงจะส่งเรื่องได้' };
     const res = await fetch('/api/emergency/report', {
       method: 'POST',
