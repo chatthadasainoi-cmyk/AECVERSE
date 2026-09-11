@@ -899,6 +899,44 @@ h3, h4 { margin: 0 0 10px 0; font-size: 13px; font-weight: 700; color: var(--tex
     font-family: "Sora", sans-serif; white-space: nowrap;
 }
 
+/* ---------- แจ้งเหตุฉุกเฉินของจริง (ส่งเข้าระบบ Emergency) ---------- */
+/* วางไว้ระดับเดียวกับแถบเรียกรวมพล และใช้ตัวหนังสือแบบพิเศษ — ตัวใหญ่กว่าทุกข้อความ
+   ในจอ ระยะห่างตัวอักษรกว้าง และมีป้าย ALERT นำหน้า เห็นปราดเดียวว่าไม่ใช่ข้อความปกติ */
+#alert-banner {
+    position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+    z-index: 71; display: flex; align-items: center; gap: 10px;
+    padding: 11px 16px; border-radius: 11px; max-width: min(640px, calc(100% - 28px));
+    background: rgba(69,10,10,.96); border: 2px solid #ef4444;
+    color: #fff; font-size: 14px; font-weight: 900; letter-spacing: .6px; line-height: 1.45;
+    box-shadow: 0 10px 34px rgba(239,68,68,.45);
+    animation: alert-pulse 1.1s ease-in-out infinite;
+}
+#alert-banner .ab-tag {
+    flex-shrink: 0; padding: 2px 8px; border-radius: 5px; background: #ef4444;
+    font-size: 10.5px; font-weight: 900; letter-spacing: 1.6px;
+}
+#alert-banner .ab-dot {
+    width: 10px; height: 10px; border-radius: 50%; background: #fff; flex-shrink: 0;
+    animation: sos-blink .8s steps(2, end) infinite;
+}
+#alert-banner button {
+    background: none; border: none; color: #fecaca; cursor: pointer;
+    font-size: 15px; font-weight: 900; line-height: 1; padding: 0 2px; margin-left: auto;
+}
+#alert-banner button:hover { color: #fff; }
+@keyframes alert-pulse {
+    0%, 100% { box-shadow: 0 10px 34px rgba(239,68,68,.45); }
+    50%      { box-shadow: 0 10px 34px rgba(239,68,68,.8); }
+}
+
+/* ข้อความ alert ในแชท — ฟอนต์พิเศษให้รู้ทันทีว่าไม่ใช่ข้อความคุยกันธรรมดา */
+.chat-msg.chat-alert {
+    margin: 5px 0; padding: 8px 10px; border-radius: 9px;
+    background: rgba(127,29,29,.34); border-left: 3px solid #ef4444;
+    color: #fff; font-weight: 800; font-size: 12.5px; letter-spacing: .4px; line-height: 1.55;
+}
+.chat-msg.chat-alert strong { letter-spacing: 1px; }
+
 #drill-banner {
     /* วางต่ำกว่าแถบฉุกเฉินจริงเสมอ — ของจริงสำคัญกว่า ห้ามให้การซ้อมไปบังมัน
        (แถบซ้อมยาวกว่าเพราะมีชื่อเหตุการณ์ จึงสูงได้ถึงสองบรรทัด) */

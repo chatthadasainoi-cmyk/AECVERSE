@@ -427,6 +427,20 @@
             <div id="emgMsg" style="font-size:12px;margin-top:9px;"></div>
         </div>
 
+        <div class="card" style="margin-bottom:14px;border-left:3px solid var(--yellow);">
+            <div class="card-head" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+                <h3>เรื่องที่ส่งเข้ามา (จากบทเรียน &quot;ลองใช้งาน&quot;)</h3>
+                <span id="caseCount" style="font-size:11.5px;color:var(--text-2);">—</span>
+            </div>
+            <div style="font-size:11.5px;color:var(--text-2);line-height:1.6;margin-bottom:11px;">
+                ผู้เรียนที่ทำบทเรียนจนเกิดเหตุร้ายแรงกดส่งเรื่องเข้ามาที่นี่ได้ — ทุกเรื่องเข้ากระดิ่งแจ้งเตือนของทุกคน
+                และเด้งเตือนในโลก 3D ไปแล้วตั้งแต่ตอนส่ง เรื่องจะค้างอยู่จนกว่าจะมีคนกดปิด
+            </div>
+            <div id="caseList" style="display:flex;flex-direction:column;gap:8px;">
+                <div style="color:var(--text-2);font-size:11px;">กำลังโหลด...</div>
+            </div>
+        </div>
+
         <div class="grid g12-3">
             <div class="card">
             <div class="card-head"><h3>Active Alerts (Live)</h3></div>
@@ -585,6 +599,60 @@
       finally { $e('emgSend').disabled = false; }
     });
 
+    // ---------- เรื่องฉุกเฉินที่ส่งมาจากบทเรียน ----------
+    const fmtTime = ts => new Date(ts).toLocaleString("th-TH", { dateStyle: "short", timeStyle: "short" });
+    const esc = t => String(t == null ? "" : t).replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" }[ch]));
+
+    function caseRow(c) {
+      const done = c.status === "resolved";
+      const tone = done ? "var(--text-2)" : c.severe ? "var(--red)" : "var(--yellow)";
+      return `<div class="card" data-case="${esc(c.id)}" style="padding:10px 12px;border-left:3px solid ${tone};${done ? "opacity:.55;" : ""}">
+        <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap;">
+          <div style="flex:1;min-width:200px;">
+            <div style="font-weight:800;font-size:12.5px;">${esc(c.icon)} ${esc(c.scenario)}</div>
+            <div style="color:var(--text-2);font-size:11px;margin-top:3px;">
+              ${c.severe ? "<b style=\"color:var(--red);\">ระดับหนัก</b> · " : ""}ส่งโดย ${esc(c.by)} · ${fmtTime(c.at)}
+              ${c.summoned ? ` · 🚨 เรียกรวมพลไปที่ &quot;${esc(c.assemblyName)}&quot;` : ""}
+              ${done ? ` · ปิดแล้วโดย ${esc(c.resolvedBy || "-")}` : ""}
+            </div>
+            ${c.summonNote ? `<div style="color:var(--yellow);font-size:11px;margin-top:3px;">· ${esc(c.summonNote)}</div>` : ""}
+            ${c.why ? `<div style="color:var(--text-1);font-size:11px;margin-top:5px;line-height:1.6;">${esc(c.why)}</div>` : ""}
+          </div>
+          ${done ? "" : `<button class="btn" data-resolve="${esc(c.id)}" style="font-size:11px;">ปิดเรื่อง</button>`}
+        </div></div>`;
+    }
+
+    async function loadCases() {
+      const h = await auth();
+      const list = $e("caseList");
+      if (!h) { list.innerHTML = '<div style="color:var(--text-2);font-size:11px;">ต้องเข้าสู่ระบบก่อนถึงจะเห็นรายการ</div>'; return; }
+      try {
+        const res = await fetch("/api/emergency/cases", { headers: h });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) { list.innerHTML = `<div style="color:var(--text-2);font-size:11px;">${esc(body.error || "โหลดไม่สำเร็จ")}</div>`; return; }
+        const cases = body.cases || [];
+        const open = cases.filter(c => c.status !== "resolved").length;
+        $e("caseCount").textContent = cases.length ? `ค้างอยู่ ${open} เรื่อง · ทั้งหมด ${cases.length}` : "ยังไม่มีเรื่องส่งเข้ามา";
+        list.innerHTML = cases.length
+          ? cases.map(caseRow).join("")
+          : '<div style="color:var(--text-2);font-size:11px;">ยังไม่มีเรื่องส่งเข้ามา</div>';
+        list.querySelectorAll("[data-resolve]").forEach(b => b.addEventListener("click", () => resolveCase(b.dataset.resolve, b)));
+      } catch (err) { list.innerHTML = '<div style="color:var(--text-2);font-size:11px;">ติดต่อเซิร์ฟเวอร์ไม่ได้</div>'; }
+    }
+
+    async function resolveCase(id, btn) {
+      if (!confirm("ปิดเรื่องนี้? ถ้าเรื่องนี้สั่งเรียกรวมพลไว้ การเรียกจะถูกยกเลิกด้วย")) return;
+      const h = await auth();
+      if (!h) return;
+      btn.disabled = true;
+      try {
+        const res = await fetch(`/api/emergency/cases/${encodeURIComponent(id)}/resolve`, { method: "POST", headers: h });
+        if (!res.ok) { const b = await res.json().catch(() => ({})); say(b.error || "ปิดเรื่องไม่สำเร็จ", "bad"); btn.disabled = false; return; }
+        loadCases();
+      } catch (err) { say("ติดต่อเซิร์ฟเวอร์ไม่ได้", "bad"); btn.disabled = false; }
+    }
+    loadCases();
+
     // สถานะการเรียกรวมพลที่ค้างอยู่ในโลก 3D — หน้านี้ต้องเห็นด้วย ไม่ใช่รู้แค่คนที่อยู่ในฉาก
     window.addEventListener('aec-portal-socket', e => bindEmergency(e.detail));
     if (window.portalSocket) bindEmergency(window.portalSocket);
@@ -595,6 +663,12 @@
           String(d?.name || '').replace(/</g, '&lt;') + '"</span>';
       });
       sock.on('emergency_cancelled', () => { $e('emgState').textContent = 'ไม่มีเหตุฉุกเฉินค้างอยู่'; });
+      sock.on('emergency_alert', d => {
+        $e('emgState').innerHTML = '<span style="color:var(--red);font-weight:800;">🚨 ' +
+          String((d && d.scenario) || 'มีเหตุฉุกเฉิน').replace(/</g, '&lt;') + '</span>';
+        loadCases();
+      });
+      sock.on('emergency_case_resolved', () => loadCases());
       sock.on('emergency_announced', d => {
         $e('emgState').innerHTML = '<span style="color:var(--yellow);font-weight:800;">ประกาศล่าสุด: ' +
           String(d?.title || '').replace(/</g, '&lt;') + '</span>';

@@ -384,6 +384,15 @@
             </div>
         </div>
 
+        <!-- แจ้งเหตุฉุกเฉินที่ส่งเข้าระบบ Emergency — ของจริง ไม่ใช่การซ้อม
+             ใช้ตัวหนังสือแบบพิเศษ (ตัวใหญ่ ระยะห่างตัวอักษรกว้าง) ให้แยกออกจากข้อความอื่นทันที -->
+        <div id="alert-banner" style="display:none;">
+            <span class="ab-dot"></span>
+            <span class="ab-tag">ALERT</span>
+            <span id="alert-banner-text"></span>
+            <button onclick="document.getElementById('alert-banner').style.display='none'" title="ปิด">✕</button>
+        </div>
+
         <!-- ซ้อมเหตุฉุกเฉินจากบทเรียน — สีเหลืองและมีคำว่า "ซ้อม" เพื่อไม่ให้ปนกับของจริง -->
         <div id="drill-banner" style="display:none;">
             <span class="db-icon">🔥</span>
