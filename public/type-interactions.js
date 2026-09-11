@@ -16,9 +16,9 @@ window.AecTypeInteractions = (function () {
 
   const ok = (title, why) => ({ tone: 'ok', title, why });
   const warn = (title, why) => ({ tone: 'warn', title, why });
-  // พารามิเตอร์ที่ 3 = เหตุการณ์ร้ายแรงที่ควรจุด "ซ้อมเหตุฉุกเฉิน" ให้ทั้งระบบรู้
+  // พารามิเตอร์ที่ 3 = เหตุการณ์ร้ายแรงที่ส่งเข้าระบบ Emergency ได้
   // ทำเป็นข้อมูลติดไว้กับผลลัพธ์ ไม่ใช่ไปเดาจากข้อความ — ผลลัพธ์แย่มีหลายระดับ
-  // แต่ที่ควรประกาศคือระดับหายนะจริงเท่านั้น ไม่ใช่ทุกครั้งที่ตอบไม่ผ่าน
+  // แต่ที่ควรแจ้งทั้งระบบคือระดับหายนะจริงเท่านั้น ไม่ใช่ทุกครั้งที่ตอบไม่ผ่าน
   const bad = (title, why, incident) => ({ tone: 'bad', title, why, incident });
   const num = (v, d = 1) => Number(v).toFixed(d).replace(/\.?0+$/, '') || '0';
 
@@ -348,10 +348,6 @@ window.AecTypeInteractions = (function () {
   // ผู้ใช้จึงเจอข้อความทีละก้อน ไม่ใช่กำแพงตัวอักษรทั้งหน้าตั้งแต่เปิด
   // ตอนเปิดจะกางเฉพาะแถบที่ต้อง "ลงมือทำ" กับผลลัพธ์ ที่เหลือยุบหมด
   // ══════════════════════════════════════════════════════════
-  // ---------- ซ้อมเหตุฉุกเฉิน ----------
-  // บทเรียนที่จบด้วยหายนะจริงจะแจ้งทั้งระบบว่า "มีการซ้อม" ไม่ใช่เหตุจริง
-  // ยิงครั้งเดียวต่อเหตุการณ์หนึ่ง — ผู้ใช้ลากสไลเดอร์ไปมาผลลัพธ์เดิมจะไม่ยิงซ้ำ
-  // (server ยังจำกัดความถี่ซ้ำอีกชั้น เผื่อเปิดหลายแท็บหรือหลายคนพร้อมกัน)
   // อ่าน token ของบัญชีที่ล็อกอินอยู่ — แต่ละหน้าต่อ Supabase คนละแบบ
   // หน้าโลก 3D (index.html) ไม่มีตัวแปร supabaseClient แต่มี aecAccessToken() ของ app.js
   // ส่วนหน้าอื่นในระบบหลังบ้านมี supabaseClient ตรงๆ — ลองทั้งสองทางก่อนยอมแพ้
@@ -367,31 +363,11 @@ window.AecTypeInteractions = (function () {
       }
     } catch (err) { console.warn('[ATI] อ่าน session ไม่สำเร็จ:', err); }
     return null;
-  }
 
-  let lastIncidentKey = '';
-  async function raiseDrill(incident) {
-    if (!incident || !incident.label) return;
-    if (incident.label === lastIncidentKey) return;
-    lastIncidentKey = incident.label;
-    try {
-      const token = await authToken();
-      if (!token) return;                                   // ยังไม่ล็อกอิน — บทเรียนยังเล่นได้ตามปกติ
-      const res = await fetch('/api/emergency/drill', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-        body: JSON.stringify({ scenario: incident.label, icon: incident.icon || '🔥' })
-      });
-      if (!res.ok) {
-        const b = await res.json().catch(() => ({}));
-        // ถูกจำกัดความถี่หรือแอดมินปิดไว้ ไม่ใช่ความผิดพลาด — บทเรียนเดินต่อได้ปกติ
-        console.info('[DRILL] ไม่ได้ประกาศ:', b.error || res.status);
-      }
-    } catch (err) { console.warn('[DRILL] ยิงไม่สำเร็จ:', err); }
   }
 
   // ---------- ส่งเรื่องไปยังระบบ Emergency ----------
-  // ต่างจากการ "ซ้อม" ด้านบนที่ยิงเองอัตโนมัติแล้วหายไป — อันนี้ผู้ใช้ตั้งใจกดส่ง
+  // ผู้ใช้ต้องกดส่งเอง ระบบไม่ยิงเตือนทั้งโรงงานเองจากการลากสไลเดอร์เล่น
   // จึงถูกบันทึกเป็นเรื่องที่ค้างอยู่จนกว่าจะมีคนมาปิด และแจ้งเตือนสองทางพร้อมกัน:
   // กระดิ่งแจ้งเตือนของทุกคน (นอกโลก 3D) + แถบเตือนกับข้อความ alert ในแชท (ในโลก 3D)
   async function sendToEmergency(incident, why, summon) {
@@ -642,7 +618,6 @@ window.AecTypeInteractions = (function () {
       const key = reads.find(r => r.tone === 'bad') || reads.find(r => r.tone === 'warn') || reads[reads.length - 1];
       readBar.setSub(key ? key.value : '');
       const v = def.verdict(state);
-      if (v.incident) raiseDrill(v.incident);
       vBar.setTone(v.tone);
       vBar.querySelector('.bi').textContent = v.tone === 'ok' ? '✅' : v.tone === 'warn' ? '⚠️' : '🛑';
       vBar.setLabel(v.title);
@@ -733,7 +708,6 @@ window.AecTypeInteractions = (function () {
 
       if (checked) {
         const allRight = def.items.every(it => picked.has(it.id) === !!it.correct);
-        def.items.forEach(it => { if (picked.has(it.id) && it.incident) raiseDrill(it.incident); });
         msgBar.setTone(allRight ? 'ok' : 'warn');
         msgBar.querySelector('.bi').textContent = allRight ? '✅' : '⚠️';
         msgBar.setLabel(allRight ? 'ถูกทั้งหมด' : 'ยังไม่ครบถูกทุกข้อ');
