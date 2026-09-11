@@ -3403,20 +3403,6 @@ async function initMultiplayer() {
     // REQ 3 — มีคนกดเรียกรวมพลฉุกเฉิน: ตัวละครของเราเดินไปเองทันที
     mpSocket.on('emergency_called', call => applyEmergencyCall(call));
 
-    // ซ้อมเหตุฉุกเฉินจากบทเรียนของใครสักคน — ให้ทุกคนในโลกเห็นว่ากำลังซ้อมอะไรอยู่
-    // ใช้แถบคนละสีกับของจริง และหายเองใน 12 วิ เพราะไม่ใช่เหตุที่ต้องค้างไว้รอการยกเลิก
-    mpSocket.on('emergency_drill', d => {
-        const bar = $('drill-banner');
-        if (!bar || !d) return;
-        const icon = d.icon || '🔥';
-        const who = d.by || 'ผู้เข้าร่วม';
-        $('drill-banner-text').textContent = icon + ' ' + (d.scenario || '') + ' · จากบทเรียนของ ' + who;
-        bar.style.display = 'flex';
-        clearTimeout(bar._hideTimer);
-        bar._hideTimer = setTimeout(() => { bar.style.display = 'none'; }, 12000);
-        mpAppendChat({ name: '🧪 ซ้อม', color: '#f59e0b',
-            text: icon + ' ' + (d.scenario || '') + ' — เกิดจากบทเรียน ไม่ใช่เหตุการณ์จริง' });
-    });
     mpSocket.on('emergency_cancelled', () => applyEmergencyCall(null));
 
     // ---------- เหตุฉุกเฉินของจริง (ส่งมาจากบทเรียน หรือประกาศจากหน้า Emergency) ----------
