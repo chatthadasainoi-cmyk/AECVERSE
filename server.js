@@ -989,6 +989,110 @@ app.post('/api/emergency/drill', async (req, res) => {
     res.json({ ok: true, notification: n });
 });
 
+// ============================================================
+// เรื่องฉุกเฉินที่ส่งมาจากบทเรียน "ลองใช้งาน"
+// บทเรียนที่จบด้วยหายนะจริงส่งเรื่องเข้ามาที่นี่ได้ แล้วระบบแจ้งสองทางพร้อมกัน
+//   นอกโลก 3D -> กระดิ่งแจ้งเตือนของทุกคน (ค้างไว้ให้คนที่ยังไม่ได้เปิดหน้าเว็บตอนนั้นด้วย)
+//   ในโลก 3D  -> แถบเตือนกลางจอ + ข้อความแบบ alert ในแชท
+// เหตุระดับหนักยังสั่งเรียกทุกคนไปจุดรวมพลพร้อมกันได้ด้วย (เฉพาะคนที่มีสิทธิ์สั่ง)
+//
+// ต่างจาก /api/emergency/drill ตรงที่อันนั้นคือ "ซ้อม" ยิงเองอัตโนมัติและหายไปเอง
+// ส่วนอันนี้ผู้ใช้ตั้งใจกดส่ง จึงถูกบันทึกเป็นเรื่องที่ต้องมีคนมาปิด
+// ============================================================
+const MAX_EMERGENCY_CASES = 60;
+const emergencyCases = [];
+const EMERGENCY_REPORT_MS = 20000;          // กันกดรัวจากเครื่องเดียว
+const emergencyReportLast = new Map();
+
+// จุดรวมพล = marker ที่ถูกติ๊กว่า emergency ไว้ตอนปัก
+function assemblyMarker() {
+    return Object.values(markers).find(m => m && m.emergency) || null;
+}
+
+// เริ่มการเรียกรวมพล — ใช้ร่วมกันทั้งทาง socket (ปุ่มในโลก 3D) และทาง API (จากบทเรียน)
+function startEmergencyCall(m, by) {
+    emergencyCall = { markerId: m.id, name: m.name, x: m.x, y: m.y, z: m.z, by: by || 'ระบบ', at: Date.now() };
+    io.emit('emergency_called', emergencyCall);
+    pushBroadcast({
+        kind: 'emergency',
+        title: '🚨 เรียกรวมพลฉุกเฉิน',
+        body: `ให้ไปที่จุด "${m.name}" ทันที · สั่งโดย ${emergencyCall.by}`,
+        link: 'Emergency.html'
+    });
+    console.log(`[EMERGENCY] เรียกรวมพลไปที่ "${m.name}" โดย ${emergencyCall.by}`);
+    return emergencyCall;
+}
+
+app.post('/api/emergency/report', async (req, res) => {
+    const user = await userFromRequest(req);
+    if (!user) return res.status(401).json({ error: 'ต้องเข้าสู่ระบบก่อน' });
+
+    const now = Date.now();
+    const last = emergencyReportLast.get(user.id) || 0;
+    if (now - last < EMERGENCY_REPORT_MS) {
+        return res.status(429).json({ error: 'เพิ่งส่งเรื่องไปเมื่อสักครู่ — เว้นระยะสักครู่แล้วส่งใหม่', throttled: true });
+    }
+
+    const b = req.body || {};
+    const scenario = String(b.scenario || '').trim().slice(0, 140);
+    if (!scenario) return res.status(400).json({ error: 'ต้องระบุเหตุการณ์ที่จะส่ง' });
+    const icon = String(b.icon || '🚨').slice(0, 4);
+    const why = String(b.why || '').trim().slice(0, 600);
+    const severe = !!b.severe;
+    const role = userRole(user);
+    const who = user.user_metadata?.display_name || user.email || 'ผู้เข้าร่วม';
+    emergencyReportLast.set(user.id, now);
+
+    const c = {
+        id: `${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+        scenario, icon, why, severe,
+        source: b.source === 'lesson' ? 'lesson' : 'manual',
+        by: who, at: now,
+        status: 'open', summoned: false, assemblyName: '', summonNote: ''
+    };
+
+    // เรียกรวมพล — กันไว้สามชั้น เพราะมันลากตัวละครของทุกคนในโลกไปพร้อมกัน
+    if (b.summon) {
+        if (!severe) c.summonNote = 'เหตุระดับนี้ยังไม่ถึงขั้นเรียกรวมพล — ส่งเป็นประกาศเตือนให้แทน';
+        else if (role === 'user') c.summonNote = 'บัญชีนี้ไม่มีสิทธิ์สั่งเรียกรวมพล — ประกาศเตือนถูกส่งให้ทุกคนแล้ว';
+        else {
+            const m = assemblyMarker();
+            if (!m) c.summonNote = 'ยังไม่มีจุดรวมพลในโลก 3D — ต้องปักจุดแล้วติ๊กว่าเป็นจุดรวมพลก่อน';
+            else { startEmergencyCall(m, who); c.summoned = true; c.assemblyName = m.name; }
+        }
+    }
+
+    emergencyCases.unshift(c);
+    if (emergencyCases.length > MAX_EMERGENCY_CASES) emergencyCases.length = MAX_EMERGENCY_CASES;
+
+    const n = pushBroadcast({
+        kind: 'emergency',
+        title: `${icon} ${severe ? 'เหตุฉุกเฉินระดับหนัก' : 'แจ้งเหตุฉุกเฉิน'}: ${scenario}`,
+        body: (c.source === 'lesson' ? `ส่งจากบทเรียน "ลองใช้งาน" โดย ${who}` : `ส่งโดย ${who}`) +
+              (c.summoned ? ` · เรียกรวมพลไปที่ "${c.assemblyName}" แล้ว` : ''),
+        link: 'Emergency.html'
+    });
+    io.emit('emergency_alert', c);
+    console.log(`[EMERGENCY] ${who} ส่งเรื่อง "${scenario}"${c.summoned ? ' + เรียกรวมพล' : ''}`);
+    res.json({ ok: true, case: c, summonNote: c.summonNote, notification: n });
+});
+
+app.get('/api/emergency/cases', requireStaff, (req, res) => res.json({ cases: emergencyCases }));
+
+// ปิดเรื่อง — ถ้าเรื่องนั้นเป็นตัวที่สั่งเรียกรวมพลไว้ ก็ยกเลิกการเรียกให้ด้วย
+// ไม่งั้นทุกคนจะติดอยู่ที่จุดรวมพลทั้งที่เรื่องจบไปแล้ว
+app.post('/api/emergency/cases/:id/resolve', requireStaff, (req, res) => {
+    const c = emergencyCases.find(x => x.id === req.params.id);
+    if (!c) return res.status(404).json({ error: 'ไม่พบเรื่องนี้' });
+    if (c.status === 'resolved') return res.json({ ok: true, case: c });
+    c.status = 'resolved';
+    c.resolvedBy = req.staffUser.user_metadata?.display_name || req.staffUser.email;
+    c.resolvedAt = Date.now();
+    if (c.summoned && emergencyCall) { emergencyCall = null; io.emit('emergency_cancelled'); }
+    io.emit('emergency_case_resolved', c);
+    res.json({ ok: true, case: c });
+});
+
 // ---------- รายชื่อคนที่มอบหมายงานได้ ----------
 // ต้องใช้ service key ถึงจะอ่านรายชื่อผู้ใช้ทั้งหมดได้ ถ้าไม่ได้ตั้งไว้จะคืนลิสต์ว่าง
 // พร้อมบอกสาเหตุ ดีกว่าปล่อยให้หน้าเว็บขึ้น dropdown เปล่าโดยไม่รู้ว่าทำไม
@@ -1906,16 +2010,8 @@ io.on('connection', socket => {
         if (!canEditData(user)) return denyAction(socket, 'เรียกรวมพลฉุกเฉิน');
         const m = data && data.id ? markers[data.id] : null;
         if (!m) return;
-        emergencyCall = { markerId: m.id, name: m.name, x: m.x, y: m.y, z: m.z, by: user?.email || 'ระบบ', at: Date.now() };
-        io.emit('emergency_called', emergencyCall);
-        // เข้ากระดิ่งด้วย — คนที่ไม่ได้เปิดโลก 3D ค้างไว้ตอนนั้นจะได้รู้เหมือนกัน
-        pushBroadcast({
-            kind: 'emergency',
-            title: '🚨 เรียกรวมพลฉุกเฉิน',
-            body: `ให้ไปที่จุด "${m.name}" ทันที · สั่งโดย ${emergencyCall.by}`,
-            link: 'Emergency.html'
-        });
-        console.log(`[EMERGENCY] เรียกรวมพลไปที่ "${m.name}" โดย ${emergencyCall.by}`);
+        // ใช้ตัวเดียวกับที่บทเรียนเรียกผ่าน API — ทั้งสองทางต้องแจ้งเตือนเหมือนกันเป๊ะ
+        startEmergencyCall(m, user?.email || 'ระบบ');
     });
     socket.on('emergency_cancel', () => {
         if (!canEditData(user)) return denyAction(socket, 'ยกเลิกการเรียกฉุกเฉิน');

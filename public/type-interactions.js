@@ -42,7 +42,7 @@ window.AecTypeInteractions = (function () {
       },
       verdict: s => {
         const inRange = s.ch4 >= 5 && s.ch4 <= 15;
-        if (inRange && s.spark) return bad('ระเบิด', 'ส่วนผสมอยู่ในช่วง 5–15% และมีแหล่งจุดติด ครบองค์ประกอบการระเบิดทั้งสามอย่าง (เชื้อเพลิง + ออกซิเจน + ประกายไฟ) นี่คือเหตุผลที่พื้นที่นี้ถูกกำหนดเป็น Ex-Zone 0 และอุปกรณ์ไฟฟ้าทุกชิ้นต้องเป็นชนิด Explosion-Proof', { icon: '💥', label: 'บ่อหมักระเบิด — ส่วนผสมอยู่ในช่วงติดไฟและมีประกายไฟ' });
+        if (inRange && s.spark) return bad('ระเบิด', 'ส่วนผสมอยู่ในช่วง 5–15% และมีแหล่งจุดติด ครบองค์ประกอบการระเบิดทั้งสามอย่าง (เชื้อเพลิง + ออกซิเจน + ประกายไฟ) นี่คือเหตุผลที่พื้นที่นี้ถูกกำหนดเป็น Ex-Zone 0 และอุปกรณ์ไฟฟ้าทุกชิ้นต้องเป็นชนิด Explosion-Proof', { icon: '💥', label: 'บ่อหมักระเบิด — ส่วนผสมอยู่ในช่วงติดไฟและมีประกายไฟ', severe: true });
         if (inRange) return warn('อันตรายมาก — ขาดแค่ประกายไฟ', 'ตอนนี้ส่วนผสมพร้อมระเบิดแล้ว เหลือแค่รอแหล่งจุดติดเท่านั้น ลองเปิดสวิตช์ประกายไฟดู');
         if (s.ch4 > 15) return ok('ยังไม่ติดไฟ แต่ห้ามวางใจ', 'เข้มข้นเกิน 15% คือรวยเชื้อเพลิงเกินไป ออกซิเจนไม่พอจะเผาไหม้ นี่คือสภาพปกติในโดม — แต่ถ้าเปิดฝาหรือมีรอยรั่ว อากาศจะไหลเข้าและค่าจะไหลลงผ่านช่วง 5–15% เสมอ ลองเลื่อนค่าลงมาดู');
         return ok('เจือจางเกินไป ไม่ติดไฟ', 'ต่ำกว่า 5% เชื้อเพลิงไม่พอ แต่ถ้ายังมีก๊าซไหลเข้าเรื่อยๆ ค่าจะไต่ขึ้นเข้าช่วงอันตรายได้');
@@ -84,7 +84,7 @@ window.AecTypeInteractions = (function () {
         ];
       },
       verdict: s => {
-        if (s.iso && s.p >= 8) return bad('โดมฉีกขาด', 'วาล์วปิดกั้นทำให้ก๊าซระบายออกไม่ได้ แรงดันไต่ทะลุขีดจำกัดของผ้าใบ ก๊าซมีเทนปริมาณมหาศาลถูกปล่อยออกมาพร้อมกันในที่โล่ง — นี่คือเหตุผลที่กฎห้ามติดตั้งวาล์วคั่นตรงนี้เด็ดขาด', { icon: '💨', label: 'โดมเก็บก๊าซฉีกขาด — มีเทนรั่วออกสู่บรรยากาศปริมาณมาก' });
+        if (s.iso && s.p >= 8) return bad('โดมฉีกขาด', 'วาล์วปิดกั้นทำให้ก๊าซระบายออกไม่ได้ แรงดันไต่ทะลุขีดจำกัดของผ้าใบ ก๊าซมีเทนปริมาณมหาศาลถูกปล่อยออกมาพร้อมกันในที่โล่ง — นี่คือเหตุผลที่กฎห้ามติดตั้งวาล์วคั่นตรงนี้เด็ดขาด', { icon: '💨', label: 'โดมเก็บก๊าซฉีกขาด — มีเทนรั่วออกสู่บรรยากาศปริมาณมาก', severe: true });
         if (s.iso && s.p <= -4) return bad('โดมยุบตัว', 'ปิดกั้นทางอากาศเข้า โดมจึงถูกดูดยุบ ผ้าใบและโครงสร้างเสียหาย');
         if (s.iso) return warn('ตอนนี้ยังไม่มีอะไรเกิดขึ้น — และนั่นคือกับดัก', 'แรงดันยังอยู่ในช่วงปกติ วาล์วปิดกั้นจึงยังไม่แสดงผลอะไร ทุกอย่างดูปกติดีจนกว่าจะถึงวันที่แรงดันขึ้นจริง ลองเลื่อนแรงดันขึ้นไปดู');
         if (s.p >= 3) return ok('ระบบทำงานถูกต้อง', 'แรงดันถึงจุดตั้ง PVRV เปิดระบายก๊าซออกเอง แรงดันในโดมจึงไม่มีทางไต่ถึงจุดที่ผ้าใบฉีก');
@@ -111,7 +111,7 @@ window.AecTypeInteractions = (function () {
         ];
       },
       verdict: s => {
-        if (s.flash && s.cond === 'none') return bad('ไฟย้อนถึงบ่อหมัก', 'ไม่มีอะไรมาดักเปลวไฟ ไฟวิ่งย้อนตามท่อเข้าสู่โดมที่มีก๊าซเต็ม เป็นอุบัติเหตุระดับที่ทำให้ทั้งโรงงานเสียหาย', { icon: '🔥', label: 'ไฟย้อนกลับเข้าบ่อหมัก — ไม่มี Flame Arrester ดักไว้' });
+        if (s.flash && s.cond === 'none') return bad('ไฟย้อนถึงบ่อหมัก', 'ไม่มีอะไรมาดักเปลวไฟ ไฟวิ่งย้อนตามท่อเข้าสู่โดมที่มีก๊าซเต็ม เป็นอุบัติเหตุระดับที่ทำให้ทั้งโรงงานเสียหาย', { icon: '🔥', label: 'ไฟย้อนกลับเข้าบ่อหมัก — ไม่มี Flame Arrester ดักไว้', severe: true });
         if (s.flash && s.cond === 'dirty') return warn('ดักไฟไว้ได้ แต่ระบบกำลังจะมีปัญหาอื่น', 'ไส้กรองยังดักเปลวไฟไว้ได้ แต่ความดันตกคร่อมสูงมากจนก๊าซไหลได้ไม่ถึงครึ่ง แรงดันจะไปสะสมย้อนกลับที่โดมแทน ต้องถอดล้างตามรอบทุก 3 เดือน');
         if (s.flash) return ok('ไส้กรองดับเปลวไฟไว้ได้', 'เปลวไฟถูกดูดความร้อนออกจนดับภายในไส้กรอง ไม่ทะลุไปถึงบ่อหมัก นี่คือหน้าที่เดียวของอุปกรณ์ชิ้นนี้ และมันจะทำได้ก็ต่อเมื่อไส้ยังอยู่ครบและสะอาด');
         if (s.cond === 'none') return bad('ระบบไม่มีการป้องกันอยู่ตอนนี้', 'ยังไม่เกิดไฟย้อน จึงยังไม่มีอะไรผิดปกติให้เห็น แต่ถ้าเกิดขึ้นเมื่อไหร่จะไม่มีอะไรมาหยุด ลองเปิดสวิตช์ดู');
@@ -305,7 +305,7 @@ window.AecTypeInteractions = (function () {
       },
       verdict: s => {
         const shown = s.cal ? s.lel : s.lel * 0.55;
-        if (!s.cal && s.lel >= 40 && shown < 40) return bad('เครื่องไม่เตือนทั้งที่ถึงระดับสั่งหยุดแล้ว', 'ก๊าซจริงอยู่ที่ ' + num(s.lel) + '% LEL ซึ่งต้องสั่งหยุดระบบแล้ว แต่เซนเซอร์ที่ไม่ได้สอบเทียบอ่านได้แค่ ' + num(shown) + '% จึงเงียบสนิท — เครื่องตรวจจับที่ไม่ได้สอบเทียบอันตรายกว่าไม่มีเครื่องเลย เพราะทุกคนเชื่อมันอยู่', { icon: '☠️', label: 'ก๊าซถึงระดับสั่งหยุดระบบแต่เครื่องตรวจจับเงียบ' });
+        if (!s.cal && s.lel >= 40 && shown < 40) return bad('เครื่องไม่เตือนทั้งที่ถึงระดับสั่งหยุดแล้ว', 'ก๊าซจริงอยู่ที่ ' + num(s.lel) + '% LEL ซึ่งต้องสั่งหยุดระบบแล้ว แต่เซนเซอร์ที่ไม่ได้สอบเทียบอ่านได้แค่ ' + num(shown) + '% จึงเงียบสนิท — เครื่องตรวจจับที่ไม่ได้สอบเทียบอันตรายกว่าไม่มีเครื่องเลย เพราะทุกคนเชื่อมันอยู่', { icon: '☠️', label: 'ก๊าซถึงระดับสั่งหยุดระบบแต่เครื่องตรวจจับเงียบ', severe: true });
         if (!s.cal) return warn('เซนเซอร์อ่านค่าต่ำกว่าความจริง', 'ก๊าซจริง ' + num(s.lel) + '% LEL แต่เครื่องอ่านได้ ' + num(shown) + '% ส่วนต่างนี้จะโตขึ้นเรื่อยๆ ตามอายุเซนเซอร์ จนวันหนึ่งมันจะเตือนช้าเกินไป');
         if (s.lel >= 40) return bad('ถึงระดับสั่งหยุดระบบ', num(s.lel) + '% LEL เกินเกณฑ์ ALARM 2 ระบบจะสั่งปิดวาล์วและหยุดอุปกรณ์อัตโนมัติ ทุกคนต้องออกจากพื้นที่ — แต่สังเกตว่านี่ยังเป็นแค่ 40% ของระดับที่ติดไฟได้จริง ยังมีระยะปลอดภัยเหลืออยู่ ระบบออกแบบมาให้เตือนก่อนถึงจุดอันตรายเสมอ');
         if (s.lel >= 20) return warn('สัญญาณเตือนขั้นที่ 1', num(s.lel) + '% LEL เข้าเกณฑ์เตือนแล้ว ห้องควบคุมจะได้รับสัญญาณ ต้องหาจุดรั่วทันทีก่อนที่ค่าจะไต่ถึง 40%');
@@ -321,7 +321,7 @@ window.AecTypeInteractions = (function () {
       items: [
         { id: 'gas', label: '🚰 ปิดวาล์วก๊าซต้นทางก่อน แล้วค่อยดับไฟ', correct: true, why: 'ถูกต้อง — ตัดเชื้อเพลิงก่อนเสมอ พอไม่มีก๊าซมาเลี้ยง ไฟจะดับเอง และไม่มีก๊าซค้างเหลือให้ติดซ้ำ' },
         { id: 'co2', label: '🧯 ฉีดถัง CO₂ ดับไฟทันที', correct: false,
-          incident: { icon: '💥', label: 'ก๊าซสะสมแล้วติดกลับพร้อมกัน — ดับไฟก่อนปิดวาล์ว' },
+          incident: { icon: '💥', label: 'ก๊าซสะสมแล้วติดกลับพร้อมกัน — ดับไฟก่อนปิดวาล์ว', severe: true },
           why: 'อันตรายที่สุด — ดับไฟได้แต่ก๊าซยังพุ่งออกมาต่อ ก๊าซที่ไม่ถูกเผาจะสะสมเป็นกลุ่มเมฆรอบตัวคุณ พอเจอจุดร้อนหรือประกายไฟจะติดกลับพร้อมกันทั้งกลุ่ม กลายเป็นการระเบิดแทนที่จะเป็นไฟลุกอยู่ที่เดียว' },
         { id: 'water', label: '💦 ฉีดน้ำใส่เปลวไฟ', correct: false, why: 'น้ำไม่ดับไฟก๊าซ และถ้ามีอุปกรณ์ไฟฟ้าอยู่ใกล้จะกลายเป็นทางเดินไฟฟ้าเข้าหาตัวคุณ น้ำใช้สำหรับหล่อเย็นถังหรือโครงสร้างรอบๆ ไม่ใช่ดับเปลวไฟก๊าซ' },
         { id: 'esd', label: '🚨 กดปุ่ม ESD แล้วออกจากพื้นที่', correct: false, why: 'ไม่ผิดและปลอดภัยกับตัวเอง แต่ยังไม่ใช่คำตอบที่ตรงที่สุด — ESD ตัดระบบทั้งโรงงานซึ่งรวมการปิดวาล์วอยู่แล้ว ถ้าวาล์วต้นทางอยู่ในระยะที่เข้าถึงได้อย่างปลอดภัย ให้ปิดตรงจุดนั้นก่อนเพราะเร็วกว่าและเจาะจงกว่า ถ้าเข้าไม่ถึงค่อยใช้ ESD' }
@@ -373,6 +373,77 @@ window.AecTypeInteractions = (function () {
         console.info('[DRILL] ไม่ได้ประกาศ:', b.error || res.status);
       }
     } catch (err) { console.warn('[DRILL] ยิงไม่สำเร็จ:', err); }
+  }
+
+  // ---------- ส่งเรื่องไปยังระบบ Emergency ----------
+  // ต่างจากการ "ซ้อม" ด้านบนที่ยิงเองอัตโนมัติแล้วหายไป — อันนี้ผู้ใช้ตั้งใจกดส่ง
+  // จึงถูกบันทึกเป็นเรื่องที่ค้างอยู่จนกว่าจะมีคนมาปิด และแจ้งเตือนสองทางพร้อมกัน:
+  // กระดิ่งแจ้งเตือนของทุกคน (นอกโลก 3D) + แถบเตือนกับข้อความ alert ในแชท (ในโลก 3D)
+  async function sendToEmergency(incident, why, summon) {
+    if (typeof supabaseClient === 'undefined') return { error: 'หน้านี้ไม่ได้ต่อกับบัญชีผู้ใช้' };
+    const { data } = await supabaseClient.auth.getSession();
+    const token = data?.session?.access_token;
+    if (!token) return { error: 'ต้องเข้าสู่ระบบก่อนถึงจะส่งเรื่องได้' };
+    const res = await fetch('/api/emergency/report', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify({
+        scenario: incident.label, icon: incident.icon || '🚨',
+        why: why || '', severe: !!incident.severe, summon: !!summon, source: 'lesson'
+      })
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) return { error: body.error || ('ส่งไม่สำเร็จ (' + res.status + ')') };
+    return body;
+  }
+
+  // แผงปุ่มที่ต่อท้ายเหตุผลของผลลัพธ์ร้ายแรง
+  // ส่งได้ครั้งเดียวต่อหนึ่งเหตุการณ์ในหน้านั้น — กดซ้ำแล้วยิงซ้ำไม่มีประโยชน์
+  const sentIncidents = new Set();
+  function incidentPanel(incident, why) {
+    const box = document.createElement('div');
+    box.className = 'ati-emg' + (incident.severe ? ' severe' : '');
+    const already = sentIncidents.has(incident.label);
+    box.innerHTML =
+      '<div class="e-h">' + (incident.severe ? '🚨 เหตุระดับหนัก' : '⚠️ เหตุที่ต้องแจ้ง') + '</div>' +
+      '<div class="e-d">ส่งเรื่องนี้เข้าระบบ Emergency ได้ — จะขึ้นที่กระดิ่งแจ้งเตือนของทุกคน' +
+      ' และเด้งเตือนในโลก 3D พร้อมกัน</div>' +
+      (incident.severe
+        ? '<label class="e-sum"><input type="checkbox" data-summon> เรียกทุกคนไปจุดรวมพลด้วย' +
+          ' <span>(ต้องมีสิทธิ์สั่ง และต้องมีจุดรวมพลปักไว้ในโลก 3D)</span></label>'
+        : '') +
+      '<div class="ati-row"><button class="ati-btn danger" data-send' + (already ? ' disabled' : '') + '>' +
+      (already ? 'ส่งเรื่องนี้ไปแล้ว' : '🚨 ส่งไปยัง Emergency') + '</button></div>' +
+      '<div class="e-msg" data-msg></div>';
+
+    const btn = box.querySelector('[data-send]');
+    const msg = box.querySelector('[data-msg]');
+    btn.addEventListener('click', async () => {
+      const summon = !!box.querySelector('[data-summon]:checked');
+      if (summon && !confirm('เรียกทุกคนในโลก 3D ไปจุดรวมพลทันที?' + String.fromCharCode(10) + incident.label)) return;
+      btn.disabled = true;
+      msg.className = 'e-msg';
+      msg.textContent = 'กำลังส่ง...';
+      const r = await sendToEmergency(incident, why, summon).catch(() => ({ error: 'ติดต่อเซิร์ฟเวอร์ไม่ได้' }));
+      if (r.error) { msg.className = 'e-msg bad'; msg.textContent = r.error; btn.disabled = false; return; }
+      sentIncidents.add(incident.label);
+      btn.textContent = 'ส่งเรื่องนี้ไปแล้ว';
+      msg.className = 'e-msg ok';
+      msg.textContent = 'ส่งเข้าระบบ Emergency แล้ว — แจ้งที่กระดิ่งของทุกคนและในโลก 3D เรียบร้อย' +
+        (r.case && r.case.summoned ? ' · เรียกรวมพลไปที่ "' + r.case.assemblyName + '" แล้ว' : '');
+      if (r.summonNote) { msg.className = 'e-msg warn'; msg.textContent += String.fromCharCode(10) + '· ' + r.summonNote; }
+      if (window.AecNotifications) AecNotifications.refresh();
+    });
+    return box;
+  }
+
+  // เติมเนื้อในแถบผลลัพธ์ — มีเหตุร้ายแรงก็พ่วงแผงส่งเรื่องไปด้วย
+  function fillVerdict(bar, v) {
+    bar.content.innerHTML = '';
+    const p = document.createElement('div');
+    p.textContent = v.why;
+    bar.content.appendChild(p);
+    if (v.incident) bar.content.appendChild(incidentPanel(v.incident, v.why));
   }
 
   const esc = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -477,6 +548,20 @@ window.AecTypeInteractions = (function () {
         font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;}
       .ati-btn:disabled{opacity:.45;cursor:default;}
       .ati-btn.ghost{background:transparent;border:1px solid var(--border,#1c2531);color:var(--text-1,#9aa7b8);}
+      .ati-btn.danger{background:#dc2626;}
+      /* แผงส่งเรื่องเข้าระบบ Emergency — ต่อท้ายเหตุผลของผลลัพธ์ร้ายแรง */
+      .ati-emg{margin-top:12px;padding:11px 12px;border-radius:10px;
+        background:rgba(127,29,29,.18);border:1px solid rgba(239,68,68,.42);}
+      .ati-emg.severe{background:rgba(127,29,29,.3);border-color:#ef4444;}
+      .ati-emg .e-h{font-weight:800;color:#fca5a5;font-size:12px;margin-bottom:5px;letter-spacing:.4px;}
+      .ati-emg .e-d{font-size:11.5px;color:var(--text-1,#9aa7b8);line-height:1.6;margin-bottom:9px;}
+      .ati-emg .e-sum{display:flex;align-items:center;gap:7px;font-size:11.5px;color:#fecaca;
+        margin-bottom:9px;cursor:pointer;flex-wrap:wrap;}
+      .ati-emg .e-sum span{color:var(--text-2,#657182);font-size:10.5px;}
+      .ati-emg .e-msg{font-size:11.5px;margin-top:8px;color:var(--text-2,#657182);white-space:pre-line;}
+      .ati-emg .e-msg.ok{color:#4ade80;}
+      .ati-emg .e-msg.warn{color:#fbbf24;}
+      .ati-emg .e-msg.bad{color:#f87171;}
       .ati-row{display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap;}
       @media (max-width:560px){ .ati-reads{grid-template-columns:1fr 1fr;} .ati-bar-h .bs{display:none;} }
       @media (prefers-reduced-motion: reduce){ .ati-bar-h .chev{transition:none;} }
@@ -549,7 +634,7 @@ window.AecTypeInteractions = (function () {
       vBar.querySelector('.bi').textContent = v.tone === 'ok' ? '✅' : v.tone === 'warn' ? '⚠️' : '🛑';
       vBar.setLabel(v.title);
       vBar.setSub('กดดูเหตุผล');
-      vBar.content.textContent = v.why;
+      fillVerdict(vBar, v);
     };
 
     tryBar.querySelectorAll('input[type=range][data-ctl]').forEach(el =>
@@ -643,6 +728,10 @@ window.AecTypeInteractions = (function () {
         msgBar.content.textContent = allRight
           ? 'เลือกได้ครบและไม่เลือกตัวลวงเลย เหตุผลของแต่ละข้ออยู่ใต้ตัวเลือกด้านบน'
           : 'อ่านคำอธิบายใต้แต่ละข้อดู เหตุผลสำคัญกว่าคำตอบ — ของจริงหน้างานจะไม่มีตัวเลือกให้กด';
+        // ตัวเลือกผิดที่นำไปสู่หายนะจริง — ให้ส่งเรื่องเข้าระบบ Emergency ได้เหมือนบทเรียนแบบ sim
+        def.items.forEach(it => {
+          if (picked.has(it.id) && it.incident) msgBar.content.appendChild(incidentPanel(it.incident, it.why));
+        });
         msgBar.classList.add('open');
       } else {
         msgBar.setTone('info'); msgBar.querySelector('.bi').textContent = '💡';

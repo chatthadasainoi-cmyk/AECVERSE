@@ -3273,7 +3273,8 @@ function mpAppendChat(msg, opts) {
     const log = $('chat-log');
     if (!log) return;
     const d = document.createElement('div');
-    d.className = 'chat-msg';
+    // ข้อความ alert ใช้ฟอนต์พิเศษ ให้แยกออกจากบทสนทนาปกติได้ทันทีโดยไม่ต้องอ่าน
+    d.className = 'chat-msg' + (opts && opts.alert ? ' chat-alert' : '');
     const strong = document.createElement('strong');
     strong.style.color = msg.color || 'var(--text-0, #fff)';
     strong.innerText = msg.name;
@@ -3417,6 +3418,43 @@ async function initMultiplayer() {
             text: icon + ' ' + (d.scenario || '') + ' — เกิดจากบทเรียน ไม่ใช่เหตุการณ์จริง' });
     });
     mpSocket.on('emergency_cancelled', () => applyEmergencyCall(null));
+
+    // ---------- เหตุฉุกเฉินของจริง (ส่งมาจากบทเรียน หรือประกาศจากหน้า Emergency) ----------
+    // คนละอย่างกับ 'ซ้อม' ด้านบน — อันนี้ขึ้นแถบสีแดงพร้อมฟอนต์พิเศษ และเด้งในแชทด้วย
+    // ค้างไว้นานกว่าการซ้อมมาก เพราะเป็นเรื่องที่ต้องมีคนมาปิด ไม่ใช่แค่รับรู้แล้วผ่านไป
+    function showRealAlert(icon, headline, detail, severe) {
+        const bar = $('alert-banner');
+        if (bar) {
+            $('alert-banner-text').textContent = icon + ' ' + headline;
+            bar.style.display = 'flex';
+            clearTimeout(bar._hideTimer);
+            bar._hideTimer = setTimeout(() => { bar.style.display = 'none'; }, severe ? 120000 : 45000);
+        }
+        mpAppendChat({ name: '🚨 ALERT', color: '#ef4444', text: icon + ' ' + headline }, { alert: true });
+        if (detail) mpAppendChat({ name: '', color: '#fca5a5', text: detail }, { alert: true });
+    }
+
+    mpSocket.on('emergency_alert', d => {
+        if (!d) return;
+        const head = (d.severe ? 'เหตุฉุกเฉินระดับหนัก — ' : '') + (d.scenario || 'มีเหตุฉุกเฉิน');
+        const from = d.source === 'lesson' ? 'ส่งจากบทเรียน "ลองใช้งาน" โดย ' : 'ส่งโดย ';
+        showRealAlert(d.icon || '🚨', head, from + (d.by || 'ไม่ทราบผู้ส่ง') +
+            (d.summoned ? ' · กำลังเรียกรวมพลไปที่ "' + d.assemblyName + '"' : ''), d.severe);
+    });
+
+    // ประกาศจากหน้า Emergency — เดิมโลก 3D ไม่รู้เรื่องเลย เห็นแค่ที่กระดิ่ง
+    mpSocket.on('emergency_announced', d => {
+        if (!d) return;
+        showRealAlert('📣', d.title || 'ประกาศเหตุฉุกเฉิน', (d.body || '') + ' · ประกาศโดย ' + (d.by || 'เจ้าหน้าที่'),
+            d.level === 'critical');
+    });
+
+    mpSocket.on('emergency_case_resolved', d => {
+        const bar = $('alert-banner');
+        if (bar) bar.style.display = 'none';
+        mpAppendChat({ name: '🚨 ALERT', color: '#94a3b8',
+            text: 'ปิดเรื่อง "' + ((d && d.scenario) || '') + '" แล้ว' + (d && d.resolvedBy ? ' โดย ' + d.resolvedBy : '') });
+    });
 
     // REQ 7 — ประกาศในแชทว่าใครเข้า/ออกเขตของจุดไหน ทุกคนในห้องเห็นเหมือนกัน
     mpSocket.on('marker_presence_changed', d => {
