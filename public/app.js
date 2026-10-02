@@ -97,7 +97,8 @@ const controls = new THREE.OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.05;
 controls.minDistance = 0.5;
-controls.maxDistance = 400; // เดิม 60 — ซูมออกดูภาพรวมทั้งโรงงานไม่ได้เลย โมเดลใหญ่ๆ ติดเพดาน
+controls.maxDistance = 3000; // เดิม 400 — โรงงานกว้างหลายร้อยเมตร ถอยไม่พอเห็นภาพรวม
+                             // 3000 ม. ยังอยู่ในระยะที่กล้องมองเห็น (camera.far = 6000)
 
 // แสงชุดนี้ปรับให้เข้ากับฉากท้องฟ้าสว่าง — ของเดิมตั้งไว้สำหรับพื้นหลังดำ
 // พอเปลี่ยนเป็นท้องฟ้าแล้วโมเดลจะดูทึบดำตัดกับฟ้าสว่างจนดูไม่ออก
@@ -2368,6 +2369,24 @@ let markerEditorColor = 'blue';
 let markerEditorShape = 'circle';
 let markerEditorSize = 1;
 let markerEditorRadius = 0;
+
+// รัศมีเขตปลอดภัยไปได้ถึง 2,000 ม. (เท่ากับที่ server อนุญาต) แต่ค่าที่ใช้จริงบ่อยที่สุด
+// คือหลักสิบ เช่น เขต PPE 15 ม. ระยะร่น 30 ม. — ถ้าลากเป็นเส้นตรง 0-2000 ขยับ 1 พิกเซล
+// จะกระโดดทีละ ~10 ม. ตั้งค่าละเอียดไม่ได้เลย จึงให้หัวลากเดินแบบกำลังสอง
+// ครึ่งแรกของแถบคุมช่วง 0-500 ม. ครึ่งหลังค่อยพุ่งไปจนสุด
+const MARKER_RADIUS_MAX = 2000;
+const MARKER_SLIDER_MAX = 1000;
+// ปัดค่าให้ละเอียดตามขนาด — เขตเล็กๆ ต้องการทศนิยม ส่วนเขตหลักร้อยเมตรปัดเป็นเมตรก็พอ
+// ปัดหยาบเท่ากันทั้งช่วงจะทำให้หัวลากกระตุกตอนอยู่ต้นแถบ
+const roundRadius = r => r < 10 ? Math.round(r * 10) / 10
+    : r < 100 ? Math.round(r * 2) / 2
+    : Math.round(r);
+const radiusFromSlider = v =>
+    roundRadius(Math.pow(Math.min(MARKER_SLIDER_MAX, Math.max(0, Number(v) || 0)) / MARKER_SLIDER_MAX, 2)
+        * MARKER_RADIUS_MAX);
+const sliderFromRadius = r =>
+    Math.round(Math.sqrt(Math.min(MARKER_RADIUS_MAX, Math.max(0, Number(r) || 0)) / MARKER_RADIUS_MAX)
+        * MARKER_SLIDER_MAX);
 let markerEditorEmergency = false;
 
 // เปิดหน้าต่างแก้ไขจุดจากพิกัดโลกที่ระบุมาตรงๆ — ใช้ร่วมกันทั้งทางที่มาจากการ
@@ -2485,7 +2504,8 @@ function handleRadiusPickClick(e) {
     radiusPickActive = false;
     renderer.domElement.style.cursor = '';
     if (pt && markerEditorTarget) {
-        markerEditorRadius = Math.max(0.5, Math.hypot(pt.x - markerEditorTarget.x, pt.z - markerEditorTarget.z));
+        markerEditorRadius = Math.min(MARKER_RADIUS_MAX,
+            Math.max(0.5, Math.hypot(pt.x - markerEditorTarget.x, pt.z - markerEditorTarget.z)));
         syncMarkerEditorControls();
     }
     $('marker-editor-overlay').style.display = 'flex';
@@ -2502,10 +2522,8 @@ function syncMarkerEditorControls() {
 
     const rSlider = $('marker-radius-slider'), rOut = $('marker-radius-value');
     if (rSlider) {
-        // รัศมีที่ได้จากการคลิกในฉาก (หรือของโมเดลใหญ่ๆ) อาจเกินช่วงเริ่มต้นของ slider
-        // ต้องขยายช่วงตาม ไม่งั้น DOM จะหนีบค่าลงมาแล้วตัวเลขกับหัวลากไม่ตรงกัน
-        if (markerEditorRadius > Number(rSlider.max)) rSlider.max = String(Math.ceil(markerEditorRadius * 1.5));
-        rSlider.value = String(markerEditorRadius);
+        // ค่าบนแถบเป็นหน่วยตำแหน่ง ไม่ใช่เมตร — แปลงกลับก่อนเสมอ
+        rSlider.value = String(sliderFromRadius(markerEditorRadius));
     }
     if (rOut) rOut.textContent = markerEditorRadius > 0 ? markerEditorRadius.toFixed(1) + ' ม.' : 'ไม่มีเขต';
 
@@ -2534,7 +2552,7 @@ $('marker-size-slider')?.addEventListener('input', function () {
     syncMarkerEditorControls();
 });
 $('marker-radius-slider')?.addEventListener('input', function () {
-    markerEditorRadius = Number(this.value) || 0;
+    markerEditorRadius = radiusFromSlider(this.value);
     syncMarkerEditorControls();
 });
 
