@@ -47,7 +47,9 @@
     <input id="lobby-nickname" class="lobby-input" type="text" maxlength="20" placeholder="ตั้งชื่อเล่น..." autocomplete="off">
 
     <button id="lobby-start" class="lobby-start">▶ เริ่มสำรวจ</button>
-    <div id="lobby-status" class="lobby-status">กำลังโหลดโลก...</div>
+    <div id="lobby-progress" class="lobby-progress" hidden><i></i></div>
+    <button id="lobby-action" class="lobby-action" type="button" hidden></button>
+    <div id="lobby-status" class="lobby-status" role="status" aria-live="polite">กำลังเชื่อมต่อเซิร์ฟเวอร์…</div>
   </div>
 </div>
 
@@ -662,6 +664,7 @@
 <script src="guide.js"></script>
 <script src="type-interactions.js"></script>
 <script src="panel-sections.js"></script>
+<script src="load-progress.js"></script>
 <script src="app.js"></script>
 <script src="vr-mode.js"></script>
 

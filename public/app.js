@@ -1156,6 +1156,8 @@ async function loadModelFromUrl(url, fileName, transform) {
     const sizeBytes = await checkUrlSize(url);
     if (sizeBytes && sizeBytes > AUTO_COMPRESS_MAX_FILE_BYTES) {
         showLargeModelPrompt(fileName, sizeBytes, () => loadModelFromUrlConfirmed(url, fileName, transform));
+        // กล่องเตือนบนฉากอยู่ใต้ล็อบบี้ ผู้ใช้ที่ยังอยู่หน้าล็อบบี้จึงมองไม่เห็น — บอกที่ล็อบบี้ด้วย
+        if (window.AecLoadUI) AecLoadUI.needConfirm(fileName, sizeBytes, () => window.confirmLoadLargeModel());
         return;
     }
     loadModelFromUrlConfirmed(url, fileName, transform);
@@ -1166,20 +1168,27 @@ function loadModelFromUrlConfirmed(url, fileName, transform) {
     currentSceneModelName = fileName;
     disposeFactoryModel();
     originalMaterials.clear(); factoryColliders = [];
+    const UI = window.AecLoadUI;
+    if (UI) UI.begin(fileName);
 
     (async () => {
         let buf = null;
+        const retry = () => loadModelFromUrlConfirmed(url, fileName, transform);
         const cached = await getCachedModel(url);
         if (cached && cached.buf) {
             buf = cached.buf;
             $('factory-status').innerText = `⚡ โหลดจากแคชในเครื่อง (ไม่ต้องดาวน์โหลดซ้ำ)...`;
+            if (UI) UI.cached();
         } else {
             $('factory-status').innerText = `⬇️ กำลังโหลดโมเดลจาก Cloud...`;
             try {
-                buf = await fetch(url).then(r => r.arrayBuffer());
+                buf = UI
+                    ? await UI.fetchWithProgress(url, (got, total) => UI.download(got, total))
+                    : await fetch(url).then(r => r.arrayBuffer());
             } catch (err) {
                 $('factory-status').innerText = `❌ โหลดล้มเหลว`;
                 console.error('ดึงไฟล์โมเดลไม่สำเร็จ:', err);
+                if (UI) UI.fail('ดาวน์โหลดโมเดลไม่สำเร็จ ตรวจสอบอินเทอร์เน็ตแล้วลองใหม่', retry);
                 return;
             }
             putCachedModel(url, fileName, buf); // ไม่ await — เซฟแคชเบื้องหลัง ไม่บล็อกการแสดงผลโมเดล
@@ -1187,11 +1196,22 @@ function loadModelFromUrlConfirmed(url, fileName, transform) {
         currentModelRawBuffer = buf;
         currentModelRawFileName = fileName;
         const resourcePath = THREE.LoaderUtils.extractUrlBase(url);
-        getLoaderForFile(fileName || url).parse(buf, resourcePath, obj => {
-            finalizeModelLoad(obj, { label: fileName, transform });
+        if (UI) { UI.parsing(); await nextPaint(); }
+        getLoaderForFile(fileName || url).parse(buf, resourcePath, async obj => {
+            try {
+                if (UI) { UI.building(); await nextPaint(); }
+                finalizeModelLoad(obj, { label: fileName, transform });
+                if (UI) UI.done();
+            } catch (err) {
+                // เดิมถ้าขั้นนี้พลาด จะเงียบแล้วโลกว่างเปล่า ผู้ใช้ไม่รู้ว่าเกิดอะไรขึ้น
+                console.error('สร้างโลกจากโมเดลไม่สำเร็จ:', err);
+                $('factory-status').innerText = `❌ ประมวลผลโมเดลไม่สำเร็จ`;
+                if (UI) UI.fail('ประมวลผลโมเดลไม่สำเร็จ', retry);
+            }
         }, err => {
             $('factory-status').innerText = `❌ โหลดล้มเหลว`;
             console.error(err);
+            if (UI) UI.fail('ไฟล์โมเดลเสียหรือเปิดไม่ได้', retry);
         });
     })();
 }
@@ -1200,11 +1220,16 @@ function loadModelFromBlobUrl(blobUrl, fileName, transform, onDone) {
     disposeFactoryModel();
     originalMaterials.clear(); factoryColliders = [];
     $('factory-status').innerText = `⬇️ กำลังโหลดโมเดลจากไฟล์เซฟ...`;
+    if (window.AecLoadUI) AecLoadUI.begin(fileName);
     getLoaderForFile(fileName).load(blobUrl, obj => {
         finalizeModelLoad(obj, { label: `${fileName} (จากไฟล์เซฟ)`, transform });
+        if (window.AecLoadUI) AecLoadUI.done();
         if (onDone) onDone();
-    }, undefined, err => {
+    }, xhr => {
+        if (window.AecLoadUI && xhr && xhr.lengthComputable) AecLoadUI.download(xhr.loaded, xhr.total);
+    }, err => {
         $('factory-status').innerText = `❌ โหลดโมเดลจากไฟล์เซฟล้มเหลว`;
+        if (window.AecLoadUI) AecLoadUI.fail('โหลดโมเดลจากไฟล์เซฟไม่สำเร็จ');
         console.error(err);
     });
 }
@@ -3387,13 +3412,15 @@ async function initMultiplayer() {
             if (nickInput && !nickInput.value) nickInput.value = data.self.name || '';
         }
 
-        if (data.modelUrl) loadModelFromUrl(data.modelUrl, data.modelName, data.modelTransform);
-        updateMpUI();
-        if (lobbyActive) {
-            setLobbyStatus(data.modelUrl ? 'พร้อมแล้ว — กดเริ่มสำรวจได้เลย' : 'ยังไม่มีโมเดลในโลกนี้ — เข้าไปได้แต่จะเห็นพื้นที่ว่าง');
-            const startBtn = $('lobby-start');
-            if (startBtn) startBtn.disabled = false;
+        // เดิมตรงนี้บอกว่า "พร้อมแล้ว" ทันทีที่รู้ที่อยู่ไฟล์ ทั้งที่ยังไม่ได้ดาวน์โหลดสักไบต์
+        // ใครกดเริ่มตอนนั้นจะเข้าไปเจอพื้นที่ว่าง — ตอนนี้ AecLoadUI คุมสถานะตามความจริง
+        if (data.modelUrl) {
+            if (window.AecLoadUI) AecLoadUI.begin(data.modelName);
+            loadModelFromUrl(data.modelUrl, data.modelName, data.modelTransform);
+        } else if (window.AecLoadUI) {
+            AecLoadUI.empty();
         }
+        updateMpUI();
     });
 
     // จุดที่คนอื่นปัก/ลบ — เห็นตรงกันทุกคนแบบเรียลไทม์
