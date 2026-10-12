@@ -342,11 +342,6 @@
         .tabs{display:flex;gap:4px;background:var(--panel-2);border:1px solid var(--border);border-radius:9px;padding:3px;width:fit-content;}
         .tab{padding:7px 14px;border-radius:7px;font-size:12px;font-weight:600;color:var(--text-2);cursor:pointer;}
         .tab.active{background:var(--blue);color:#fff;}
-        .subtab-row{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:16px;}
-        .subtab{padding:8px 14px;border-radius:8px;font-size:12px;font-weight:600;color:var(--text-2);cursor:pointer;background:var(--panel-2);border:1px solid var(--border);}
-        .subtab.active{background:var(--blue-soft);color:#8fb8ff;border-color:var(--blue);}
-        .subpanel{display:none;}
-        .subpanel.active{display:block;}
         .progress{height:6px;border-radius:4px;background:#1a2330;overflow:hidden;}
         .progress > span{display:block;height:100%;border-radius:4px;}
 
@@ -438,11 +433,7 @@
                 <div class="tab active" data-tab="general">General</div>
                 <div class="tab" data-tab="usermgmt">User Management</div>
                 <div class="tab" data-tab="chatvoice">Chat & Voice</div>
-                <div class="tab" data-tab="userfunc">User Function Management</div>
                 <div class="tab" data-tab="sysconfig">AR &amp; QR Code</div>
-                <div class="tab" data-tab="psm">PSM Settings</div>
-                <div class="tab" data-tab="notifications">Notifications</div>
-                <div class="tab" data-tab="backup">Backup</div>
             </div>
 
             <div id="settings-panel-general" class="settings-panel">
@@ -671,103 +662,6 @@
                  5 sub-tabs: ฟังก์ชันผู้ใช้ (feature toggles) / Home / Process / About Us / Quiz & Certificate.
                  Feature toggles + Quiz&Cert exam toggle เชื่อมกับ server จริง; Home/Process/About Us
                  เซฟลง server จริงแล้ว แต่หน้า Public*.html ยังไม่ได้ดึงมาแสดง (เฟสถัดไป) -->
-            <div id="settings-panel-userfunc" class="settings-panel" style="display:none;">
-                <div class="subtab-row" id="uf-subtab-row">
-                    <div class="subtab active" data-uftab="uf-functions">🧩 ฟังก์ชันผู้ใช้</div>
-                    <div class="subtab" data-uftab="uf-home">🏠 Home</div>
-                    <div class="subtab" data-uftab="uf-process">⚙️ Process</div>
-                    <div class="subtab" data-uftab="uf-aboutus">ℹ️ About Us</div>
-                    <div class="subtab" data-uftab="uf-quiz">📝 Quiz & Certificate</div>
-                </div>
-
-                <div id="uf-functions" class="subpanel active">
-                    <div class="card">
-                        <div class="card-head"><h3>เปิด/ปิดฟังก์ชันที่ผู้ใช้เห็นใน Visitor Portal</h3></div>
-                        <p style="color:var(--text-2);font-size:12px;margin:0 0 16px 0;">ปิดฟังก์ชันไหน ผู้เยี่ยมชมจะไม่เห็นเมนูนั้นในพอร์ทัล — ใช้เมื่อฟีเจอร์ยังไม่พร้อม หรือปิดปรับปรุงชั่วคราว</p>
-                        <div id="uf-toggle-list" style="display:flex;flex-direction:column;gap:4px;"></div>
-                        <button class="btn primary" style="width:100%;margin-top:14px;" onclick="saveFeatureToggles()">Save Changes</button>
-                        <div id="uf-toggle-status" style="color:var(--green);font-size:11px;min-height:14px;margin-top:8px;"></div>
-                    </div>
-                </div>
-
-                <div id="uf-home" class="subpanel">
-                    <div class="card">
-                        <div class="card-head"><h3>เนื้อหาหน้า Home</h3></div>
-                        <div style="margin-bottom:14px;">
-                            <div style="color:var(--text-2);font-size:11px;margin-bottom:6px;">หัวข้อหลัก (Hero Title)</div>
-                            <input id="uf-home-heroTitle" class="select" style="width:100%;" type="text" placeholder="เช่น AEC VERSE — Biogas Plant Safety Digital Twin">
-                        </div>
-                        <div style="margin-bottom:14px;">
-                            <div style="color:var(--text-2);font-size:11px;margin-bottom:6px;">คำโปรย (Hero Subtitle)</div>
-                            <textarea id="uf-home-heroSubtitle" class="select" style="width:100%;min-height:70px;font-family:inherit;" placeholder="ข้อความสั้นๆ ใต้หัวข้อหลักในหน้า Home"></textarea>
-                        </div>
-                        <button class="btn primary" style="width:100%;" onclick="saveSiteContent('home', ['heroTitle','heroSubtitle'])">Save Changes</button>
-                        <div id="uf-home-status" style="color:var(--green);font-size:11px;min-height:14px;margin-top:8px;"></div>
-                        <div style="color:var(--text-2);font-size:10.5px;margin-top:6px;">หมายเหตุ: บันทึกลง server จริงแล้ว แต่ยังไม่เชื่อมให้หน้า Home แสดงผลอัตโนมัติ (อยู่ระหว่างพัฒนา)</div>
-                    </div>
-                </div>
-
-                <div id="uf-process" class="subpanel">
-                    <div class="card">
-                        <div class="card-head"><h3>เนื้อหาหน้า Process</h3></div>
-                        <div style="margin-bottom:14px;">
-                            <div style="color:var(--text-2);font-size:11px;margin-bottom:6px;">คำอธิบายภาพรวมกระบวนการ (Intro)</div>
-                            <textarea id="uf-process-intro" class="select" style="width:100%;min-height:100px;font-family:inherit;" placeholder="คำอธิบายภาพรวมขั้นตอนกระบวนการผลิตก๊าซชีวภาพ"></textarea>
-                        </div>
-                        <button class="btn primary" style="width:100%;" onclick="saveSiteContent('process', ['intro'])">Save Changes</button>
-                        <div id="uf-process-status" style="color:var(--green);font-size:11px;min-height:14px;margin-top:8px;"></div>
-                        <div style="color:var(--text-2);font-size:10.5px;margin-top:6px;">หมายเหตุ: บันทึกลง server จริงแล้ว แต่ยังไม่เชื่อมให้หน้า Process แสดงผลอัตโนมัติ (อยู่ระหว่างพัฒนา)</div>
-                    </div>
-                </div>
-
-                <div id="uf-aboutus" class="subpanel">
-                    <div class="card">
-                        <div class="card-head"><h3>เนื้อหาหน้า About Us</h3></div>
-                        <div style="margin-bottom:14px;">
-                            <div style="color:var(--text-2);font-size:11px;margin-bottom:6px;">แนะนำองค์กร (Intro)</div>
-                            <textarea id="uf-aboutus-intro" class="select" style="width:100%;min-height:80px;font-family:inherit;" placeholder="คำแนะนำองค์กรสั้นๆ"></textarea>
-                        </div>
-                        <div style="margin-bottom:14px;">
-                            <div style="color:var(--text-2);font-size:11px;margin-bottom:6px;">พันธกิจ (Mission)</div>
-                            <textarea id="uf-aboutus-mission" class="select" style="width:100%;min-height:80px;font-family:inherit;" placeholder="พันธกิจขององค์กร"></textarea>
-                        </div>
-                        <button class="btn primary" style="width:100%;" onclick="saveSiteContent('aboutUs', ['intro','mission'])">Save Changes</button>
-                        <div id="uf-aboutus-status" style="color:var(--green);font-size:11px;min-height:14px;margin-top:8px;"></div>
-                        <div style="color:var(--text-2);font-size:10.5px;margin-top:6px;">หมายเหตุ: บันทึกลง server จริงแล้ว แต่ยังไม่เชื่อมให้หน้า About Us แสดงผลอัตโนมัติ (อยู่ระหว่างพัฒนา)</div>
-                    </div>
-                </div>
-
-                <div id="uf-quiz" class="subpanel">
-                    <div class="grid g2">
-                        <div class="card">
-                            <div class="card-head"><h3>สถานะแบบทดสอบ (Knowledge Check)</h3></div>
-                            <label style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;margin-bottom:16px;">
-                                <div>
-                                    <div style="font-weight:600;font-size:12.5px;">เปิดให้ทำแบบทดสอบ</div>
-                                    <div style="color:var(--text-2);font-size:11px;margin-top:2px;" id="uf-quiz-statuslabel">—</div>
-                                </div>
-                                <input type="checkbox" id="uf-quiz-enabled" style="width:16px;height:16px;accent-color:var(--green);">
-                            </label>
-                            <div style="margin-bottom:14px;">
-                                <div style="color:var(--text-2);font-size:11px;margin-bottom:6px;">หัวข้อการอบรม</div>
-                                <input id="uf-quiz-topic" class="select" style="width:100%;" type="text">
-                            </div>
-                            <button class="btn primary" style="width:100%;" onclick="saveQuizSettings()">Save Changes</button>
-                            <div id="uf-quiz-status" style="color:var(--green);font-size:11px;min-height:14px;margin-top:8px;"></div>
-                        </div>
-                        <div class="card">
-                            <div class="card-head"><h3>คลังคำถาม · ตารางเวลา · ใบเซอร์ติฟิเคต</h3></div>
-                            <p style="color:var(--text-2);font-size:12px;line-height:1.7;margin:0 0 16px 0;">
-                                ตรงนี้ปรับได้แค่ 2 อย่างที่ใช้บ่อยที่สุด — ส่วนที่เหลือทั้งหมดอยู่ในหน้าตั้งค่าแบบทดสอบ:
-                                คลังคำถาม, ช่วงเวลาเปิด-ปิด, คะแนนผ่าน, เวลาสอบ, จำนวนข้อที่สุ่ม,
-                                จำนวนครั้งที่ทำได้, การแสดงคะแนน/เฉลย และใบเซอร์ติฟิเคต
-                            </p>
-                            <button class="btn primary btn-sm" style="width:100%;" onclick="location.href='KnowledgeAdmin.html'">⚙️ ไปหน้าตั้งค่าแบบทดสอบ</button>
-                            <button class="btn btn-sm" style="width:100%;margin-top:8px;" onclick="location.href='PublicKnowledge.html'">🧪 ลองทำแบบทดสอบแบบที่ผู้ใช้เห็น</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
 
             <div id="settings-panel-sysconfig" class="settings-panel" style="display:none;">
                 <!-- ============ AR: เลือกโมเดลจากคลัง -> สร้าง QR -> สแกนแล้วเห็นโมเดลลอยในที่จริง ============ -->
@@ -857,9 +751,6 @@
                     </div>
                 </div>
             </div>
-            <div id="settings-panel-psm" class="settings-panel" style="display:none;"><div class="card"><p style="color:var(--text-2);">ฟีเจอร์นี้ยังไม่พร้อมใช้งาน</p></div></div>
-            <div id="settings-panel-notifications" class="settings-panel" style="display:none;"><div class="card"><p style="color:var(--text-2);">ฟีเจอร์นี้ยังไม่พร้อมใช้งาน</p></div></div>
-            <div id="settings-panel-backup" class="settings-panel" style="display:none;"><div class="card"><p style="color:var(--text-2);">ฟีเจอร์นี้ยังไม่พร้อมใช้งาน</p></div></div>
 
             </div>
             </div>
@@ -886,7 +777,6 @@
             const panel = document.getElementById('settings-panel-' + tabEl.dataset.tab);
             if (panel) panel.style.display = 'block';
             if (tabEl.dataset.tab === 'usermgmt') loadUserManagement();
-            if (tabEl.dataset.tab === 'userfunc' && !ufLoaded) loadUserFuncTab();
         });
 
         // ---------- General settings ----------
@@ -931,113 +821,6 @@
             } catch (err) { status.style.color = 'var(--red)'; status.textContent = '❌ ' + err.message; }
         }
         loadGeneralSettings();
-
-        // ---------- User Function Management ----------
-        let ufLoaded = false;
-        const FEATURE_TOGGLE_LABELS = {
-            virtualTour: ['🚶', 'Virtual Tour', 'เดินสำรวจโรงงานจำลองด้วย Avatar'],
-            digitalTwin: ['🧊', 'Digital Twin', 'ดูข้อมูลโรงงานจำลองอย่างเดียว ไม่มี Avatar'],
-            knowledgeCheck: ['📝', 'Knowledge Check', 'แบบทดสอบความรู้ความปลอดภัย'],
-            chatVoice: ['💬', 'Chat & Voice', 'แชท/เสียงพูดคุยในโลก Metaverse'],
-            qrScanner: ['🔗', 'QR Code Deep-link', 'สแกน QR แล้วพาไปยังจุดนั้นในโมเดล 3D อัตโนมัติ'],
-            workOrder: ['🧰', 'Work Order', 'ใบสั่งงานซ่อมบำรุง'],
-            emergency: ['🚨', 'Emergency', 'หน้าจัดการเหตุฉุกเฉิน'],
-            analytics: ['📊', 'Analytics', 'แดชบอร์ดวิเคราะห์ข้อมูลโรงงาน']
-        };
-
-        document.getElementById('uf-subtab-row').addEventListener('click', e => {
-            const t = e.target.closest('.subtab');
-            if (!t) return;
-            document.querySelectorAll('#uf-subtab-row .subtab').forEach(x => x.classList.remove('active'));
-            t.classList.add('active');
-            document.querySelectorAll('#settings-panel-userfunc .subpanel').forEach(x => x.classList.remove('active'));
-            document.getElementById(t.dataset.uftab).classList.add('active');
-        });
-
-        async function loadUserFuncTab() {
-            ufLoaded = true;
-            renderFeatureToggles(await fetch('/api/settings/features').then(r => r.json()).catch(() => ({})));
-            const content = await fetch('/api/settings/site-content').then(r => r.json()).catch(() => ({ home: {}, process: {}, aboutUs: {} }));
-            $g('uf-home-heroTitle').value = (content.home || {}).heroTitle || '';
-            $g('uf-home-heroSubtitle').value = (content.home || {}).heroSubtitle || '';
-            $g('uf-process-intro').value = (content.process || {}).intro || '';
-            $g('uf-aboutus-intro').value = (content.aboutUs || {}).intro || '';
-            $g('uf-aboutus-mission').value = (content.aboutUs || {}).mission || '';
-            const qs = await fetch('/api/knowledge-settings').then(r => r.json()).catch(() => ({ enabled: false, topic: '' }));
-            $g('uf-quiz-enabled').checked = !!qs.enabled;
-            $g('uf-quiz-topic').value = qs.topic || '';
-            $g('uf-quiz-statuslabel').textContent = qs.enabled ? '🟢 แบบทดสอบเปิดให้ทำอยู่' : '🔒 แบบทดสอบปิดอยู่';
-            $g('uf-quiz-enabled').addEventListener('change', () => {
-                $g('uf-quiz-statuslabel').textContent = $g('uf-quiz-enabled').checked ? '🟢 แบบทดสอบเปิดให้ทำอยู่' : '🔒 แบบทดสอบปิดอยู่';
-            });
-        }
-
-        function renderFeatureToggles(flags) {
-            const wrap = $g('uf-toggle-list');
-            wrap.innerHTML = '';
-            Object.entries(FEATURE_TOGGLE_LABELS).forEach(([key, [icon, title, desc]]) => {
-                const row = document.createElement('label');
-                row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;cursor:pointer;padding:10px 4px;border-bottom:1px solid var(--border-soft);';
-                row.innerHTML = `
-                    <div>
-                        <div style="font-weight:600;font-size:12.5px;">${icon} ${title}</div>
-                        <div style="color:var(--text-2);font-size:11px;margin-top:2px;">${desc}</div>
-                    </div>
-                    <input type="checkbox" data-feature="${key}" style="width:16px;height:16px;accent-color:var(--blue);flex-shrink:0;margin-left:12px;">
-                `;
-                wrap.appendChild(row);
-                row.querySelector('input').checked = flags[key] !== false;
-            });
-        }
-
-        async function saveFeatureToggles() {
-            const body = {};
-            document.querySelectorAll('#uf-toggle-list input[data-feature]').forEach(cb => { body[cb.dataset.feature] = cb.checked; });
-            const status = $g('uf-toggle-status');
-            try {
-                const session = (await supabaseClient.auth.getSession()).data.session;
-                const res = await fetch('/api/settings/features', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
-                    body: JSON.stringify(body)
-                });
-                if (!res.ok) throw new Error((await res.json()).error || 'บันทึกไม่สำเร็จ');
-                status.style.color = 'var(--green)'; status.textContent = '✅ บันทึกแล้ว';
-                setTimeout(() => status.textContent = '', 2500);
-            } catch (err) { status.style.color = 'var(--red)'; status.textContent = '❌ ' + err.message; }
-        }
-
-        async function saveSiteContent(section, fields) {
-            const status = $g('uf-' + (section === 'aboutUs' ? 'aboutus' : section) + '-status');
-            const sectionData = {};
-            fields.forEach(f => { sectionData[f] = $g('uf-' + (section === 'aboutUs' ? 'aboutus' : section) + '-' + f).value; });
-            try {
-                const session = (await supabaseClient.auth.getSession()).data.session;
-                const res = await fetch('/api/settings/site-content', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
-                    body: JSON.stringify({ [section]: sectionData })
-                });
-                if (!res.ok) throw new Error((await res.json()).error || 'บันทึกไม่สำเร็จ');
-                status.style.color = 'var(--green)'; status.textContent = '✅ บันทึกแล้ว';
-                setTimeout(() => status.textContent = '', 2500);
-            } catch (err) { status.style.color = 'var(--red)'; status.textContent = '❌ ' + err.message; }
-        }
-
-        async function saveQuizSettings() {
-            const status = $g('uf-quiz-status');
-            try {
-                const session = (await supabaseClient.auth.getSession()).data.session;
-                const res = await fetch('/api/knowledge-settings', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
-                    body: JSON.stringify({ enabled: $g('uf-quiz-enabled').checked, topic: $g('uf-quiz-topic').value })
-                });
-                if (!res.ok) throw new Error((await res.json()).error || 'บันทึกไม่สำเร็จ');
-                status.style.color = 'var(--green)'; status.textContent = '✅ บันทึกแล้ว';
-                setTimeout(() => status.textContent = '', 2500);
-            } catch (err) { status.style.color = 'var(--red)'; status.textContent = '❌ ' + err.message; }
-        }
 
         // ---------- Chat & Voice settings (localStorage — โลก 3D อ่านค่าพวกนี้) ----------
         (function () {
