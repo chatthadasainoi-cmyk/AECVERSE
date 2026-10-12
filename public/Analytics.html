@@ -386,7 +386,7 @@
             <div><div style="color:var(--text-2);font-size:11px;margin-bottom:4px;">Equipment</div><select class="select">TANK-01</select></div>
             <div><div style="color:var(--text-2);font-size:11px;margin-bottom:4px;">Parameter</div><select class="select">Pressure</select></div>
             <div><div style="color:var(--text-2);font-size:11px;margin-bottom:4px;">Date Range</div><select class="select">01/05/2025 - 20/05/2025</select></div>
-            <button class="btn primary" style="margin-left:auto;">⭳ Export Report</button>
+            <button class="btn primary" id="export-report" type="button" onclick="exportAnalyticsReport()" style="margin-left:auto;">⭳ Export Report</button>
             </div>
         </div>
 
@@ -451,7 +451,9 @@
         let token = null;
         try { const { data: { session } } = await supabaseClient.auth.getSession(); token = session?.access_token || null; } catch (err) {}
         const socket = io(SERVER, { transports: ['websocket', 'polling'], auth: { token, role: 'watcher' } });
-        const PSM_LIMIT = 2.8;
+        // เพดานบนของ PT01 ตามเอกสารเครื่องมือวัด = 110 mbar G (ช่วงปกติ 90–110)
+        // ค่าเดิม 2.8 เป็นหน่วย bar แต่ข้อมูลตอนนี้เป็น mbar (~100) จึงเกินเพดานทุกจุดและขึ้น "Exceed 60 Times" เสมอ
+        const PSM_LIMIT = 110;
 
         function buildLineChart(values, w, h, color, limitY){
             if (!values.length) return '';
@@ -503,7 +505,102 @@
             }).join('');
         }
 
+        // ---------- Export Report ----------
+        // ส่งออกสิ่งที่เห็นอยู่บนหน้านี้เป็นไฟล์ CSV: สรุป + ประวัติความดัน/มีเทน + ตารางทำนายซ่อมบำรุง
+        // ใช้ข้อมูลชุดเดียวกับที่วาดกราฟอยู่ จึงตรงกับหน้าจอเสมอ ไม่ได้ไปดึงใหม่
+        let latest = null;   // plant_update ล่าสุด
+
+        // ข้อความที่มี , " หรือขึ้นบรรทัดใหม่ ต้องห่อด้วย " และเขียน " ซ้อนสองตัว ไม่งั้นคอลัมน์เลื่อน
+        const csvCell = v => {
+            const s = v === undefined || v === null ? '' : String(v);
+            return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+        };
+        const csvRow = cells => cells.map(csvCell).join(',');
+        const pad2 = n => String(n).padStart(2, '0');
+        const stamp = d => d.getFullYear() + pad2(d.getMonth() + 1) + pad2(d.getDate()) + '-' + pad2(d.getHours()) + pad2(d.getMinutes()) + pad2(d.getSeconds());
+
+        function buildReportCsv(data, now) {
+            const hist = Array.isArray(data.history) ? data.history : [];
+            const pressures = hist.map(h => h.pressure).filter(v => v !== undefined);
+            const p = pressures.length ? pressures : [data.tank1.pressure];
+            const avg = p.reduce((a, b) => a + b, 0) / p.length;
+            const f2 = v => Number(v).toFixed(2);
+            const rows = [];
+
+            rows.push(['AEC VERSE - Analytics Trend Report']);
+            rows.push(['Generated', now.toISOString()]);
+            rows.push(['Data source', 'Live Simulated Sensor Feed']);
+            rows.push(['Sample interval', '4 seconds']);
+            rows.push([]);
+
+            rows.push(['Pressure summary (TANK-01)']);
+            rows.push(['Metric', 'Value', 'Unit']);
+            rows.push(['Average', f2(avg), 'mbar']);
+            rows.push(['Maximum', f2(Math.max(...p)), 'mbar']);
+            rows.push(['Minimum', f2(Math.min(...p)), 'mbar']);
+            rows.push(['PSM limit (high)', PSM_LIMIT, 'mbar']);
+            rows.push(['Exceed limit', p.filter(v => v > PSM_LIMIT).length, 'times']);
+            rows.push(['Data points', p.length, 'points']);
+            rows.push([]);
+
+            rows.push(['History']);
+            rows.push(['Timestamp', 'Pressure (mbar)', 'Methane CH4 (%)']);
+            hist.forEach(h => rows.push([
+                new Date(h.t).toISOString(),
+                h.pressure !== undefined ? f2(h.pressure) : '',
+                h.ch4Percent !== undefined ? f2(h.ch4Percent) : ''
+            ]));
+            rows.push([]);
+
+            rows.push(['AI Predictive Maintenance']);
+            rows.push(['Equipment', 'Name', 'Wear (%)', 'Risk', 'Predicted rate (%/day)', 'Days to maintenance', 'Source']);
+            (Array.isArray(data.equipment) ? data.equipment : [])
+                .slice().sort((a, b) => a.daysToMaintenance - b.daysToMaintenance)
+                .forEach(e => {
+                    const ai = e.aiPrediction || {};
+                    rows.push([
+                        e.id, e.name, f2(e.wear), e.risk,
+                        ai.dailyRate !== undefined ? ai.dailyRate.toFixed(3) : '',
+                        e.daysToMaintenance,
+                        ai.predicted ? 'AI Prediction' : 'Baseline (' + (ai.samples || 0) + '/5 samples)'
+                    ]);
+                });
+
+            // BOM นำหน้า ให้ Excel อ่านภาษาไทยในชื่ออุปกรณ์ถูก ไม่เป็นตัวอักษรเพี้ยน
+            return '﻿' + rows.map(csvRow).join('\r\n') + '\r\n';
+        }
+
+        window.exportAnalyticsReport = function () {
+            const btn = document.getElementById('export-report');
+            const flash = (text, ms) => {
+                if (!btn) return;
+                const old = btn.dataset.label || btn.textContent;
+                btn.dataset.label = old;
+                btn.textContent = text;
+                setTimeout(() => { btn.textContent = old; }, ms);
+            };
+            // เปิดหน้าแล้วกดทันที ข้อมูลรอบแรกอาจยังไม่มา — บอกให้รอ ไม่ปล่อยให้ได้ไฟล์เปล่า
+            if (!latest || !latest.tank1) { flash('รอข้อมูลสักครู่…', 2000); return; }
+            try {
+                const now = new Date();
+                const blob = new Blob([buildReportCsv(latest, now)], { type: 'text/csv;charset=utf-8' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'analytics-report-' + stamp(now) + '.csv';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+                flash('✓ ดาวน์โหลดแล้ว', 2000);
+            } catch (err) {
+                console.error('[EXPORT] สร้างรายงานไม่สำเร็จ:', err);
+                flash('ส่งออกไม่สำเร็จ', 2500);
+            }
+        };
+
         socket.on('plant_update', data => {
+            latest = data;
             renderAiMaintenance(data.equipment);
             const hist = data.history;
             const pressures = hist.map(h => h.pressure).filter(v => v !== undefined);
