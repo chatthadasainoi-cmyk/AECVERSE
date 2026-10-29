@@ -245,6 +245,15 @@
         </label>
 
         <div class="hr"></div>
+        <label class="section-label">เอฟเฟกต์ความอันตราย (ทดสอบความปลอดภัย)</label>
+        <label class="layer-row">
+            <input type="checkbox" id="layer-danger" checked onchange="window.AecDanger && AecDanger.setEnabled(this.checked)">
+            <span>แสดงเอฟเฟกต์อันตราย (กะพริบแดง / ก๊าซรั่ว)</span>
+        </label>
+        <button id="btn-danger-clear" class="panel-action-btn action-block" onclick="window.AecDanger && AecDanger.clearAll()" style="margin-top:6px;">ล้างเครื่องหมายอันตรายทั้งหมด</button>
+        <p style="font-size:11px; color:var(--text-2); line-height:1.5; margin:6px 0 0;">เลือกชิ้นส่วน แล้วกดปุ่มในแผงข้อมูลด้านล่าง · เห็นเฉพาะในเครื่องคุณ ไม่ส่งให้คนอื่นและไม่ถูกบันทึก</p>
+
+        <div class="hr"></div>
         <label class="section-label">เครื่องมือตรวจสอบ</label>
         <button id="btn-measure-panel" class="panel-action-btn action-block" onclick="toggleMeasureMode()">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.3 8.7L15.3 2.7a1 1 0 00-1.4 0L2.7 13.9a1 1 0 000 1.4l6 6a1 1 0 001.4 0L21.3 10a1 1 0 000-1.3zM7.5 10.5l2 2M10.5 7.5l2 2M13.5 4.5l2 2"/></svg>
@@ -477,6 +486,8 @@
                     <button id="btn-set-marker" class="panel-action-btn" onclick="openMarkerEditorForActive()" style="background:rgba(34,211,238,0.14);border-color:rgba(34,211,238,0.35);color:#22d3ee; font-size:11.5px; padding:6px 10px;">📍 กำหนดจุด</button>
                     <button id="btn-try-type" class="panel-action-btn" onclick="openTypeInteraction()" style="background:rgba(34,211,238,0.14);border-color:rgba(34,211,238,0.4);color:#22d3ee; font-size:11.5px; padding:6px 10px;">🎮 ลองใช้งาน</button>
                     <button id="btn-assign-type" class="panel-action-btn" onclick="openTypeSelectorForActive()" style="background:var(--purple-soft);border-color:rgba(168,85,247,0.35);color:var(--purple); font-size:11.5px; padding:6px 10px;">กำหนด Type</button>
+                    <button id="btn-danger-mark" class="panel-action-btn" onclick="window.AecDanger && AecDanger.toggleSelected()" style="background:rgba(239,68,68,0.14);border-color:rgba(239,68,68,0.4);color:#ef4444; font-size:11.5px; padding:6px 10px;">⚠️ ทำเครื่องหมายอันตราย</button>
+                    <button id="btn-danger-leak" class="panel-action-btn" onclick="window.AecDanger && AecDanger.leakSelected()" style="background:rgba(245,158,11,0.14);border-color:rgba(245,158,11,0.4);color:#f59e0b; font-size:11.5px; padding:6px 10px;">💨 จำลองก๊าซรั่ว</button>
                     <button id="btn-edit-mode" class="panel-action-btn btn-edit-trigger" onclick="enableLiveEdit()" style="font-size:11.5px; padding:6px 10px;">แก้ไขข้อมูล</button>
                     <div id="edit-actions-group" style="display: none; gap: 6px;">
                         <button class="panel-action-btn btn-save" onclick="saveLiveEdit()" style="font-size:11.5px; padding:6px 10px;">บันทึก</button>
