@@ -5192,11 +5192,108 @@ window.addEventListener('message', e => {
     setViewMode(e.data.mode);
 });
 
+// ============================================================
+// === GAME FEEL === core (ข้อ 1: tickers + dt + หยุดเมื่อแท็บซ่อน + tween ที่ยกเลิกได้)
+//
+// กติกา: ลูปวาดภาพมีลูปเดียวคือ animate() ด้านล่าง งานรายเฟรมทุกอย่างของเอฟเฟกต์ใหม่
+// ต้องลงทะเบียนผ่าน addTicker() ห้ามเพิ่ม requestAnimationFrame หรือ setInterval แอนิเมชันเอง
+// ทุก ticker ถูกเรียกผ่าน safeCall() ตัวที่พังจะไม่ลากลูปพังไปด้วย
+//
+// ใช้ animClock/frameDt ตัวเดิมของระบบ ไม่สร้างนาฬิกาตัวที่สอง — สองนาฬิกาจะนับเวลาไม่ตรงกัน
+// และตัวที่ถูกอ่านทีหลังจะได้ delta เพี้ยน
+// ============================================================
+
+// ตัดช่วงเวลาต่อเฟรมไม่ให้เกิน 50 ms: สลับแท็บแล้วกลับมา หรือเฟรมสะดุดยาว
+// จะไม่ทำให้ตัวละคร/กล้อง/tween กระโดดไปข้างหน้าทีเดียว
+const MAX_FRAME_DT = 0.05;
+
+// ทะเบียน ticker: fn(dt) ถูกเรียกทุกเฟรม (dt เป็นวินาที ผ่านการตัดแล้ว)
+// ใช้ Set แล้ววนตรงๆ ได้เลย — ลบ/เพิ่มระหว่างวนปลอดภัยตามสเปกของ Set จึงไม่ต้องสำเนาอาร์เรย์ทุกเฟรม
+const tickers = new Set();
+const TICKER_MAX_FAILS = 5;     // พังติดกันเท่านี้ครั้งจะถอดทิ้งอัตโนมัติ กัน console ท่วมเฟรมละหลายบรรทัด
+let tickerDt = 0;               // dt ของเฟรมปัจจุบัน ให้ run() อ่าน เพื่อไม่ต้องสร้างฟังก์ชันใหม่ทุกเฟรม
+
+function addTicker(fn, label) {
+    if (typeof fn !== 'function') return () => {};
+    const entry = {
+        fn,
+        label: label || fn.name || 'ticker',
+        fails: 0,
+        ok: false,
+        run() { this.ok = false; fn(tickerDt); this.ok = true; }
+    };
+    entry.runBound = () => entry.run();     // สร้างครั้งเดียวตอนลงทะเบียน ไม่สร้างใหม่ทุกเฟรม
+    tickers.add(entry);
+    return function removeTicker() { tickers.delete(entry); };
+}
+
+function runTickers(dt) {
+    tickerDt = dt;
+    for (const e of tickers) {
+        safeCall(e.runBound, 'ticker:' + e.label);
+        if (e.ok) { e.fails = 0; continue; }
+        if (++e.fails >= TICKER_MAX_FAILS) {
+            tickers.delete(e);
+            console.error(`[GAME FEEL] ถอด ticker "${e.label}" ออก เพราะพังติดกัน ${TICKER_MAX_FAILS} เฟรม`);
+        }
+    }
+}
+
+// หยุดทำงานเมื่อแท็บถูกซ่อน (Socket.IO ยังต่ออยู่ตามปกติ เพราะไม่ได้แตะ)
+// กลับมาแล้วอ่านนาฬิกาทิ้งหนึ่งครั้ง ช่วงที่หายไปจะไม่ถูกนับเป็น delta ก้อนใหญ่
+let pageHidden = document.hidden;
+document.addEventListener('visibilitychange', () => {
+    pageHidden = document.hidden;
+    if (!pageHidden) animClock.getDelta();
+});
+
+// ---------- easing + tween (ไม่พึ่งไลบรารี) ----------
+const Ease = {
+    outCubic: t => 1 - Math.pow(1 - t, 3),
+    inOutCubic: t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2,
+    outBack: t => { const c = 1.70158; return 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2); }
+};
+
+// key -> ฟังก์ชันยกเลิกของ tween ที่กำลังวิ่งอยู่กับ key นั้น
+// เริ่ม tween ใหม่บน key เดิมจะยกเลิกอันเก่าก่อนเสมอ ไม่ซ้อนกันบน property เดียว
+const activeTweens = new Map();
+
+function tween({ key, duration = 0.6, ease = Ease.outCubic, onUpdate, onDone } = {}) {
+    if (key && activeTweens.has(key)) activeTweens.get(key)();
+    const total = duration > 0 ? duration : 1e-6;   // ระยะเวลา 0 หรือติดลบ = เสร็จในเฟรมถัดไป ไม่หารศูนย์
+    let t = 0, live = true;
+    let removeTick = null;
+
+    function cancel() {
+        if (!live) return;
+        live = false;
+        if (removeTick) removeTick();
+        // ลบ key ก็ต่อเมื่อ key ยังชี้มาที่ tween ตัวนี้ — ถ้ามี tween ใหม่ชิง key ไปแล้ว ห้ามไปลบของใหม่
+        if (key && activeTweens.get(key) === cancel) activeTweens.delete(key);
+    }
+    if (key) activeTweens.set(key, cancel);
+
+    removeTick = addTicker(dt => {
+        if (!live) return;
+        t = Math.min(t + dt / total, 1);
+        if (onUpdate) onUpdate(ease(t));
+        if (t === 1) {
+            cancel();                       // ปลดตัวเองก่อนเรียก onDone เผื่อ onDone เริ่ม tween ใหม่บน key เดิม
+            if (onDone) onDone();
+        }
+    }, 'tween' + (key ? ':' + key : ''));
+    return cancel;
+}
+// === END GAME FEEL core ===
+
 function animate() {
     // ตอนอยู่ในโหมด VR ต้องให้ renderer.setAnimationLoop เป็นคนเรียกแทน
     // เพราะแว่นวาดคนละจังหวะกับจอ ถ้ายังใช้ requestAnimationFrame ภาพจะไม่ตรงกับการหันหัว
     if (!window.AEC_XR_ACTIVE) requestAnimationFrame(animate);
-    frameDt = animClock.getDelta(); // เวลาต่อเฟรมสำหรับ AnimationMixer ของตัวละคร
+    frameDt = Math.min(animClock.getDelta(), MAX_FRAME_DT); // ตัดไม่ให้เกิน 50 ms กันกระโดดหลังสลับแท็บ
+    // แท็บถูกซ่อน = ไม่ทำงานเอฟเฟกต์/ฟิสิกส์/วาดภาพ (rAF ยังถูกจองไว้ข้างบนแล้ว กลับมาแล้ววิ่งต่อได้)
+    // ยกเว้นตอนอยู่ใน VR: แว่นเป็นคนคุมจังหวะเฟรม และ document.hidden ในโหมด immersive ต่างกันตามเบราว์เซอร์
+    if (pageHidden && !window.AEC_XR_ACTIVE) return;
     if (window.AecVR) safeCall(() => AecVR.update(frameDt), 'AecVR.update');
     safeCall(updateAvatarPhysics, 'updateAvatarPhysics');
     safeCall(updateRemoteAvatars, 'updateRemoteAvatars');
@@ -5206,6 +5303,7 @@ function animate() {
     safeCall(checkPPEZones, 'checkPPEZones');
     safeCall(checkAutoDeselect, 'checkAutoDeselect');
     safeCall(emitOwnPosition, 'emitOwnPosition');
+    runTickers(frameDt); // === GAME FEEL === ทุก ticker/tween ทำงานตรงนี้ ก่อน controls.update เพื่อให้กล้องที่ถูก tween ถูกใช้ในเฟรมเดียวกัน
     safeCall(() => controls.update(), 'controls.update');
     safeCall(() => renderer.render(scene, camera), 'renderer.render');
 }
