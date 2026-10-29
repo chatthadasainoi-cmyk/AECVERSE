@@ -6226,6 +6226,279 @@ if (VIEWER_MODE) {
 }
 // === END GAME FEEL HUD ===
 
+// ============================================================
+// === GAME FEEL === danger (ข้อ 7: เอฟเฟกต์ความอันตราย — แบบ manual ผู้ใช้เปิด/ปิดเอง)
+//
+// ตั้งใจให้ "ไม่ผูกกับข้อมูลโรงงานอัตโนมัติ": ไม่มีอะไรเกิดขึ้นเองจึงไม่มีทางพังจากข้อมูลที่ขาด/เพี้ยน
+// ผู้ใช้เลือกชิ้นส่วน แล้วกดปุ่มในแผงข้อมูล (ทำเครื่องหมายอันตราย / จำลองก๊าซรั่ว) และเปิด-ปิดทั้งหมดได้ที่แท็บเลเยอร์
+// ค่าเปิด/ปิดจำไว้ในเครื่อง (localStorage) ส่วนเครื่องหมายเป็นของเซสชันนี้ — ไม่บันทึก ไม่กระจายผ่าน Socket.IO
+// (ภาพล้วนเห็นเฉพาะเครื่องตัวเอง ตามกฎของ Game Feel) AecDanger.mark(uuid) เปิดไว้ให้บทเรียน/สถานการณ์ในอนาคตเรียกใช้
+//
+// ไม่แตะวัสดุของโมเดล (เหมือนข้อ 3): เมชแดงซ้อนทับที่ใช้ geometry ร่วมกับชิ้นจริง กะพริบ 1.5 Hz + วงแหวนบนพื้น
+// ชิ้นหนัก (> HOVER_MAX_TRIS สามเหลี่ยม เช่นท่อรวมก้อนใหญ่) ห้ามวาดซ้ำ -> ใช้วงแหวน + ก๊าซที่ "จุดกลางจอ" แทนการเรืองทั้งชิ้น
+// ก๊าซ = THREE.Points ก้อนเดียวใช้ pool ตายตัว (high 300 / low 80 อนุภาค) additive ไม่สร้างวัตถุใหม่ในลูป
+// ============================================================
+const DANGER_KEY = 'aec_layer_danger';
+const DANGER_PULSE_HZ = 1.5;
+const DANGER_MAX_MARKS = 12;
+const DANGER_MAX_LEAKS = 4;
+const LEAK_MAX_PARTICLES = QUALITY === 'low' ? 80 : 300;
+const LEAK_LIFE_MIN = 1.4, LEAK_LIFE_MAX = 2.6;
+
+let dangerEnabled = true;
+try { dangerEnabled = localStorage.getItem(DANGER_KEY) !== 'off'; } catch (e) { /* ใช้ค่าเริ่มต้น */ }
+
+// ---------- ทรัพยากรที่ใช้ร่วมกันทุกเครื่องหมาย (สร้างครั้งเดียว) ----------
+const dangerMat = new THREE.MeshBasicMaterial({
+    color: 0xff2a2a, transparent: true, opacity: 0, depthWrite: false, toneMapped: false,
+    polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3
+});
+const dangerRingMat = new THREE.MeshBasicMaterial({ color: 0xff2a2a, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide, toneMapped: false });
+const dangerRingGeo = new THREE.RingGeometry(0.82, 1, 48);
+dangerRingGeo.rotateX(-Math.PI / 2);                         // วางราบกับพื้น
+
+function makeSoftSprite() {
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const ctx = c.getContext && c.getContext('2d');
+    if (!ctx) return null;
+    const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+    g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.4, 'rgba(255,255,255,0.45)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, 64, 64);
+    return new THREE.CanvasTexture(c);
+}
+const leakMap = makeSoftSprite();
+const LK = LEAK_MAX_PARTICLES;
+const lkPos = new Float32Array(LK * 3), lkCol = new Float32Array(LK * 3), lkVel = new Float32Array(LK * 3);
+const lkAge = new Float32Array(LK).fill(1), lkLife = new Float32Array(LK).fill(1);   // age >= life = ว่าง
+const leakGeo = new THREE.BufferGeometry();
+leakGeo.setAttribute('position', new THREE.BufferAttribute(lkPos, 3).setUsage(THREE.DynamicDrawUsage));
+leakGeo.setAttribute('color', new THREE.BufferAttribute(lkCol, 3).setUsage(THREE.DynamicDrawUsage));
+const leakMat = new THREE.PointsMaterial({
+    size: 0.5, map: leakMap, vertexColors: true, transparent: true, blending: THREE.AdditiveBlending,
+    depthWrite: false, sizeAttenuation: true, toneMapped: false
+});
+const leakPoints = new THREE.Points(leakGeo, leakMat);
+leakPoints.frustumCulled = false; leakPoints.visible = false; leakPoints.raycast = () => {};
+leakPoints.userData.gfOverlay = true;
+scene.add(leakPoints);
+
+// ---------- เครื่องหมาย ----------
+// mark: { uuid, mesh, parent, local(Vector3), floorDrop, radius, overlay|null, ring, leak, wx, wy, wz }
+const dangerMarks = [];                     // ใช้อาร์เรย์ (วนซ้ำไม่สร้าง iterator ในลูป)
+const dangerByUuid = new Map();
+const leakList = [];                        // ใช้ซ้ำทุกเฟรม
+const dangerRay = new THREE.Raycaster();
+const _dgBox = new THREE.Box3(), _dgSize = new THREE.Vector3(), _dgC = new THREE.Vector3(), _dgV = new THREE.Vector3();
+const _dgNDC = new THREE.Vector2(0, 0);
+let dangerModel = null, dangerT = 0, lkRR = 0, lkCursor = 0, lkSpawnAcc = 0, lkDirty = false;
+let dangerSelShown = undefined, dangerLblMark = '', dangerLblLeak = '';
+
+function dangerToast(text, kind) {
+    if (window.AecHud) window.AecHud.toast(text, { kind: kind || 'info' });
+    else safeCall(() => mpAppendChat({ name: 'ระบบ', color: '#f59e0b', text }), 'danger-hint');
+}
+function dangerFindMesh(uuid) {
+    let m = hoverByUuid.get(uuid) || null;
+    if (!m && factoryModel) factoryModel.traverse(c => { if (!m && c.isMesh && c.uuid === uuid) m = c; });
+    return m;
+}
+
+// จุดยึด: ชิ้นเบา = กึ่งกลางกล่องของชิ้น (ตามชิ้นเมื่อโมเดลถูกย้าย/ขยาย) ; ชิ้นหนัก = จุดกลางจอที่ชี้โดนชิ้นนั้น
+function dangerMakeMark(mesh) {
+    const light = hoverByUuid.has(mesh.uuid);
+    let parent, local = new THREE.Vector3(), floorDrop = 0, radius = 2;
+    if (light) {
+        const g = mesh.geometry;
+        if (!g.boundingBox) g.computeBoundingBox();
+        g.boundingBox.getCenter(local);
+        parent = mesh;
+        _dgBox.setFromObject(mesh); _dgBox.getSize(_dgSize); _dgBox.getCenter(_dgC);
+        floorDrop = Math.max(0, _dgC.y - _dgBox.min.y);
+        radius = THREE.MathUtils.clamp(0.7 * Math.max(_dgSize.x, _dgSize.z), 0.8, 6);
+    } else {
+        dangerRay.setFromCamera(_dgNDC, camera);
+        const hit = dangerRay.intersectObject(mesh, false)[0];
+        if (!hit) {
+            dangerToast('ชิ้นนี้ใหญ่มาก — หันกล้องให้กลางจอชี้ที่ชิ้นนั้นก่อน แล้วกดอีกครั้ง', 'warn');
+            return null;
+        }
+        parent = factoryModel;
+        local.copy(hit.point);
+        factoryModel.worldToLocal(local);
+        radius = 3;
+    }
+    const mark = { uuid: mesh.uuid, mesh, parent, local, floorDrop, radius, overlay: null, ring: null, leak: false, wx: 0, wy: 0, wz: 0 };
+    if (light) {
+        const ov = new THREE.Mesh(mesh.geometry, dangerMat);
+        ov.matrixAutoUpdate = false; ov.frustumCulled = false; ov.renderOrder = 9; ov.raycast = () => {};
+        ov.userData.gfOverlay = true; ov.visible = dangerEnabled;
+        scene.add(ov); mark.overlay = ov;
+    }
+    const ring = new THREE.Mesh(dangerRingGeo, dangerRingMat);
+    ring.frustumCulled = false; ring.renderOrder = 9; ring.raycast = () => {};
+    ring.userData.gfOverlay = true; ring.visible = dangerEnabled;
+    scene.add(ring); mark.ring = ring;
+    dangerMarks.push(mark); dangerByUuid.set(mark.uuid, mark);
+    return mark;
+}
+function dangerRemoveMark(mark) {
+    if (mark.overlay) scene.remove(mark.overlay);       // เมชซ้อนทับเท่านั้น — geometry เป็นของโมเดล ไม่ dispose
+    scene.remove(mark.ring);
+    const i = dangerMarks.indexOf(mark); if (i >= 0) dangerMarks.splice(i, 1);
+    dangerByUuid.delete(mark.uuid);
+}
+function dangerClearAll() {
+    while (dangerMarks.length) dangerRemoveMark(dangerMarks[dangerMarks.length - 1]);
+    for (let i = 0; i < LK; i++) lkAge[i] = lkLife[i] = 1;      // เคลียร์อนุภาคที่ค้าง
+    lkCol.fill(0); lkDirty = true;
+    dangerRefreshButtons();
+}
+
+function dangerLeakCount() { let n = 0; for (let i = 0; i < dangerMarks.length; i++) if (dangerMarks[i].leak) n++; return n; }
+
+function dangerMark(uuid, withLeak) {
+    if (!factoryModel || !uuid) return null;
+    let mark = dangerByUuid.get(uuid);
+    if (!mark) {
+        if (dangerMarks.length >= DANGER_MAX_MARKS) { dangerToast('ทำเครื่องหมายได้ไม่เกิน ' + DANGER_MAX_MARKS + ' จุด — ล้างบางจุดก่อน', 'warn'); return null; }
+        const mesh = dangerFindMesh(uuid);
+        if (!mesh) return null;
+        mark = dangerMakeMark(mesh);
+        if (!mark) return null;
+    }
+    if (withLeak && !mark.leak) {
+        if (dangerLeakCount() >= DANGER_MAX_LEAKS) { dangerToast('จำลองก๊าซรั่วได้พร้อมกันไม่เกิน ' + DANGER_MAX_LEAKS + ' จุด', 'warn'); return mark; }
+        mark.leak = true;
+    }
+    return mark;
+}
+
+function dangerSetEnabled(on) {
+    dangerEnabled = !!on;
+    try { localStorage.setItem(DANGER_KEY, dangerEnabled ? 'on' : 'off'); } catch (e) { /* ใช้ได้ในเซสชันนี้ */ }
+    for (let i = 0; i < dangerMarks.length; i++) {
+        const m = dangerMarks[i];
+        m.ring.visible = dangerEnabled; if (m.overlay) m.overlay.visible = dangerEnabled;
+    }
+    leakPoints.visible = dangerEnabled && lkLiveCount() > 0;
+    const cb = $('layer-danger'); if (cb) cb.checked = dangerEnabled;
+}
+function lkLiveCount() { let n = 0; for (let i = 0; i < LK; i++) if (lkAge[i] < lkLife[i]) n++; return n; }
+
+function dangerToggleSelected() {
+    if (!factoryModel || !selection.uuid) { dangerToast('เลือกชิ้นส่วนก่อน แล้วค่อยทำเครื่องหมายอันตราย', 'warn'); return; }
+    const existing = dangerByUuid.get(selection.uuid);
+    if (existing) { dangerRemoveMark(existing); dangerToast('ล้างเครื่องหมายอันตรายแล้ว', 'info'); dangerRefreshButtons(); return; }
+    if (!dangerEnabled) dangerSetEnabled(true);
+    const m = dangerMark(selection.uuid, false);
+    if (m) dangerToast('⚠️ ทำเครื่องหมายอันตราย: ' + hoverLabel(m.mesh), 'warn');
+    dangerRefreshButtons();
+}
+function dangerLeakSelected() {
+    if (!factoryModel || !selection.uuid) { dangerToast('เลือกชิ้นส่วนก่อน แล้วค่อยจำลองก๊าซรั่ว', 'warn'); return; }
+    const existing = dangerByUuid.get(selection.uuid);
+    if (existing && existing.leak) { existing.leak = false; dangerToast('หยุดจำลองก๊าซรั่วแล้ว', 'info'); dangerRefreshButtons(); return; }
+    if (!dangerEnabled) dangerSetEnabled(true);
+    const m = dangerMark(selection.uuid, true);
+    if (m && m.leak) dangerToast('💨 จำลองก๊าซรั่ว: ' + hoverLabel(m.mesh), 'alarm');
+    dangerRefreshButtons();
+}
+function dangerRefreshButtons() {
+    const m = selection.uuid ? dangerByUuid.get(selection.uuid) : null;
+    const a = m ? '✅ ยกเลิกเครื่องหมายอันตราย' : '⚠️ ทำเครื่องหมายอันตราย';
+    const b = (m && m.leak) ? '🛑 หยุดก๊าซรั่ว' : '💨 จำลองก๊าซรั่ว';
+    if (a !== dangerLblMark) { dangerLblMark = a; const el = $('btn-danger-mark'); if (el) el.textContent = a; }
+    if (b !== dangerLblLeak) { dangerLblLeak = b; const el = $('btn-danger-leak'); if (el) el.textContent = b; }
+}
+
+// ---------- ก๊าซรั่ว ----------
+function lkSpawn(k, mark) {
+    lkPos[k * 3] = mark.wx + (Math.random() - 0.5) * 0.3;
+    lkPos[k * 3 + 1] = mark.wy;
+    lkPos[k * 3 + 2] = mark.wz + (Math.random() - 0.5) * 0.3;
+    lkVel[k * 3] = (Math.random() - 0.5) * 0.5;
+    lkVel[k * 3 + 1] = 0.5 + Math.random();
+    lkVel[k * 3 + 2] = (Math.random() - 0.5) * 0.5;
+    lkAge[k] = 0;
+    lkLife[k] = LEAK_LIFE_MIN + Math.random() * (LEAK_LIFE_MAX - LEAK_LIFE_MIN);
+    lkCol[k * 3] = lkCol[k * 3 + 1] = lkCol[k * 3 + 2] = 0;
+}
+function stepLeaks(dt) {
+    if (leakList.length) {                        // เติมช่องว่างให้อนุภาคไหลต่อเนื่อง ไม่เกินจำนวนที่ pool รับได้
+        lkSpawnAcc += dt * LK / ((LEAK_LIFE_MIN + LEAK_LIFE_MAX) / 2);
+        let n = Math.floor(lkSpawnAcc); lkSpawnAcc -= n;
+        for (let i = 0; i < LK && n > 0; i++) {
+            const k = (lkCursor + i) % LK;
+            if (lkAge[k] < lkLife[k]) continue;
+            lkSpawn(k, leakList[lkRR++ % leakList.length]);
+            lkCursor = (k + 1) % LK; n--;
+        }
+    } else lkSpawnAcc = 0;
+
+    let live = 0;
+    for (let k = 0; k < LK; k++) {
+        if (lkAge[k] >= lkLife[k]) continue;
+        lkAge[k] += dt;
+        if (lkAge[k] >= lkLife[k]) { lkCol[k * 3] = lkCol[k * 3 + 1] = lkCol[k * 3 + 2] = 0; continue; }
+        const i = k * 3;
+        lkVel[i + 1] *= 1 - 0.15 * dt;
+        lkPos[i] += lkVel[i] * dt; lkPos[i + 1] += lkVel[i + 1] * dt; lkPos[i + 2] += lkVel[i + 2] * dt;
+        const a = lkAge[k] / lkLife[k];
+        const f = (a < 0.15 ? a / 0.15 : (1 - a) / 0.85) * 0.8;      // additive: สีเข้มลง = จางลง
+        lkCol[i] = 1.0 * f; lkCol[i + 1] = 0.7 * f; lkCol[i + 2] = 0.3 * f;
+        live++;
+    }
+    if (live > 0 || lkDirty) { leakGeo.attributes.position.needsUpdate = true; leakGeo.attributes.color.needsUpdate = true; lkDirty = live > 0; }
+    leakPoints.visible = live > 0;
+}
+
+const DANGER_PERIOD = 1 / DANGER_PULSE_HZ;
+const removeDangerTicker = addTicker((dt) => {
+    if (factoryModel !== dangerModel) {           // โมเดลถูกเปลี่ยน: เครื่องหมายเดิมชี้ชิ้นที่ไม่มีแล้ว
+        if (dangerModel !== null || dangerMarks.length) dangerClearAll();
+        dangerModel = factoryModel;
+    }
+    if (selection.uuid !== dangerSelShown) { dangerSelShown = selection.uuid; dangerRefreshButtons(); }
+    if (!dangerEnabled) return;
+    if (!dangerMarks.length && !leakPoints.visible) return;
+
+    dangerT = (dangerT + dt) % DANGER_PERIOD;
+    const pulse = 0.5 + 0.5 * Math.sin(2 * Math.PI * DANGER_PULSE_HZ * dangerT);
+    dangerMat.opacity = 0.12 + 0.38 * pulse;
+    dangerRingMat.opacity = 0.25 + 0.55 * pulse;
+    leakList.length = 0;
+    for (let i = 0; i < dangerMarks.length; i++) {
+        const m = dangerMarks[i];
+        _dgV.copy(m.local).applyMatrix4(m.parent.matrixWorld);       // ตามชิ้น/โมเดลเมื่อถูกย้าย
+        m.wx = _dgV.x; m.wy = _dgV.y; m.wz = _dgV.z;
+        m.ring.position.set(m.wx, m.wy - m.floorDrop + 0.03, m.wz);
+        const s = m.radius * (1 + 0.12 * pulse);
+        m.ring.scale.set(s, 1, s);
+        if (m.overlay) { m.overlay.matrix.copy(m.mesh.matrixWorld); m.overlay.matrixWorldNeedsUpdate = true; }
+        if (m.leak) leakList.push(m);
+    }
+    stepLeaks(dt);
+}, 'gf-danger');
+
+function disposeDanger() {
+    removeDangerTicker();
+    dangerClearAll();
+    scene.remove(leakPoints);
+    dangerMat.dispose(); dangerRingMat.dispose(); leakMat.dispose();
+    dangerRingGeo.dispose(); leakGeo.dispose();
+    if (leakMap) leakMap.dispose();
+}
+registerDisposer(disposeDanger, 'danger');
+window.AecDanger = {
+    setEnabled: dangerSetEnabled, isEnabled: () => dangerEnabled,
+    toggleSelected: dangerToggleSelected, leakSelected: dangerLeakSelected,
+    mark: dangerMark, clearAll: dangerClearAll,
+    count: () => dangerMarks.length, leaks: dangerLeakCount
+};
+dangerSetEnabled(dangerEnabled);                // ซิงก์ช่องติ๊กในแท็บเลเยอร์กับค่าที่จำไว้
+// === END GAME FEEL danger ===
+
 function animate() {
     if (worldDisposed) return; // GAME FEEL ข้อ 4: โลกถูกปล่อยแล้ว ไม่ต้องตั้ง requestAnimationFrame ต่อ
     // ตอนอยู่ในโหมด VR ต้องให้ renderer.setAnimationLoop เป็นคนเรียกแทน
