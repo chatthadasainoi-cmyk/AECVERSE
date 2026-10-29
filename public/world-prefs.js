@@ -16,8 +16,8 @@ window.AecWorldPrefs = (function () {
   const ACTIONS = {
     forward:  { label: 'เดินหน้า',        def: 'w' },
     backward: { label: 'ถอยหลัง',         def: 's' },
-    left:     { label: 'หันซ้าย',         def: 'a' },
-    right:    { label: 'หันขวา',          def: 'd' },
+    left:     { label: 'เดินซ้าย (คลาสสิก: หันซ้าย)',         def: 'a' },
+    right:    { label: 'เดินขวา (คลาสสิก: หันขวา)',         def: 'd' },
     jump:     { label: 'กระโดด',          def: ' ' },
     mic:      { label: 'เปิด/ปิดไมค์',     def: 'v' },
     chat:     { label: 'พิมพ์แชท',        def: '/' },
@@ -35,6 +35,11 @@ window.AecWorldPrefs = (function () {
     });
     return out;
   }
+  // รูปแบบการบังคับตัวละคร: 'game' (ค่าเริ่มต้น) = W/A/S/D เดินตามกล้อง, 'classic' = A/D หมุนตัวแบบเดิม
+  const SCHEME_KEY = 'aec_control_scheme';
+  function loadScheme() { try { return localStorage.getItem(SCHEME_KEY) === 'classic' ? 'classic' : 'game'; } catch (e) { return 'game'; } }
+  function saveScheme(v) { try { localStorage.setItem(SCHEME_KEY, v === 'classic' ? 'classic' : 'game'); } catch (e) { /* เก็บไม่ได้ก็ใช้ได้เซสชันนี้ */ } }
+
   function saveBinds(b) { try { localStorage.setItem(BIND_KEY, JSON.stringify(b)); } catch (e) {} }
   const getMicDeviceId = () => { try { return localStorage.getItem(MIC_KEY) || ''; } catch (e) { return ''; } };
 
@@ -210,7 +215,16 @@ window.AecWorldPrefs = (function () {
     let listeningFor = null;
 
     function render() {
+      const cur = loadScheme();
+      const schemeBtn = (k, t, d) =>
+        `<button class="wp-btn wp-scheme" data-scheme="${k}" style="flex:1;text-align:left;${cur === k ? 'border-color:#38bdf8;background:rgba(56,189,248,.12);' : ''}">${t}` +
+        `<div style="font-weight:400;font-size:11px;opacity:.75;margin-top:3px;">${d}</div></button>`;
       container.innerHTML =
+        '<div class="wp-bind-label" style="margin-bottom:6px;">รูปแบบการบังคับตัวละคร</div>' +
+        '<div style="display:flex;gap:8px;margin-bottom:14px;">' +
+          schemeBtn('game', '🎮 แบบเกม', 'W/A/S/D เดินตามกล้อง · บุคคลที่หนึ่งลากเมาส์เพื่อมองรอบ') +
+          schemeBtn('classic', '🕹️ แบบคลาสสิก', 'A/D หมุนตัว · W/S เดินหน้า-ถอย (แบบเดิม)') +
+        '</div>' +
         Object.keys(ACTIONS).map(a =>
           `<div class="wp-bind-row">
              <span class="wp-bind-label">${ACTIONS[a].label}</span>
@@ -223,6 +237,11 @@ window.AecWorldPrefs = (function () {
       container.querySelectorAll('.wp-bind-key').forEach(btn => {
         btn.addEventListener('click', () => { listeningFor = btn.dataset.action; render(); });
       });
+      container.querySelectorAll('.wp-scheme').forEach(b => b.addEventListener('click', () => {
+        saveScheme(b.dataset.scheme); render();
+        const n = container.querySelector('#wp-bind-note');
+        if (n) n.textContent = '✅ บันทึกรูปแบบการบังคับแล้ว — มีผลกับโลก 3D ที่เปิดอยู่ทันที';
+      }));
       container.querySelector('#wp-bind-reset').addEventListener('click', () => {
         binds = {}; Object.keys(ACTIONS).forEach(a => { binds[a] = ACTIONS[a].def; });
         saveBinds(binds); listeningFor = null; render();
@@ -254,5 +273,5 @@ window.AecWorldPrefs = (function () {
     render();
   }
 
-  return { mountMic, mountKeybinds, loadBinds, getMicDeviceId, ACTIONS };
+  return { mountMic, mountKeybinds, loadBinds, loadScheme, saveScheme, getMicDeviceId, ACTIONS };
 })();

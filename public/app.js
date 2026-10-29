@@ -4935,12 +4935,13 @@ function updateAvatarPhysics() {
     if (isTypingInField()) return;
 
     if (isFreeLook) {
+        const fls = freeLookSpeed * frameDt * 60; // GAME FEEL: ต่อเฟรมที่ 60 fps -> ไม่ผูกกับอัตราเฟรม
         const camDir = new THREE.Vector3(); camera.getWorldDirection(camDir);
         const camRight = new THREE.Vector3().crossVectors(camera.up, camDir).normalize();
-        if (moveStatus.forward) { camera.position.addScaledVector(camDir, freeLookSpeed); controls.target.addScaledVector(camDir, freeLookSpeed); }
-        if (moveStatus.backward) { camera.position.addScaledVector(camDir, -freeLookSpeed); controls.target.addScaledVector(camDir, -freeLookSpeed); }
-        if (moveStatus.left) { camera.position.addScaledVector(camRight, freeLookSpeed); controls.target.addScaledVector(camRight, freeLookSpeed); }
-        if (moveStatus.right) { camera.position.addScaledVector(camRight, -freeLookSpeed); controls.target.addScaledVector(camRight, -freeLookSpeed); }
+        if (moveStatus.forward) { camera.position.addScaledVector(camDir, fls); controls.target.addScaledVector(camDir, fls); }
+        if (moveStatus.backward) { camera.position.addScaledVector(camDir, -fls); controls.target.addScaledVector(camDir, -fls); }
+        if (moveStatus.left) { camera.position.addScaledVector(camRight, fls); controls.target.addScaledVector(camRight, fls); }
+        if (moveStatus.right) { camera.position.addScaledVector(camRight, -fls); controls.target.addScaledVector(camRight, -fls); }
         return;
     }
     if (!avatarModel) return;
@@ -4970,22 +4971,30 @@ function updateAvatarPhysics() {
             const targetAngle = Math.atan2(-dx, -dz);
             let angleDiff = targetAngle - avatarModel.rotation.y;
             angleDiff = Math.atan2(Math.sin(angleDiff), Math.cos(angleDiff)); // normalize -pi..pi
-            avatarModel.rotation.y += Math.sign(angleDiff) * Math.min(Math.abs(angleDiff), avatarConfig.turnSpeed);
+            avatarModel.rotation.y += Math.sign(angleDiff) * Math.min(Math.abs(angleDiff), avatarConfig.turnSpeed * frameDt * 60);
             moveStatus.left = moveStatus.right = moveStatus.backward = false;
             moveStatus.forward = Math.abs(angleDiff) < AUTO_WALK_TURN_ONLY_ANGLE;
             updateWalkArrowHud(dist, angleDiff);
         }
     }
 
-    if (moveStatus.left) avatarModel.rotation.y += avatarConfig.turnSpeed;
-    if (moveStatus.right) avatarModel.rotation.y -= avatarConfig.turnSpeed;
+    let moveVector, isMoving;
+    if (gameControlsActive()) {
+        // GAME FEEL: บังคับแบบเกม (ดูหัวข้อ "avatar") — W/A/S/D เดินตามกล้อง ตัวละครหมุนนุ่มไปทางที่เดิน
+        isMoving = gameControlStep(frameDt);
+        moveVector = _gcMove;
+    } else {
+        // แบบคลาสสิก (A/D หมุนตัว) ค่าคงที่เดิมเป็น "ต่อเฟรม" ที่ 60 fps คูณ k ให้ความเร็วเท่ากันทุกอัตราเฟรม
+        const k = frameDt * 60;
+        if (moveStatus.left) avatarModel.rotation.y += avatarConfig.turnSpeed * k;
+        if (moveStatus.right) avatarModel.rotation.y -= avatarConfig.turnSpeed * k;
 
-    const moveVector = new THREE.Vector3(0, 0, 0);
-    if (moveStatus.forward) moveVector.z = -avatarConfig.speed;
-    if (moveStatus.backward) moveVector.z = avatarConfig.speed;
-    moveVector.applyQuaternion(avatarModel.quaternion);
-
-    const isMoving = moveVector.lengthSq() > 0;
+        moveVector = new THREE.Vector3(0, 0, 0);
+        if (moveStatus.forward) moveVector.z = -avatarConfig.speed * k;
+        if (moveStatus.backward) moveVector.z = avatarConfig.speed * k;
+        moveVector.applyQuaternion(avatarModel.quaternion);
+        isMoving = moveVector.lengthSq() > 0;
+    }
     updateAvatarMotion(avatarModel, isMoving);
 
     if (isMoving) {
@@ -5133,6 +5142,7 @@ function applyCameraForViewMode() {
         // มุมมองบุคคลที่หนึ่ง — กล้องอยู่ที่หัวตัวละคร มองไปทางที่ตัวละครหันหน้า
         const eye = new THREE.Vector3(0, FIRST_PERSON_EYE, 0).applyMatrix4(avatarModel.matrixWorld);
         const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(avatarModel.quaternion);
+        if (gcPitch) { forward.multiplyScalar(Math.cos(gcPitch)); forward.y = Math.sin(gcPitch); } // GAME FEEL: ก้ม-เงยจากการลากเมาส์
         camera.position.copy(eye);
         controls.target.copy(eye.clone().addScaledVector(forward, 6));
         return;
@@ -5147,6 +5157,7 @@ function applyCameraForViewMode() {
         return;
     }
 
+    if (controlScheme === 'game') { gameThirdCamera(); return; } // GAME FEEL: กล้องตามโดยคงมุมที่ผู้ใช้หมุน ไม่ดีดกลับ
     const targetCamOffset = defaultCameraOffset.clone().applyMatrix4(avatarModel.matrixWorld);
     camera.position.lerp(targetCamOffset, 0.08);
     controls.target.set(avatarModel.position.x, avatarModel.position.y + 0.3, avatarModel.position.z);
@@ -6498,6 +6509,168 @@ window.AecDanger = {
 };
 dangerSetEnabled(dangerEnabled);                // ซิงก์ช่องติ๊กในแท็บเลเยอร์กับค่าที่จำไว้
 // === END GAME FEEL danger ===
+
+// ============================================================
+// === GAME FEEL === avatar (การบังคับตัวละครแบบเกม — ทางเลือกคู่กับแบบคลาสสิกเดิม)
+//
+// แบบเดิม ("คลาสสิก"): A/D หมุนตัวด้วยมุมคงที่ต่อเฟรม W/S เดินหน้า-ถอยตามที่หัน ต้องหมุนก่อนจึงเดินเฉียงได้
+//   กล้องบุคคลที่สามถูกดึงกลับไปหลังตัวละครทุกเฟรม (ลากเมาส์หมุนกล้องแล้วดีดกลับ) บุคคลที่หนึ่งมองได้แค่ A/D
+// แบบ "เกม" (ค่าเริ่มต้น):
+//   บุคคลที่สาม/มุมบน: W/A/S/D เดินตาม "ทิศที่กล้องมอง" ตัวละครหมุนนุ่มๆ ไปทางที่เดิน เร่ง-เบรกนุ่ม
+//                      กล้องตามตัวละครโดยคงมุมที่ผู้ใช้หมุนไว้ (ลากเมาส์หมุนกล้องได้ ไม่ดีดกลับ)
+//   บุคคลที่หนึ่ง:     ลากเมาส์/นิ้วเพื่อมองรอบ (ซ้าย-ขวา + ก้ม-เงย) W/S เดินหน้า-ถอย A/D เดินข้าง
+//                      ไม่ใช้ pointer lock เพราะแอปนี้ต้องคลิกเลือกอุปกรณ์/แผงตลอด; ลากไม่ชนกับการคลิกเลือก (ระบบเดิมถือว่าขยับเกิน 6px = ลาก)
+// เปลี่ยนแบบได้ที่หน้า Settings (aec_control_scheme) หรือ ?controls=classic / ?controls=game ต่อท้าย URL
+//
+// ทั้งสองแบบแก้ให้ความเร็ว "ไม่ผูกกับจำนวนเฟรม" แล้ว (เดิมคูณต่อเฟรม จอ 144 Hz เดินเร็วกว่า 60 Hz ราว 2.4 เท่า)
+// ที่ 60 fps ผลเท่าเดิมทุกประการ
+//
+// ไม่แตะ Socket.IO: ยังส่งแค่ position + rotation.y ของตัวละครเหมือนเดิม (การหมุนนุ่มขึ้นทำให้คนอื่นเห็นหันตัวนุ่มขึ้นเอง)
+// autoWalk (เดินอัตโนมัติ), warp, Free Look, กระโดด ใช้กลไกเดิมทั้งหมด
+// ============================================================
+const CTL_KEY = 'aec_control_scheme';
+function readControlScheme() {
+    try {
+        const q = new URLSearchParams(window.location.search).get('controls');
+        if (q === 'classic' || q === 'game') return q;
+    } catch (e) { /* ใช้ค่าที่ตั้งไว้ */ }
+    try { if (window.AecWorldPrefs && window.AecWorldPrefs.loadScheme) return window.AecWorldPrefs.loadScheme(); } catch (e) { /* ใช้ค่าเริ่มต้น */ }
+    return 'game';
+}
+let controlScheme = readControlScheme();
+
+const GC_SPEED = avatarConfig.speed * 60;     // หน่วย/วินาที = ความเร็วเดิมที่ 60 fps
+const GC_ACCEL = 10, GC_DECEL = 14;           // ความเร็วไล่ตามเป้า (ยิ่งมากยิ่งกระชับ)
+const GC_DIR = 16;                            // ทิศการเคลื่อนที่ไล่ตามทิศที่กด (เปลี่ยนทิศไม่กระชากทันที)
+const GC_TURN = 14;                           // ตัวละครหมุนไปหาทิศที่เดิน
+const GC_BACK_SCALE = 0.7;                    // ถอยหลังในบุคคลที่หนึ่งช้ากว่าเดินหน้า
+const GC_LOOK_MOUSE = 0.0035, GC_LOOK_TOUCH = 0.005;   // เรเดียนต่อพิกเซล
+const GC_PITCH_LIMIT = 1.25;                  // ~72 องศา กันม้วนตีลังกา
+const GC_STOP_SPEED = 0.05;
+
+let gcSpeed = 0, gcDirX = 0, gcDirZ = -1, gcMoveAngle = 0, gcPitch = 0;
+let gcAnchoring = true, gcHaveLast = false, gcLastX = 0, gcLastY = 0, gcLastZ = 0;
+let gcLastMode = null, gcLastLobby = null, gcLastFree = null, gcLastScheme = null;
+const _gcMove = new THREE.Vector3(), _gcFwd = new THREE.Vector3(), _gcOff = new THREE.Vector3();
+
+function gameControlsActive() { return controlScheme === 'game' && !autoWalk.active; }
+
+// ทิศ "ข้างหน้า" ที่ใช้อ่านปุ่ม: บุคคลที่หนึ่ง = ทิศที่ตัวละครหัน ; นอกนั้น = ทิศที่กล้องมองบนระนาบพื้น
+function gcForward(out) {
+    if (viewMode === 'first') { out.set(-Math.sin(avatarModel.rotation.y), 0, -Math.cos(avatarModel.rotation.y)); return; }
+    camera.getWorldDirection(out);
+    out.y = 0;
+    if (out.lengthSq() < 1e-10) out.set(0, 0, -1);       // กล้องมองตรงลง (มุมบน) -> บนจอ = -Z
+    else out.normalize();
+}
+
+// คืน true ถ้าตัวละครกำลังเคลื่อนที่ ; เขียนระยะที่ต้องเดินในเฟรมนี้ลง _gcMove
+function gameControlStep(dt) {
+    const ix = (moveStatus.right ? 1 : 0) - (moveStatus.left ? 1 : 0);
+    const iz = (moveStatus.forward ? 1 : 0) - (moveStatus.backward ? 1 : 0);
+    const has = ix !== 0 || iz !== 0;
+    let targetAngle = 0, scale = 1, align = 1;
+    if (has) {
+        gcForward(_gcFwd);
+        const fx = _gcFwd.x, fz = _gcFwd.z, rx = -fz, rz = fx;
+        let dx = fx * iz + rx * ix, dz = fz * iz + rz * ix;
+        const len = Math.hypot(dx, dz);
+        dx /= len; dz /= len;
+        targetAngle = Math.atan2(-dx, -dz);                     // สูตรเดียวกับ autoWalk (ข้างหน้า = -Z หมุนด้วย rotation.y)
+        if (viewMode === 'first' && iz < 0 && ix === 0) scale = GC_BACK_SCALE;
+        if (gcSpeed < GC_STOP_SPEED) gcMoveAngle = targetAngle;            // เริ่มเดินจากหยุด: ไปทางที่กดทันที
+        else {                                                              // กำลังเดินอยู่: ค่อยๆ เลี้ยวไปทางที่สั้นที่สุด
+            // หมุนที่ "มุม" ไม่เฉลี่ยเวกเตอร์ — เป้าตรงข้ามพอดี (กลับตัว 180°) เวกเตอร์เฉลี่ยจะหดเป็นศูนย์แล้วถูก normalize กลับทิศเดิมตลอดไป
+            const diff = Math.atan2(Math.sin(targetAngle - gcMoveAngle), Math.cos(targetAngle - gcMoveAngle));
+            align = 0.35 + 0.65 * Math.max(0, Math.cos(diff));              // ทิศต่างมาก = ชะลอ (ตรงข้ามเหลือ 35% ของความเร็วเป้า)
+            gcMoveAngle += diff * (1 - Math.exp(-GC_DIR * dt));
+        }
+        gcDirX = -Math.sin(gcMoveAngle); gcDirZ = -Math.cos(gcMoveAngle);
+        if (viewMode !== 'first') {                             // บุคคลที่หนึ่งหันตามเมาส์ ไม่หมุนตามทิศเดิน
+            const diff = Math.atan2(Math.sin(targetAngle - avatarModel.rotation.y), Math.cos(targetAngle - avatarModel.rotation.y));
+            avatarModel.rotation.y += diff * (1 - Math.exp(-GC_TURN * dt));
+        }
+    }
+    gcSpeed = THREE.MathUtils.damp(gcSpeed, has ? GC_SPEED * scale * align : 0, has ? GC_ACCEL : GC_DECEL, dt);
+    if (!has && gcSpeed < GC_STOP_SPEED) gcSpeed = 0;
+    _gcMove.set(gcDirX * gcSpeed * dt, 0, gcDirZ * gcSpeed * dt);
+    return gcSpeed > 0;
+}
+
+// กล้องบุคคลที่สามแบบเกม: ตามตัวละครด้วยการเลื่อนตามระยะที่ตัวละครขยับ คงมุม/ระยะที่ผู้ใช้หมุนไว้
+// ตอนเพิ่งเข้าโหมด (ยังไม่ได้ "จับยึด") ค่อยๆ เลื่อนไปอยู่หลังตัวละครแบบเดิมก่อน แล้วจึงเปลี่ยนเป็นตามเฉยๆ
+function gameThirdCamera() {
+    const a = avatarModel.position;
+    if (gcAnchoring) {
+        _gcOff.copy(defaultCameraOffset).applyMatrix4(avatarModel.matrixWorld);
+        camera.position.lerp(_gcOff, 1 - Math.pow(1 - 0.08, frameDt * 60));
+        if (camera.position.distanceToSquared(_gcOff) < 0.25) gcAnchoring = false;
+    } else if (gcHaveLast) {
+        camera.position.x += a.x - gcLastX; camera.position.y += a.y - gcLastY; camera.position.z += a.z - gcLastZ;
+    }
+    gcLastX = a.x; gcLastY = a.y; gcLastZ = a.z; gcHaveLast = true;
+    controls.target.set(a.x, a.y + 0.3, a.z);
+}
+
+// ---------- มองรอบด้วยการลาก (บุคคลที่หนึ่ง) ----------
+const gcLook = { active: false, id: -1, x: 0, y: 0 };
+const gcListeners = [];
+function gcOn(target, type, fn) { target.addEventListener(type, fn); gcListeners.push(() => target.removeEventListener(type, fn)); }
+function gcEndLook(e) {
+    if (!gcLook.active || (e && e.pointerId !== undefined && e.pointerId !== gcLook.id)) return;
+    gcLook.active = false;
+    try { if (e && renderer.domElement.releasePointerCapture) renderer.domElement.releasePointerCapture(e.pointerId); } catch (err) { /* ไม่ได้ถูก capture */ }
+}
+gcOn(renderer.domElement, 'pointerdown', (e) => {
+    if (controlScheme !== 'game' || viewMode !== 'first' || !avatarModel || lobbyActive || isFreeLook) return;
+    if (!e.isPrimary || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    gcLook.active = true; gcLook.id = e.pointerId; gcLook.x = e.clientX; gcLook.y = e.clientY;
+    try { renderer.domElement.setPointerCapture(e.pointerId); } catch (err) { /* ใช้งานได้ปกติแม้ไม่ capture */ }
+});
+gcOn(renderer.domElement, 'pointermove', (e) => {
+    if (!gcLook.active || e.pointerId !== gcLook.id || !avatarModel) return;
+    const s = e.pointerType === 'touch' ? GC_LOOK_TOUCH : GC_LOOK_MOUSE;
+    avatarModel.rotation.y -= (e.clientX - gcLook.x) * s;                       // ลากไปขวา = หันขวา (rotation.y ลดลง)
+    gcPitch = THREE.MathUtils.clamp(gcPitch - (e.clientY - gcLook.y) * s, -GC_PITCH_LIMIT, GC_PITCH_LIMIT);   // ลากลง = ก้ม
+    gcLook.x = e.clientX; gcLook.y = e.clientY;
+});
+gcOn(renderer.domElement, 'pointerup', gcEndLook);
+gcOn(renderer.domElement, 'pointercancel', gcEndLook);
+
+// สลับแท็บ/โฟกัสหลุดแล้วปล่อยปุ่มนอกหน้าต่าง keyup ไม่มาถึง -> ตัวละครเดินไม่หยุด (บั๊กเดิม) ล้างทุกครั้งที่หลุดโฟกัส
+function gcReleaseInputs() {
+    moveStatus.forward = moveStatus.backward = moveStatus.left = moveStatus.right = false;
+    gcLook.active = false;
+}
+gcOn(window, 'blur', gcReleaseInputs);
+gcOn(document, 'visibilitychange', () => { if (document.hidden) gcReleaseInputs(); });
+gcOn(window, 'storage', (e) => {                // เปลี่ยนแบบในหน้า Settings (คนละแท็บ) มีผลกับโลกที่เปิดค้างอยู่
+    if (e.key !== CTL_KEY) return;
+    controlScheme = readControlScheme();
+});
+
+const removeAvatarTicker = addTicker(() => {
+    if (viewMode !== gcLastMode || lobbyActive !== gcLastLobby || isFreeLook !== gcLastFree || controlScheme !== gcLastScheme) {
+        // เปลี่ยนมุมมอง/ออกจากล็อบบี้/ออกจาก Free Look/สลับแบบ: ให้กล้องจับยึดหลังตัวละครใหม่ และเริ่มจากหยุดนิ่ง
+        gcAnchoring = true; gcHaveLast = false; gcSpeed = 0;
+        if (viewMode !== 'first' || controlScheme !== 'game') gcPitch = 0;
+        gcLastMode = viewMode; gcLastLobby = lobbyActive; gcLastFree = isFreeLook; gcLastScheme = controlScheme;
+    }
+    if (autoWalk.active) gcSpeed = 0;               // ส่งไม้ให้ autoWalk (ใช้กลไกเดิม) ต่อกลับมาไม่ให้ความเร็วเก่าค้าง
+}, 'gf-avatar');
+
+function disposeAvatarControls() {
+    removeAvatarTicker();
+    gcListeners.forEach(off => off());
+    gcListeners.length = 0;
+    gcLook.active = false;
+}
+registerDisposer(disposeAvatarControls, 'avatar');
+window.AecGameFeel = Object.assign(window.AecGameFeel || {}, {
+    getControlScheme: () => controlScheme,
+    setControlScheme: (s) => { if (s === 'game' || s === 'classic') controlScheme = s; }   // เฉพาะเซสชันนี้ (ถาวรให้ตั้งที่หน้า Settings)
+});
+// === END GAME FEEL avatar ===
 
 function animate() {
     if (worldDisposed) return; // GAME FEEL ข้อ 4: โลกถูกปล่อยแล้ว ไม่ต้องตั้ง requestAnimationFrame ต่อ
