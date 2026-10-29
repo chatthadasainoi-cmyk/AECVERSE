@@ -2802,6 +2802,7 @@ window.cancelEmergency = function () {
 // รับคำสั่งจาก server แล้วสั่งตัวละครของเราเดินไปเอง + ขึ้นแถบเตือนค้างไว้
 function applyEmergencyCall(call) {
     activeEmergency = call;
+    if (window.AecHud) AecHud.onEmergencyCall(call); // GAME FEEL ข้อ 6: การ์ดเป้าหมาย + toast
     const banner = $('emergency-banner');
     if (banner) {
         banner.style.display = call ? 'flex' : 'none';
@@ -3439,6 +3440,7 @@ async function initMultiplayer() {
     });
     // server ปฏิเสธเพราะไม่มีสิทธิ์ — บอกผู้ใช้ตรงๆ ดีกว่าปล่อยให้กดแล้วเงียบ
     mpSocket.on('action_denied', ({ action }) => {
+        if (window.AecHud) AecHud.toast('🔒 บัญชีของคุณไม่มีสิทธิ์' + (action ? ' "' + action + '"' : 'ทำรายการนี้'), { kind: 'warn' });
         mpAppendChat({ name: '🔒 สิทธิ์', color: '#ef4444', text: `บัญชีของคุณไม่มีสิทธิ์${action ? ' "' + action + '"' : 'ทำรายการนี้'}` });
     });
 
@@ -3464,6 +3466,7 @@ async function initMultiplayer() {
             bar._hideTimer = setTimeout(() => { bar.style.display = 'none'; }, severe ? 120000 : 45000);
         }
         mpAppendChat({ name: '🚨 ALERT', color: '#ef4444', text: icon + ' ' + headline }, { alert: true });
+        if (window.AecHud) AecHud.toast(icon + ' ' + headline, { kind: 'alarm' });
         if (detail) mpAppendChat({ name: '', color: '#fca5a5', text: detail }, { alert: true });
     }
 
@@ -3485,6 +3488,7 @@ async function initMultiplayer() {
     mpSocket.on('emergency_case_resolved', d => {
         const bar = $('alert-banner');
         if (bar) bar.style.display = 'none';
+        if (window.AecHud) AecHud.toast('✅ ปิดเรื่อง "' + ((d && d.scenario) || '') + '" แล้ว', { kind: 'success' });
         mpAppendChat({ name: '🚨 ALERT', color: '#94a3b8',
             text: 'ปิดเรื่อง "' + ((d && d.scenario) || '') + '" แล้ว' + (d && d.resolvedBy ? ' โดย ' + d.resolvedBy : '') });
     });
@@ -3515,6 +3519,7 @@ async function initMultiplayer() {
         if (!VIEWER_MODE) addRemote(data);
         if (micOn) connectVoiceTo(data.id); // ไมค์เราเปิดค้างอยู่ -> ต่อสายหาคนที่เพิ่งเข้ามาด้วย
         mpAppendChat({ name: 'ระบบ', color: '#64748b', text: `${data.name} เข้าร่วมโลก` });
+        if (window.AecHud) AecHud.toast('🟢 ' + (data.name || 'ผู้เล่น') + ' เข้าร่วมโลก', { kind: 'success' });
     });
     mpSocket.on('player_left', data => {
         const name = mpPlayerNames[data.id] || data.id;
@@ -3524,6 +3529,7 @@ async function initMultiplayer() {
         // ออกจากโลกไปแล้วค่อยลบตรงนี้
         delete remoteMicOn[data.id];
         mpAppendChat({ name: 'ระบบ', color: '#64748b', text: `${name} ออกจากโลก` });
+        if (window.AecHud) AecHud.toast('⚪ ' + name + ' ออกจากโลก', { kind: 'info' });
     });
     mpSocket.on('player_moved', data => {
         if (!remoteAvatars[data.id]) return;
@@ -3550,6 +3556,7 @@ async function initMultiplayer() {
     mpSocket.on('lock_state', data => {
         modelLocked = data.locked;
         refreshTransformUiPermissions();
+        if (window.AecHud) AecHud.toast((data.locked ? '🔒 ' : '🔓 ') + (data.by || 'ผู้ดูแล') + (data.locked ? ' ล็อก' : ' ปลดล็อก') + 'ตำแหน่งโมเดลแล้ว', { kind: data.locked ? 'warn' : 'info' });
         mpAppendChat({ name: '🔒 ระบบ', color: '#ffaa00', text: `${data.by} ${data.locked ? 'ล็อก' : 'ปลดล็อก'}ตำแหน่งโมเดลแล้ว` });
     });
     mpSocket.on('model_transform_updated', t => { applyTransform(t); buildProximityTags(); buildPPEZones(); });
@@ -4509,6 +4516,7 @@ function updatePlantStrip(data) {
     }
 
     if (Array.isArray(data.alerts)) {
+        if (window.AecHud) AecHud.setPlantAlerts(data.alerts); // GAME FEEL ข้อ 6: มาตรความเสี่ยง
         const critical = data.alerts.some(a => a.level === 'critical');
         const warning = data.alerts.some(a => a.level === 'warning');
         const level = critical ? 'crit' : warning ? 'warn' : 'ok';
@@ -5895,6 +5903,328 @@ window.AecGameFeel = Object.assign(window.AecGameFeel || {}, {
     getToneMapping: () => ({ mode: toneMode, exposure: renderer.toneMappingExposure })
 });
 // === END GAME FEEL atmosphere ===
+
+// ============================================================
+// === GAME FEEL === HUD (ข้อ 6: มาตรความเสี่ยง / การ์ดเป้าหมาย / toast)
+//
+// เป็น HTML ซ้อนบนฉาก (ไม่ใช่ข้อความ 3D) อยู่ใน canvas-container เพื่อให้ตามขนาดพื้นที่ 3D
+// ตำแหน่ง: มุมขวาบนถูก view-dock/top-zoom จองไว้ และ tour-exit ใช้มุมซ้ายบนตอนเต็มจอ จึงรวมมาตรความเสี่ยง + การ์ดเป้าหมาย
+// เป็นกองเดียวที่ซ้ายบน (เลื่อนลงเองเมื่อมีแบนเนอร์ฉุกเฉิน/โหมดเต็มจอ) และ toast ไว้กลางล่างเหนือ plant-dock
+//
+// ข้อมูลทุกอย่างมาจากของจริงที่มีอยู่แล้ว ไม่แต่งเนื้อหา:
+//   - ความเสี่ยง  <- alerts ใน plant_update (critical/warning) ค่าที่แสดงไล่ตาม (damp) ไม่กระโดด
+//   - เป้าหมาย    <- การเรียกรวมพล (emergency_called) ระบบยังไม่มี "สถานการณ์/เป้าหมายแบบมีเวลา" ให้ดึง จึงทำ API รองรับไว้
+//                    (AecHud.setObjective({ seconds }) แสดงแถบนับถอยหลัง) แต่เนื้อหาสถานการณ์เป็นเรื่องที่ทีมต้องกำหนดเอง
+//   - toast       <- เข้า/ออกโลก, ล็อกโมเดล, เหตุฉุกเฉิน, ไม่มีสิทธิ์ (ต่อสายจากตัวจัดการ socket เดิมทีละบรรทัด)
+//
+// เวลาของ toast/เป้าหมายนับด้วย ticker (หยุดเมื่อแท็บซ่อน) ไม่ใช้ setTimeout — toast จะไม่หมดอายุระหว่างที่ไม่มีใครเห็น
+// ภาพล้วน: ไม่ส่งอะไรเข้า Socket.IO; ข้อความจากผู้เล่นอื่นใส่ด้วย textContent เท่านั้น
+// โหมด viewer (ฝังใน iframe) ไม่แสดง HUD เพราะพื้นที่เล็กและไม่ใช่ประสบการณ์ผู้เล่น
+// ============================================================
+const HUD_TOAST_LIFE = 3;            // วินาที (ตามสเปก)
+const HUD_ALARM_LIFE = 6;            // เหตุฉุกเฉิน/วิกฤตต้องให้อ่านทัน จึงค้างนานกว่า
+const HUD_ANIM = 0.2;                // slide-in/out 200 ms
+const HUD_TOAST_MAX = 4;
+const HUD_TEXT_PERIOD = 0.25;        // อัปเดตข้อความ ~4 ครั้ง/วินาที (แถบ/สีอัปเดตทุกเฟรม)
+const HUD_RISK_LAMBDA = 3;           // ความเร็วที่มาตรไล่ตามค่าจริง (~1 วินาทีถึงนิ่ง)
+const HUD_ARRIVE_DIST = 8;           // ม. ถือว่าถึงจุดรวมพล
+const HUD_CRIT_COOLDOWN_MS = 30000;  // วิกฤตเรื่องเดิมที่กระพริบเข้าออกเส้นเกณฑ์ ไม่เด้ง toast ซ้ำถี่กว่านี้
+const HUD_KINDS = { info: '#38bdf8', success: '#22c55e', warn: '#f59e0b', alarm: '#ef4444' };
+const RISK_TEXT = ['ปกติ', 'เฝ้าระวัง', 'วิกฤต'];
+
+const hudNoop = { toast() {}, setObjective() {}, clearObjective() {}, setPlantAlerts() {}, onEmergencyCall() {}, getState: () => null };
+let hudDisposed = false;
+let hudStyleEl = null, hudStack = null, hudRiskEl = null, hudRiskBar = null, hudRiskLabel = null, hudRiskValue = null;
+let hudObjEl = null, hudObjTitle = null, hudObjDetail = null, hudObjBar = null, hudToastBox = null;
+
+function hudMk(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+}
+
+// ---------- ความเสี่ยง ----------
+// แถบสีตามอาการที่แย่ที่สุด จำนวนที่เกิดขึ้นขยับค่าในแถบนั้น: ปกติ ~0.08 | เฝ้าระวัง 0.50-0.62 | วิกฤต 0.75-1.0
+function riskFromAlerts(alerts) {
+    let crit = 0, warn = 0;
+    for (let i = 0; i < alerts.length; i++) {
+        if (alerts[i].level === 'critical') crit++; else if (alerts[i].level === 'warning') warn++;
+    }
+    if (crit) return Math.min(1, 0.75 + 0.08 * (crit - 1));
+    if (warn) return Math.min(0.62, 0.5 + 0.04 * (warn - 1));
+    return 0.08;
+}
+function riskLevelOf(v) { return v >= 0.66 ? 2 : v >= 0.33 ? 1 : 0; }
+// เขียว (0) -> เหลืองอำพัน (0.5) -> แดง (1)
+function riskColor(t) {
+    const g = [34, 197, 94], a = [245, 158, 11], r = [239, 68, 68];
+    const from = t < 0.5 ? g : a, to = t < 0.5 ? a : r, k = t < 0.5 ? t / 0.5 : (t - 0.5) / 0.5;
+    return 'rgb(' + Math.round(from[0] + (to[0] - from[0]) * k) + ',' + Math.round(from[1] + (to[1] - from[1]) * k) + ',' + Math.round(from[2] + (to[2] - from[2]) * k) + ')';
+}
+let riskTarget = 0.08, riskFill = 0.08, riskShown = -1, riskLevelShown = -1, plantSeen = false;
+const critSeen = new Map();     // คีย์เรื่องวิกฤต -> เวลาที่แจ้งล่าสุด
+let lastRiskLevel = 0;
+
+// alert ของเครื่องมือมีค่าตัวเลขในวงเล็บท้ายข้อความ (เปลี่ยนทุกวินาที) ต้องตัดออกก่อนใช้เป็นคีย์ ไม่งั้นแจ้งซ้ำทุกรอบ
+function alertKey(tag) { return String(tag).replace(/\s*\([^)]*\)\s*$/, ''); }
+
+function hudSetPlantAlerts(alerts) {
+    if (hudDisposed || !Array.isArray(alerts)) return;
+    riskTarget = riskFromAlerts(alerts);
+    const level = riskLevelOf(riskTarget), now = performance.now();
+    if (plantSeen) {    // รอบแรกเป็นแค่ค่าตั้งต้น ไม่ toast เรื่องที่ค้างอยู่ก่อนเราเข้ามา
+        for (let i = 0; i < alerts.length; i++) {
+            if (alerts[i].level !== 'critical') continue;
+            const key = alertKey(alerts[i].tag), last = critSeen.get(key);
+            if (last === undefined || now - last > HUD_CRIT_COOLDOWN_MS) hudToast('🔴 ' + key, { kind: 'alarm' });
+            critSeen.set(key, now);
+        }
+        if (level === 1 && lastRiskLevel === 0) hudToast('🟠 ความเสี่ยงโรงงานเพิ่มเป็น "เฝ้าระวัง"', { kind: 'warn' });
+        if (level === 0 && lastRiskLevel > 0) hudToast('🟢 ความเสี่ยงโรงงานกลับสู่ปกติ', { kind: 'success' });
+    } else {
+        for (let i = 0; i < alerts.length; i++) if (alerts[i].level === 'critical') critSeen.set(alertKey(alerts[i].tag), now);
+    }
+    plantSeen = true;
+    lastRiskLevel = level;
+}
+
+// ---------- toast ----------
+const hudToasts = [];
+function hudToast(text, opts) {
+    if (hudDisposed || !hudToastBox || !text) return;
+    const o = opts || {};
+    const kind = HUD_KINDS[o.kind] ? o.kind : 'info';
+    text = String(text).slice(0, 140);
+    const key = kind + '|' + text;
+    for (let i = 0; i < hudToasts.length; i++) {            // ข้อความเดิมซ้ำ -> นับ ×N และต่ออายุ ไม่เพิ่มแถว
+        const t = hudToasts[i];
+        if (t.key === key && !t.leaving) { t.count++; t.nEl.textContent = '×' + t.count; t.life = t.maxLife; return; }
+    }
+    let active = 0;
+    for (let i = 0; i < hudToasts.length; i++) if (!hudToasts[i].leaving) active++;
+    for (let i = 0; i < hudToasts.length && active >= HUD_TOAST_MAX; i++) {
+        if (!hudToasts[i].leaving) { hudStartLeave(hudToasts[i]); active--; }
+    }
+    const el = hudMk('div', 'gf-panel gf-toast');
+    el.style.setProperty('--k', HUD_KINDS[kind]);
+    if (kind === 'alarm') el.setAttribute('role', 'alert');
+    const textEl = hudMk('span', '', text), nEl = hudMk('span', 'gf-n', '');
+    el.appendChild(textEl); el.appendChild(nEl);
+    hudToastBox.appendChild(el);
+    void el.offsetWidth;                                     // บังคับ layout หนึ่งครั้งเพื่อให้ transition slide-in เริ่มจากสถานะแรก
+    el.classList.add('in');
+    const life = o.life || (kind === 'alarm' ? HUD_ALARM_LIFE : HUD_TOAST_LIFE);
+    hudToasts.push({ el, nEl, key, count: 1, life, maxLife: life, leaving: false });
+}
+function hudStartLeave(t) {
+    t.leaving = true; t.life = HUD_ANIM;
+    t.el.classList.remove('in'); t.el.classList.add('out');
+}
+
+// ---------- เป้าหมาย ----------
+let hudObj = null, hudObjTextTimer = 0, hudObjTitleShown = '', hudObjDetailShown = '', hudObjShown = false;
+function fmtClock(sec, countdown) { sec = Math.max(0, countdown ? Math.ceil(sec) : Math.floor(sec)); return Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0'); }
+
+// o: { id, title, detail, seconds?, sinceEpoch?, target?: {x,z}, doneTitle?, onExpire? }
+function hudSetObjective(o) {
+    if (hudDisposed || !hudObjEl || !o || !o.title) return;
+    let startedAt = performance.now();
+    if (o.sinceEpoch) {                                       // นับต่อจากเวลาที่เซิร์ฟเวอร์เริ่ม ถ้านาฬิกาเครื่องเพี้ยนมากให้นับจากตอนนี้
+        const el = Date.now() - o.sinceEpoch;
+        if (el >= 0 && el < 6 * 3600 * 1000) startedAt -= el;
+    }
+    hudObj = { id: o.id || 'default', title: o.title, detail: o.detail || '', seconds: o.seconds > 0 ? o.seconds : 0,
+        startedAt, target: o.target || null, doneTitle: o.doneTitle || '✅ ถึงจุดหมายแล้ว', onExpire: o.onExpire || null, done: false, expired: false };
+    hudObjEl.classList.remove('done', 'expired');
+    hudObjEl.classList.toggle('timed', !!hudObj.seconds);
+    hudObjEl.classList.add('on');
+    hudObjTitleShown = hudObjDetailShown = '';
+    hudObjTextTimer = HUD_TEXT_PERIOD;                        // เขียนข้อความทันทีในเฟรมนี้
+}
+function hudClearObjective(id) {
+    if (!hudObj || (id && hudObj.id !== id)) return;
+    hudObj = null;
+    if (hudObjEl) hudObjEl.classList.remove('on', 'done', 'expired', 'timed');
+}
+// ต่อกับการเรียกรวมพลของจริง (applyEmergencyCall)
+function hudOnEmergencyCall(call) {
+    if (call) {
+        hudSetObjective({ id: 'emergency', title: '🚨 ไปที่จุดรวมพล "' + call.name + '"', detail: 'สั่งโดย ' + (call.by || 'ระบบ'),
+            sinceEpoch: call.at, target: { x: call.x, z: call.z }, doneTitle: '✅ ถึงจุดรวมพลแล้ว — รอคำสั่ง' });
+        hudToast('🚨 เรียกรวมพล → ' + call.name, { kind: 'alarm' });
+    } else if (hudObj && hudObj.id === 'emergency') {
+        hudClearObjective('emergency');
+        hudToast('ยกเลิกการเรียกรวมพลแล้ว', { kind: 'info' });
+    }
+}
+
+// ---------- สร้าง DOM ----------
+function hudBuild() {
+    hudStyleEl = hudMk('style'); hudStyleEl.id = 'gf-hud-style';
+    hudStyleEl.textContent = [
+        '.gf-hud{position:absolute;z-index:66;pointer-events:none;font-family:inherit;color:#e2e8f0}',
+        '.gf-panel{background:rgba(11,15,23,.72);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:1px solid rgba(28,37,49,.9);border-radius:12px}',
+        '.gf-low .gf-panel,.gf-low.gf-panel{background:rgba(11,15,23,.9);backdrop-filter:none;-webkit-backdrop-filter:none}',
+        '#gf-stack{left:14px;top:14px;width:min(270px,calc(100% - 28px));display:flex;flex-direction:column;gap:8px;transition:top .2s}',
+        '#gf-stack.below{top:70px}',
+        '#tour-exit.on ~ #gf-stack{top:58px}',
+        '#tour-exit.on ~ #gf-stack.below{top:100px}',
+        '#gf-risk{padding:7px 11px}',
+        '.gf-risk-row{display:flex;justify-content:space-between;align-items:baseline;font-size:11px;font-weight:600;letter-spacing:.2px}',
+        '.gf-risk-row b{font-size:12px}',
+        '.gf-bar{height:6px;border-radius:3px;background:rgba(148,163,184,.25);margin-top:6px;overflow:hidden}',
+        '.gf-bar i{display:block;height:100%;width:100%;transform-origin:left;will-change:transform}',
+        '#gf-objective{padding:10px 12px;opacity:0;transform:translateY(-6px);transition:opacity .2s,transform .2s,border-color .2s;display:none}',
+        '#gf-objective.on{display:block}',
+        '#gf-objective.show{opacity:1;transform:none}',
+        '.gf-obj-title{font-size:13px;font-weight:700;line-height:1.35}',
+        '.gf-obj-detail{font-size:11.5px;opacity:.78;margin-top:2px;line-height:1.4}',
+        '#gf-objective .gf-bar{display:none}#gf-objective.timed .gf-bar{display:block}',
+        '#gf-objective .gf-bar i{background:#38bdf8}#gf-objective.expired .gf-bar i{background:#ef4444}',
+        '#gf-objective.done{border-color:rgba(34,197,94,.7)}#gf-objective.expired{border-color:rgba(239,68,68,.7)}',
+        '#gf-toasts{left:50%;bottom:64px;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:6px;width:min(420px,calc(100% - 28px))}',
+        '.gf-toast{padding:8px 14px;font-size:12.5px;font-weight:600;line-height:1.4;display:flex;gap:8px;align-items:baseline;border-left:3px solid var(--k);max-width:100%;opacity:0;transform:translateY(10px);transition:opacity .2s,transform .2s}',
+        '.gf-toast.in{opacity:1;transform:none}.gf-toast.out{opacity:0;transform:translateY(6px)}',
+        '.gf-n{opacity:.7;font-size:11px}',
+        '.gf-gone{display:none!important}',
+        '@media (pointer:coarse){#gf-toasts{bottom:156px}}',     // เหนือจอยสติ๊ก/ปุ่มบนมือถือ
+        '@media (prefers-reduced-motion:reduce){#gf-stack,#gf-objective,.gf-toast{transition:none}}'
+    ].join('\n');
+    document.head.appendChild(hudStyleEl);
+
+    const low = QUALITY === 'low' ? ' gf-low' : '';
+    hudStack = hudMk('div', 'gf-hud' + low); hudStack.id = 'gf-stack';
+    hudRiskEl = hudMk('div', 'gf-panel'); hudRiskEl.id = 'gf-risk';
+    hudRiskEl.setAttribute('role', 'meter');
+    hudRiskEl.setAttribute('aria-label', 'ระดับความเสี่ยงของโรงงาน');
+    hudRiskEl.setAttribute('aria-valuemin', '0'); hudRiskEl.setAttribute('aria-valuemax', '100');
+    const row = hudMk('div', 'gf-risk-row');
+    hudRiskLabel = hudMk('span', '', 'ความเสี่ยงโรงงาน');
+    hudRiskValue = hudMk('b', '', RISK_TEXT[0]);
+    row.appendChild(hudRiskLabel); row.appendChild(hudRiskValue);
+    const bar = hudMk('div', 'gf-bar'); hudRiskBar = hudMk('i'); bar.appendChild(hudRiskBar);
+    hudRiskEl.appendChild(row); hudRiskEl.appendChild(bar);
+
+    hudObjEl = hudMk('div', 'gf-panel'); hudObjEl.id = 'gf-objective';
+    hudObjTitle = hudMk('div', 'gf-obj-title'); hudObjDetail = hudMk('div', 'gf-obj-detail');
+    const obar = hudMk('div', 'gf-bar'); hudObjBar = hudMk('i'); obar.appendChild(hudObjBar);
+    hudObjEl.appendChild(hudObjTitle); hudObjEl.appendChild(hudObjDetail); hudObjEl.appendChild(obar);
+
+    hudStack.appendChild(hudRiskEl); hudStack.appendChild(hudObjEl);
+    hudToastBox = hudMk('div', 'gf-hud' + low); hudToastBox.id = 'gf-toasts';
+    hudToastBox.setAttribute('aria-live', 'polite');
+    canvasContainer.appendChild(hudStack);
+    canvasContainer.appendChild(hudToastBox);
+}
+
+let removeHudTicker = () => {}, hudLobbyShown = null, hudBelowShown = null;
+function hudTick(dt) {
+    const lobby = !!lobbyActive;
+    if (lobby !== hudLobbyShown) {                          // หน้าล็อบบี้มีหน้าจอของมันเอง ซ่อน HUD ไว้
+        hudLobbyShown = lobby;
+        hudStack.classList.toggle('gf-gone', lobby); hudToastBox.classList.toggle('gf-gone', lobby);
+    }
+
+    // มาตรไล่ตามค่าจริงนุ่มๆ; แตะ DOM เฉพาะตอนค่าเปลี่ยนจริง
+    riskFill = Math.abs(riskFill - riskTarget) < 0.0015 ? riskTarget : THREE.MathUtils.damp(riskFill, riskTarget, HUD_RISK_LAMBDA, dt);
+    if (riskFill !== riskShown) {
+        riskShown = riskFill;
+        hudRiskBar.style.transform = 'scaleX(' + riskFill.toFixed(3) + ')';
+        hudRiskBar.style.background = riskColor(riskFill);
+    }
+    const lv = riskLevelOf(riskTarget);
+    if (lv !== riskLevelShown) {
+        riskLevelShown = lv;
+        hudRiskValue.textContent = RISK_TEXT[lv];
+        hudRiskValue.style.color = riskColor(lv === 0 ? 0 : lv === 1 ? 0.5 : 1);
+        hudRiskEl.setAttribute('aria-valuenow', String(Math.round(riskTarget * 100)));
+        hudRiskEl.setAttribute('aria-valuetext', RISK_TEXT[lv]);
+    }
+
+    // toast: นับถอยหลังด้วย dt (หยุดเองเมื่อแท็บซ่อน)
+    for (let i = hudToasts.length - 1; i >= 0; i--) {
+        const t = hudToasts[i];
+        t.life -= dt;
+        if (t.life > 0) continue;
+        if (!t.leaving) hudStartLeave(t);
+        else { t.el.remove(); hudToasts.splice(i, 1); }
+    }
+
+    // เป้าหมาย
+    if (hudObj) {
+        const now = performance.now();
+        if (hudObj.seconds) {
+            const remain = hudObj.seconds - (now - hudObj.startedAt) / 1000;
+            hudObjBar.style.transform = 'scaleX(' + Math.max(0, Math.min(1, remain / hudObj.seconds)).toFixed(3) + ')';
+            if (remain <= 0 && !hudObj.expired && !hudObj.done) {
+                hudObj.expired = true;
+                hudObjEl.classList.add('expired');
+                hudToast('⏱ หมดเวลา: ' + hudObj.title, { kind: 'warn' });
+                if (hudObj.onExpire) safeCall(hudObj.onExpire, 'hud-onExpire');
+            }
+        }
+        hudObjTextTimer += dt;
+        if (hudObjTextTimer >= HUD_TEXT_PERIOD) {
+            hudObjTextTimer = 0;
+            const o = hudObj;
+            let dist = -1;
+            if (o.target && avatarModel) dist = Math.hypot(avatarModel.position.x - o.target.x, avatarModel.position.z - o.target.z);
+            if (dist >= 0 && dist <= HUD_ARRIVE_DIST && !o.done) {
+                o.done = true;
+                hudObjEl.classList.add('done');
+                hudToast(o.doneTitle, { kind: 'success' });
+            }
+            const parts = [];
+            if (o.detail) parts.push(o.detail);
+            if (dist >= 0 && !o.done) parts.push('ห่าง ' + Math.round(dist) + ' ม.');
+            if (o.seconds && !o.done) parts.push(o.expired ? 'หมดเวลา' : 'เหลือ ' + fmtClock(o.seconds - (now - o.startedAt) / 1000, true));
+            else if (!o.seconds) parts.push('ผ่านไป ' + fmtClock((now - o.startedAt) / 1000));
+            const title = o.done ? o.doneTitle : o.title, detail = parts.join(' · ');
+            if (title !== hudObjTitleShown) { hudObjTitleShown = title; hudObjTitle.textContent = title; }
+            if (detail !== hudObjDetailShown) { hudObjDetailShown = detail; hudObjDetail.textContent = detail; }
+            if (!hudObjShown) { hudObjShown = true; hudObjEl.classList.add('show'); }
+        }
+    } else if (hudObjShown) {
+        hudObjShown = false;
+        hudObjEl.classList.remove('show');
+    }
+
+    // หลบแบนเนอร์ฉุกเฉินที่ลอยกลางบน (z สูงกว่า HUD) ไม่ให้บังการ์ดเป้าหมายตอนที่ต้องใช้มันที่สุด
+    hudTextBelowTimer += dt;
+    if (hudTextBelowTimer >= HUD_TEXT_PERIOD) {
+        hudTextBelowTimer = 0;
+        const ab = document.getElementById('alert-banner'), eb = document.getElementById('emergency-banner');
+        const below = !!((ab && ab.style.display !== 'none') || (eb && eb.style.display !== 'none'));
+        if (below !== hudBelowShown) { hudBelowShown = below; hudStack.classList.toggle('below', below); }
+    }
+}
+let hudTextBelowTimer = 0;
+
+function disposeHud() {
+    if (hudDisposed) return;
+    hudDisposed = true;
+    removeHudTicker();
+    hudToasts.length = 0;
+    if (hudStyleEl) hudStyleEl.remove();
+    if (hudStack) hudStack.remove();
+    if (hudToastBox) hudToastBox.remove();
+    hudObj = null;
+}
+
+if (VIEWER_MODE) {
+    window.AecHud = hudNoop;
+} else {
+    hudBuild();
+    removeHudTicker = addTicker(hudTick, 'gf-hud');
+    registerDisposer(disposeHud, 'hud');
+    window.AecHud = {
+        toast: hudToast, setObjective: hudSetObjective, clearObjective: hudClearObjective,
+        setPlantAlerts: hudSetPlantAlerts, onEmergencyCall: hudOnEmergencyCall,
+        getState: () => ({ risk: riskTarget, fill: riskFill, level: riskLevelOf(riskTarget), toasts: hudToasts.length, objective: hudObj && hudObj.id })
+    };
+}
+// === END GAME FEEL HUD ===
 
 function animate() {
     if (worldDisposed) return; // GAME FEEL ข้อ 4: โลกถูกปล่อยแล้ว ไม่ต้องตั้ง requestAnimationFrame ต่อ
