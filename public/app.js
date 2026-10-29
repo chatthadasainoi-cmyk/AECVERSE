@@ -5445,6 +5445,238 @@ addTicker(() => {
 }, 'camera-limits');
 // === END GAME FEEL camera ===
 
+// ============================================================
+// === GAME FEEL === hover/click (ข้อ 3: ชี้แล้วรู้ว่ากดได้ + กดแล้วมีปฏิกิริยา)
+//
+// ออกแบบให้ "ไม่แตะวัสดุของโมเดลเลย":
+//   ไฮไลต์เดิม (applyHighlight/setFactoryMaterialMode) สลับ child.material ทั้งโมเดลทุกครั้งที่เลือก
+//   ถ้าไปแก้ emissive ของวัสดุ ค่าจะถูกเขียนทับหรือรั่ว -> ใช้เมชซ้อนทับของเราเอง (ใช้ geometry ร่วมกับชิ้นจริง
+//   ไม่ clone) วางใน scene ไม่ใช่ใน factoryModel จึงไม่ถูก raycast/ส่งออก/ซิงก์ปนไปกับโมเดล
+//
+// ความเสี่ยงหลักคือ raycast: โมเดลมีท่อรวมก้อนละล้านกว่าสามเหลี่ยม ตรวจทุกการขยับเมาส์จะค้าง
+//   -> ตรวจเฉพาะชิ้นเบา (<= HOVER_MAX_TRIS) ที่ความถี่จำกัด และวัดเวลาจริงของแต่ละครั้ง
+//      ช้าก็ถ่างช่วงห่างออก ช้ามากติดกันก็ปิด hover ของโมเดลนั้นเอง (การคลิกเลือกเดิมไม่กระทบ)
+//
+// ภาพเท่านั้น: ไม่ส่งอะไรเข้า Socket.IO ไม่แตะ _original3DName ไม่แก้ชิ้นส่วนจริง (ไม่ scale/ไม่ย้าย)
+// ============================================================
+const QUALITY = (typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches) ? 'low' : 'high';
+const HOVER_MAX_TRIS = 100000;                          // ชิ้นที่หนักกว่านี้ไม่เข้าร่วม hover
+const HOVER_INTERVAL = QUALITY === 'low' ? 0.12 : 0.066; // วินาทีระหว่างการ raycast (เริ่มต้น ~8 / ~15 ครั้งต่อวินาที)
+const HOVER_SLOW_MS = 6;                                // cast ที่ช้ากว่านี้ -> ถ่างช่วงห่างเป็นสองเท่า
+const HOVER_STOP_MS = 25;                               // ช้ากว่านี้ติดกัน HOVER_STOP_STRIKES ครั้ง -> ปิด hover
+const HOVER_STOP_STRIKES = 3;
+const HOVER_MAX_BACKOFF = 8;
+const HOVER_OPACITY = 0.3;
+const POP_DURATION = 0.25;
+const POP_SCALE = 0.08;                                 // 1 -> 1.08 -> 1
+
+const hoverRaycaster = new THREE.Raycaster();           // แยกจาก raycaster กลาง ไม่ไปทับสถานะของตัวเลือกชิ้น
+const _hvNDC = new THREE.Vector2();
+const _hvCamMat = new THREE.Matrix4();
+const _hvHits = [];
+const _popPivot = new THREE.Matrix4();
+const _popCenter = new THREE.Vector3();
+
+// ---------- เมชซ้อนทับ (hover ค้างอยู่ / pop ชั่วคราว) ----------
+const hoverGeoPlaceholder = new THREE.BufferGeometry();
+function makeOverlay(color) {
+    const m = new THREE.Mesh(hoverGeoPlaceholder, new THREE.MeshBasicMaterial({
+        color, transparent: true, opacity: 0, depthWrite: false,
+        polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2   // ลอยเหนือผิวชิ้นจริงนิดเดียว กัน z-fight
+    }));
+    m.visible = false;
+    m.matrixAutoUpdate = false;     // เรากำหนด matrix เอง = matrixWorld ของชิ้นที่ครอบ
+    m.frustumCulled = false;
+    m.renderOrder = 10;
+    m.userData.gfOverlay = true;
+    m.raycast = () => {};           // ไม่ให้ใครชี้โดนตัวซ้อนทับ
+    scene.add(m);
+    return m;
+}
+const hoverOverlay = makeOverlay(0x22d3ee);
+const popOverlay = makeOverlay(0xbaf3ff);
+
+// ---------- ป้ายชื่อตามเมาส์ (HTML ไม่ใช่ title ของเบราว์เซอร์) ----------
+const hoverTip = document.createElement('div');
+hoverTip.id = 'gf-hover-tip';
+hoverTip.style.cssText = 'position:fixed;left:0;top:0;z-index:40;pointer-events:none;display:none;opacity:0;' +
+    'transition:opacity 150ms;max-width:260px;padding:6px 10px;border-radius:10px;' +
+    'background:rgba(15,23,42,0.82);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);' +
+    'border:1px solid rgba(34,211,238,0.45);color:#e2e8f0;font-family:inherit;font-size:12px;line-height:1.4;';
+const hoverTipName = document.createElement('div');
+hoverTipName.style.cssText = 'font-weight:600;';
+const hoverTipHint = document.createElement('div');
+hoverTipHint.style.cssText = 'font-size:11px;opacity:0.7;';
+hoverTipHint.textContent = 'คลิกดูข้อมูล · ดับเบิลคลิกเพื่อโฟกัส';
+hoverTip.appendChild(hoverTipName);
+hoverTip.appendChild(hoverTipHint);
+document.body.appendChild(hoverTip);
+
+// ---------- รายการชิ้นที่เข้าร่วม hover ----------
+let hoverModel = null, hoverList = [];
+const hoverByUuid = new Map();
+function rebuildHoverList() {
+    hoverModel = factoryModel;
+    hoverList = [];
+    hoverByUuid.clear();
+    if (!factoryModel) return;
+    factoryModel.traverse(c => {
+        if (!c.isMesh || c.isSkinnedMesh || c.isInstancedMesh || !c.geometry) return;
+        const g = c.geometry;
+        const count = g.index ? g.index.count : (g.attributes.position ? g.attributes.position.count : 0);
+        const tris = count / 3;
+        if (tris === 0 || tris > HOVER_MAX_TRIS) return;
+        hoverList.push(c);
+        hoverByUuid.set(c.uuid, c);
+    });
+}
+
+// ---------- สถานะ hover ----------
+let hoverMesh = null;
+let hoverX = 0, hoverY = 0, hoverIn = false, hoverDirty = false, hoverButtons = 0, hoverTimer = 0;
+let hoverBackoff = 1, hoverSlowStrikes = 0, hoverDisabled = false;
+let hoverCursorSet = false, hoverTipW = 0, hoverTipH = 0, lastSelUuid = null, popSrc = null;
+
+function canHover() {
+    return !!factoryModel && !lobbyActive && !measureMode && !radiusPickActive && !markerPlaceMode &&
+        !window.AEC_XR_ACTIVE && !isEditingActive();
+}
+
+function setHoverCursor(on) {
+    const cv = renderer.domElement;
+    if (on) { if (cv.style.cursor === '') { cv.style.cursor = 'pointer'; hoverCursorSet = true; } }
+    else if (hoverCursorSet) { if (cv.style.cursor === 'pointer') cv.style.cursor = ''; hoverCursorSet = false; }
+}
+
+function hoverLabel(mesh) {
+    const key = resolveDatabaseKey(mesh, mesh.name);
+    const d = workflowDatabase[key];
+    return (d && d.name && key !== 'default') ? d.name : (mesh._original3DName || mesh.name || 'ชิ้นส่วน');
+}
+
+function setHover(mesh) {
+    hoverMesh = mesh;
+    if (mesh) {
+        if (hoverOverlay.geometry !== mesh.geometry) hoverOverlay.geometry = mesh.geometry;
+        hoverOverlay.visible = true;
+        hoverTipName.textContent = hoverLabel(mesh);
+        hoverTip.style.display = 'block';
+        hoverTipW = hoverTip.offsetWidth; hoverTipH = hoverTip.offsetHeight;   // อ่านขนาดตอนข้อความเปลี่ยนเท่านั้น ไม่อ่านทุกเฟรม
+        hoverTip.style.opacity = '1';
+        setHoverCursor(true);
+    } else {
+        hoverTip.style.opacity = '0';
+        hoverTip.style.display = 'none';
+        setHoverCursor(false);
+    }
+}
+function clearHover() { if (hoverMesh) setHover(null); }
+
+function adaptHoverCost(ms) {
+    if (ms > HOVER_STOP_MS) { if (++hoverSlowStrikes >= HOVER_STOP_STRIKES) { hoverDisabled = true; clearHover(); } }
+    else hoverSlowStrikes = 0;
+    if (ms > HOVER_SLOW_MS) hoverBackoff = Math.min(hoverBackoff * 2, HOVER_MAX_BACKOFF);
+    else if (ms < HOVER_SLOW_MS / 3 && hoverBackoff > 1) hoverBackoff = Math.max(1, hoverBackoff / 2);
+}
+
+function castHover() {
+    if (!hoverList.length) return null;     // ไม่มีชิ้นเบาให้ตรวจ (โมเดลว่าง/ยังโหลดไม่เสร็จ) ไม่ต้องยิงเปล่า
+    const rect = renderer.domElement.getBoundingClientRect();
+    if (!rect.width || !rect.height) return hoverMesh;
+    _hvNDC.set(((hoverX - rect.left) / rect.width) * 2 - 1, -((hoverY - rect.top) / rect.height) * 2 + 1);
+    hoverRaycaster.setFromCamera(_hvNDC, camera);
+    _hvHits.length = 0;
+    const t0 = performance.now();
+    hoverRaycaster.intersectObjects(hoverList, false, _hvHits);
+    adaptHoverCost(performance.now() - t0);
+    return _hvHits.length ? _hvHits[0].object : null;
+}
+
+// ---------- pop ตอนเลือกชิ้น: 1 -> 1.08 -> 1 (outBack ขาขึ้น, outCubic ขาลง) ----------
+// ย่อ/ขยายที่เมชซ้อนทับ รอบจุดกึ่งกลางกล่องของชิ้น — ชิ้นจริงไม่ถูก scale เพราะ pivot ของชิ้นในไฟล์โมเดลไม่แน่นอน
+function popBump(t) { return t < 0.4 ? Ease.outBack(t / 0.4) : 1 - Ease.outCubic((t - 0.4) / 0.6); }
+function startPop(mesh) {
+    const g = mesh.geometry;
+    if (!g.boundingBox) g.computeBoundingBox();
+    g.boundingBox.getCenter(_popCenter);
+    popSrc = mesh;
+    popOverlay.geometry = g;
+    popOverlay.visible = true;
+    tween({
+        key: 'gf-pop', duration: POP_DURATION, ease: t => t,
+        onUpdate(t) {
+            const k = 1 + POP_SCALE * popBump(t);
+            _popPivot.makeScale(k, k, k);
+            const te = _popPivot.elements;
+            te[12] = _popCenter.x * (1 - k); te[13] = _popCenter.y * (1 - k); te[14] = _popCenter.z * (1 - k);
+            popOverlay.matrix.copy(popSrc.matrixWorld).multiply(_popPivot);
+            popOverlay.matrixWorldNeedsUpdate = true;
+            popOverlay.material.opacity = 0.55 * (1 - t);
+        },
+        onDone() { popOverlay.visible = false; popOverlay.material.opacity = 0; popSrc = null; }
+    });
+}
+
+// ---------- อีเวนต์ (เก็บไว้ถอดตอน dispose) ----------
+const hoverListeners = [];
+function onHover(target, type, fn) { target.addEventListener(type, fn); hoverListeners.push(() => target.removeEventListener(type, fn)); }
+onHover(renderer.domElement, 'pointermove', (e) => {
+    if (e.pointerType === 'touch') return;          // จอสัมผัสไม่มี hover: แตะ = เลือกเลย (pop ทำงานผ่านการเลือก)
+    hoverX = e.clientX; hoverY = e.clientY; hoverButtons = e.buttons; hoverIn = true; hoverDirty = true;
+});
+onHover(renderer.domElement, 'pointerleave', () => { hoverIn = false; clearHover(); });
+onHover(renderer.domElement, 'pointerdown', () => { hoverButtons = 1; clearHover(); });   // เริ่มลากกล้อง
+onHover(renderer.domElement, 'pointerup', () => { hoverButtons = 0; hoverDirty = true; });
+
+const removeHoverTicker = addTicker((dt) => {
+    if (hoverModel !== factoryModel) {              // โมเดลถูกเปลี่ยน/ยังไม่โหลด: ตั้งต้นใหม่
+        clearHover(); rebuildHoverList();
+        hoverDisabled = false; hoverSlowStrikes = 0; hoverBackoff = 1;
+    }
+    if (selection.uuid !== lastSelUuid) {           // ชิ้นถูกเลือกด้วยทางไหนก็ตาม (คลิก/รายการ/QR/เดินชน)
+        lastSelUuid = selection.uuid;
+        const m = lastSelUuid ? hoverByUuid.get(lastSelUuid) : null;
+        if (m) startPop(m);
+    }
+
+    hoverTimer = Math.min(hoverTimer + dt, 1);
+    if (hoverIn && !_hvCamMat.equals(camera.matrixWorld)) { _hvCamMat.copy(camera.matrixWorld); hoverDirty = true; }   // กล้องขยับ = ใต้เมาส์เปลี่ยน
+    if (!canHover() || hoverDisabled || hoverButtons !== 0 || !hoverIn) {
+        clearHover();
+    } else if (hoverDirty && hoverTimer >= HOVER_INTERVAL * hoverBackoff) {
+        hoverTimer = 0; hoverDirty = false;
+        const m = castHover();
+        if (m !== hoverMesh) setHover(m);
+    }
+
+    const mat = hoverOverlay.material;
+    mat.opacity = THREE.MathUtils.damp(mat.opacity, hoverMesh ? HOVER_OPACITY : 0, 14, dt);
+    if (hoverMesh) { hoverOverlay.matrix.copy(hoverMesh.matrixWorld); hoverOverlay.matrixWorldNeedsUpdate = true; }
+    else if (mat.opacity < 0.01) { mat.opacity = 0; hoverOverlay.visible = false; }
+
+    if (hoverMesh) {                                // ป้ายตามเมาส์ (ชิดขอบจอแล้วพลิกไปอีกด้าน)
+        const x = hoverX + 14 + hoverTipW > window.innerWidth ? hoverX - 14 - hoverTipW : hoverX + 14;
+        const y = hoverY + 18 + hoverTipH > window.innerHeight ? hoverY - 18 - hoverTipH : hoverY + 18;
+        hoverTip.style.transform = 'translate(' + x + 'px,' + y + 'px)';
+    }
+}, 'gf-hover');
+
+// ปล่อยทุกอย่างที่ข้อนี้สร้าง (เรียกตอนปิดโลก/เปลี่ยนห้อง) — ไม่แตะ geometry ของโมเดล เพราะเป็นของโมเดล
+function disposeHoverFeedback() {
+    removeHoverTicker();
+    const cancelPop = activeTweens.get('gf-pop'); if (cancelPop) cancelPop();
+    hoverListeners.forEach(off => off());
+    hoverListeners.length = 0;
+    clearHover();
+    scene.remove(hoverOverlay); scene.remove(popOverlay);
+    hoverOverlay.material.dispose(); popOverlay.material.dispose();
+    hoverGeoPlaceholder.dispose();
+    hoverTip.remove();
+    hoverList = []; hoverByUuid.clear(); hoverModel = null; popSrc = null;
+}
+window.AecGameFeel = Object.assign(window.AecGameFeel || {}, { disposeHover: disposeHoverFeedback });
+// === END GAME FEEL hover ===
+
 function animate() {
     // ตอนอยู่ในโหมด VR ต้องให้ renderer.setAnimationLoop เป็นคนเรียกแทน
     // เพราะแว่นวาดคนละจังหวะกับจอ ถ้ายังใช้ requestAnimationFrame ภาพจะไม่ตรงกับการหันหัว
