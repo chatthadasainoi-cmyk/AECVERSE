@@ -22,7 +22,8 @@ window.AecWorldPrefs = (function () {
     mic:      { label: 'เปิด/ปิดไมค์',     def: 'v' },
     chat:     { label: 'พิมพ์แชท',        def: '/' },
     freelook: { label: 'สลับ Free Look',  def: 'f' },
-    resetcam: { label: 'รีเซ็ตมุมกล้อง',  def: 'r' }
+    resetcam: { label: 'รีเซ็ตมุมกล้อง',  def: 'r' },
+    focus:    { label: 'โฟกัสกล้องที่ชิ้นที่เลือก', def: 'g' }
   };
 
   function loadBinds() {

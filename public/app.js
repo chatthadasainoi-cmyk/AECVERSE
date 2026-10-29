@@ -95,7 +95,7 @@ canvasContainer.appendChild(renderer.domElement);
 
 const controls = new THREE.OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
-controls.dampingFactor = 0.05;
+controls.dampingFactor = 0.08; // GAME FEEL ข้อ 2: นุ่มขึ้นเล็กน้อย (เดิม 0.05) — ส่วนที่เหลือของกล้องอยู่ในหัวข้อ "GAME FEEL camera"
 controls.minDistance = 0.5;
 controls.maxDistance = 3000; // เดิม 400 — โรงงานกว้างหลายร้อยเมตร ถอยไม่พอเห็นภาพรวม
                              // 3000 ม. ยังอยู่ในระยะที่กล้องมองเห็น (camera.far = 6000)
@@ -781,13 +781,13 @@ function isTypingInField() {
 }
 
 // ---------- ปุ่มควบคุมที่ผู้ใช้เปลี่ยนเองได้ (ตั้งค่าที่หน้า Settings → world-prefs.js) ----------
-const BIND_DEFAULTS = { forward: 'w', backward: 's', left: 'a', right: 'd', jump: ' ', mic: 'v', chat: '/', freelook: 'f', resetcam: 'r' };
+const BIND_DEFAULTS = { forward: 'w', backward: 's', left: 'a', right: 'd', jump: ' ', mic: 'v', chat: '/', freelook: 'f', resetcam: 'r', focus: 'g' };
 // ปุ่มเทียบเท่าเดิม: ลูกศร + แป้นไทยเกษมณี (ไ=w, ห=s, ฟ=a, ก=d, ด=f, พ=r, อ=v, ฝ=/)
 // จะใช้ได้เฉพาะตอนที่ผู้ใช้ "ยังไม่ได้เปลี่ยน" ปุ่มนั้นเอง ไม่งั้นปุ่มเก่าจะค้างทำงานทับปุ่มใหม่
 const BIND_ALIASES = {
     forward: ['arrowup', 'ไ'], backward: ['arrowdown', 'ห'],
     left: ['arrowleft', 'ฟ'], right: ['arrowright', 'ก'],
-    mic: ['อ'], chat: ['ฝ'], freelook: ['ด'], resetcam: ['พ']
+    mic: ['อ'], chat: ['ฝ'], freelook: ['ด'], resetcam: ['พ'], focus: ['เ']
 };
 let userBinds = { ...BIND_DEFAULTS };
 function reloadUserBinds() {
@@ -5285,6 +5285,165 @@ function tween({ key, duration = 0.6, ease = Ease.outCubic, onUpdate, onDone } =
     return cancel;
 }
 // === END GAME FEEL core ===
+
+// ============================================================
+// === GAME FEEL === camera (ข้อ 2: damping + โฟกัสชิ้นส่วนด้วยการบินกล้องนุ่มๆ + กันกล้องลงใต้พื้น)
+//
+// - ดับเบิลคลิกชิ้นส่วน หรือกดปุ่ม "โฟกัส" (ค่าเริ่มต้น G — F ถูก Free Look ใช้อยู่) = กล้องบินไปหาชิ้นนั้น 0.8 วิ
+// - ระหว่างบิน controls ถูกปิด จบแล้วคืนค่าตามโหมดมุมมองจริง (ไม่ใช่เปิดมั่วๆ)
+// - โฟกัสแล้วอยู่ในสถานะ Free Look (กล้องไม่ถูกดึงกลับไปหาตัวละคร) กด Esc หรือ F เพื่อกลับ
+// - ทุกอย่างเป็นภาพฝั่งเราเอง ไม่ส่งอะไรเข้า Socket.IO และไม่แตะวัสดุ/ชื่อ mesh ที่ใช้ซิงก์
+// - Vector3 ที่ใช้ซ้ำสร้างครั้งเดียวตรงนี้ ในลูปไม่มีการสร้างวัตถุใหม่
+// ============================================================
+const CAM_FOCUS_DURATION = 0.8;          // วินาที
+const CAM_MAX_POLAR = Math.PI * 0.495;   // กล้องต่ำสุด = เกือบเสมอระดับจุดหมุน (จุดหมุนอยู่ที่ตัวละคร จึงไม่ลอดใต้พื้น)
+const FOCUS_MIN_DIST = 3;                // ชิ้นเล็กเท่าไรก็ไม่เข้าใกล้กว่านี้ (ม.)
+const FOCUS_MAX_DIST = 40;
+const FOCUS_BIG_RADIUS = 25;             // ชิ้นที่ใหญ่กว่านี้ (ท่อรวมเป็นก้อนเดียวทั้งโรงงาน) โฟกัสที่ "จุดที่ชี้" แทนจุดกึ่งกลางกล่อง
+const FOCUS_BIG_DIST = 12;
+
+const _fcFromPos = new THREE.Vector3(), _fcFromTarget = new THREE.Vector3();
+const _fcToPos = new THREE.Vector3(), _fcToTarget = new THREE.Vector3();
+const _fcAimPos = new THREE.Vector3(), _fcAimTarget = new THREE.Vector3();
+const _fcDir = new THREE.Vector3();
+const _fcBox = new THREE.Box3(), _fcSphere = new THREE.Sphere();
+const _fcCenterNDC = new THREE.Vector2(0, 0);
+
+let cameraFlyAbort = null;      // ฟังก์ชันหยุดการบินที่กำลังวิ่งอยู่ (null = ไม่ได้บิน)
+let cameraFocusHeld = false;    // true = กล้องถูกล็อกอยู่ที่ชิ้นส่วนที่โฟกัส (อยู่ใน Free Look)
+let cameraFocusHinted = false;
+
+function controlsShouldBeEnabled() { return viewMode === 'third' && !lobbyActive; }
+
+// เงื่อนไขที่ต้องหยุดบินกลางทาง: เปลี่ยนมุมมอง, กลับล็อบบี้, ผู้ใช้สลับ Free Look ออก หรือเริ่มกดเดิน
+function cameraFlyShouldAbort() {
+    return viewMode !== 'third' || lobbyActive || (avatarModel && !isFreeLook) ||
+        moveStatus.forward || moveStatus.backward || moveStatus.left || moveStatus.right;
+}
+
+function cameraFlyTo(toPos, toTarget, onArrive) {
+    if (cameraFlyAbort) cameraFlyAbort();
+    // ล้างแรงเฉื่อย damping ที่ค้างอยู่ก่อนเริ่ม ไม่งั้นระหว่างบินกล้องจะถูกแรงเฉื่อยเก่าเบี่ยงออกนอกเส้นทาง
+    controls.enableDamping = false; controls.update(); controls.enableDamping = true;
+    _fcFromPos.copy(camera.position); _fcFromTarget.copy(controls.target);
+    _fcToPos.copy(toPos); _fcToTarget.copy(toTarget);
+    controls.enabled = false;
+
+    let ended = false, stop = null;
+    function finish(arrived) {
+        if (ended) return;
+        ended = true;
+        cameraFlyAbort = null;
+        controls.enabled = controlsShouldBeEnabled();
+        if (arrived && onArrive) onArrive();
+    }
+    cameraFlyAbort = () => { if (stop) stop(); finish(false); };
+    stop = tween({
+        key: 'camera', duration: CAM_FOCUS_DURATION, ease: Ease.inOutCubic,
+        onUpdate(k) {
+            if (cameraFlyShouldAbort()) { cameraFlyAbort(); return; }
+            camera.position.lerpVectors(_fcFromPos, _fcToPos, k);
+            controls.target.lerpVectors(_fcFromTarget, _fcToTarget, k);
+        },
+        onDone() { finish(true); }
+    });
+}
+
+function canFocusCamera() {
+    return !!factoryModel && viewMode === 'third' && !lobbyActive &&
+        !measureMode && !radiusPickActive && !markerPlaceMode && !isEditingActive();
+}
+
+function focusCameraOnMesh(mesh, point) {
+    _fcBox.setFromObject(mesh);
+    if (_fcBox.isEmpty()) return;
+    _fcBox.getBoundingSphere(_fcSphere);
+    let center = _fcSphere.center, dist;
+    if (_fcSphere.radius > FOCUS_BIG_RADIUS) {
+        if (!point) {   // กดปุ่มโดยไม่ได้ชี้เมาส์: ใช้จุดที่อยู่กลางจอแทน
+            raycaster.setFromCamera(_fcCenterNDC, camera);
+            const h = raycaster.intersectObject(mesh, true)[0];
+            point = h ? h.point : null;
+        }
+        if (!point) {
+            safeCall(() => mpAppendChat({ name: 'ระบบกล้อง', color: '#00ffff', text: '🎯 ชิ้นนี้ใหญ่มาก — ดับเบิลคลิกตรงจุดที่ต้องการ หรือหันกล้องให้กลางจอโดนชิ้นนั้นก่อนกดโฟกัส' }), 'focus-hint');
+            return;
+        }
+        center = point;
+        dist = FOCUS_BIG_DIST;
+    } else {
+        const halfFov = THREE.MathUtils.degToRad(camera.fov) / 2;
+        dist = THREE.MathUtils.clamp(_fcSphere.radius / Math.sin(halfFov) * 1.2, FOCUS_MIN_DIST, FOCUS_MAX_DIST);
+    }
+    dist = Math.max(dist, controls.minDistance);
+
+    // คงทิศมองเดิมไว้ แต่บังคับให้กล้องอยู่สูงกว่าจุดโฟกัสเสมอ (ไม่ลอดใต้พื้น)
+    _fcDir.subVectors(camera.position, controls.target);
+    if (_fcDir.lengthSq() < 1e-6) _fcDir.set(1, 0.6, 1);
+    _fcDir.normalize();
+    _fcDir.y = Math.max(_fcDir.y, 0.25);
+    _fcDir.normalize();
+    _fcAimPos.copy(center).addScaledVector(_fcDir, dist);
+    _fcAimTarget.copy(center);
+
+    // ตัวละครมีอยู่ -> ใช้กลไก Free Look เดิมเพื่อหยุดกล้องตามตัวละคร (applyCameraForViewMode ดึงกล้องกลับทุกเฟรม)
+    isFreeLook = true;
+    cameraFocusHeld = true;
+    cameraFlyTo(_fcAimPos, _fcAimTarget, null);
+
+    if (!cameraFocusHinted) {
+        cameraFocusHinted = true;
+        safeCall(() => mpAppendChat({ name: 'ระบบกล้อง', color: '#00ffff', text: '🎯 โฟกัสแล้ว — กด Esc หรือ F เพื่อกลับไปตามตัวละคร' }), 'focus-hint');
+    }
+}
+
+function focusSelectedPart() {
+    if (!canFocusCamera() || !selection.uuid) return;
+    let mesh = null;
+    factoryModel.traverse(c => { if (!mesh && c.isMesh && c.uuid === selection.uuid) mesh = c; });
+    if (mesh) focusCameraOnMesh(mesh, null);
+}
+
+// Esc: บินกลับไปหลังตัวละครแล้วค่อยปล่อยกลับโหมดตามตัวละคร (ไม่ดีดกล้องทันที)
+function exitCameraFocus() {
+    if (!cameraFocusHeld || !isFreeLook) return;
+    if (cameraFlyAbort) cameraFlyAbort();
+    if (!avatarModel) { cameraFocusHeld = false; return; }   // โหมด viewer ไม่มีตัวละครให้กลับไปหา
+    _fcAimPos.copy(defaultCameraOffset).applyMatrix4(avatarModel.matrixWorld);
+    _fcAimTarget.set(avatarModel.position.x, avatarModel.position.y + 0.3, avatarModel.position.z);
+    cameraFlyTo(_fcAimPos, _fcAimTarget, () => { isFreeLook = false; cameraFocusHeld = false; });
+}
+
+// ดับเบิลคลิก = คลิก 2 ครั้ง และระบบเลือกเดิมถือว่า "ชี้ซ้ำที่เดิม = ปิดป้าย" ครั้งที่สองจึงยกเลิกการเลือกไปแล้ว
+// ต้องเลือกกลับ ไม่งั้นบินไปหาชิ้นส่วนแต่ป้ายข้อมูลหาย
+renderer.domElement.addEventListener('dblclick', (e) => {
+    safeCall(() => {
+        if (!canFocusCamera()) return;
+        const rect = renderer.domElement.getBoundingClientRect();
+        pointerNDC.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        pointerNDC.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+        raycaster.setFromCamera(pointerNDC, camera);
+        const hit = raycaster.intersectObject(factoryModel, true)[0];
+        if (!hit) return;
+        if (selection.uuid !== hit.object.uuid) selectPart(hit.object, '👆 ชี้เลือกอุปกรณ์', { force: true });
+        focusCameraOnMesh(hit.object, hit.point);
+    }, 'dblclick-focus');
+});
+
+window.addEventListener('keydown', (e) => {
+    if (e.repeat || isTypingInField()) return;
+    if (isBind('focus', e)) { safeCall(focusSelectedPart, 'focusSelectedPart'); return; }
+    if (e.key === 'Escape') safeCall(exitCameraFocus, 'exitCameraFocus');
+});
+
+// ขอบเขตกล้อง: มุมก้ม-เงยสูงสุดไม่ให้ลอดพื้น ยกเว้นโหมดที่กล้องอยู่ระดับสายตา/ถูกแว่นคุม (จุดหมุนอยู่ระดับเดียวกับกล้อง ถ้าบีบจะยกกล้องเอง)
+addTicker(() => {
+    const unclamped = viewMode === 'first' || lobbyActive || window.AEC_XR_ACTIVE;
+    const want = unclamped ? Math.PI : CAM_MAX_POLAR;
+    if (controls.maxPolarAngle !== want) controls.maxPolarAngle = want;
+    if (!isFreeLook) cameraFocusHeld = false;
+}, 'camera-limits');
+// === END GAME FEEL camera ===
 
 function animate() {
     // ตอนอยู่ในโหมด VR ต้องให้ renderer.setAnimationLoop เป็นคนเรียกแทน
