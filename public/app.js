@@ -5821,6 +5821,81 @@ window.AecGameFeel = Object.assign(window.AecGameFeel || {}, { disposeWorld, reg
 window.addEventListener('pagehide', (e) => { if (!e.persisted) disposeWorld(); });
 // === END GAME FEEL lifecycle ===
 
+// ============================================================
+// === GAME FEEL === atmosphere (ข้อ 5: tone mapping)
+//
+// เลือก ACESFilmic exposure 1.0 โดยวัดเป็นตัวเลขกับสูตร GLSL จริงของ three r128 ก่อน (ตัวเลขด้านล่างคำนวณด้วยสูตรเดียวกับ shader ของ three ที่ใช้งานจริง ไม่ใช่การประมาณ):
+//   - ความสว่าง "ไม่มืดลง": เทากลาง 128 -> 141, 159 -> 174 ; ส่วนที่เดิมสว่างล้นเป็นขาว 255 ถูกกดลงมามีรายละเอียด (~236)
+//   - ราคาที่จ่าย: สีอิ่มจัดซีดลงในจุดที่โดนแสงเต็ม (เหลืองก๊าซ sat 0.95 -> 0.61, เขียว 0.85 -> 0.54, เฉดเขียวเบี่ยง ~11-15°)
+//     ยิ่งเพิ่ม exposure ยิ่งซีด (1.6 -> เหลือง 0.47) จึงไม่ให้เกิน 1.0 โดยปริยาย และเปิดสวิตช์ปิด/ปรับไว้ให้เทียบ A/B
+//   - Reinhard ไม่ดีกว่า (ภาพหม่นลงชัด ขาวนวล 255 -> 202)
+//
+// ไม่ได้เพิ่ม fog และไม่เปิดเงา (ตั้งใจ):
+//   - fog: ฉากนี้ไม่มีอะไรอยู่ "ไกลกว่าโรงงาน" ให้จางเลย (ท้องฟ้าเป็น shader ไม่รับ fog, พื้นเป็นระนาบใส) ถ้าให้ fog ไม่กระทบโมเดล
+//     ต้องตั้งระยะเริ่มให้พ้นโรงงานเสมอ ซึ่งเท่ากับไม่มีผลอะไร ส่วนถ้าให้กระทบ ก็คือสิ่งที่เคยทำให้ภาพมืด/จาง
+//     ตอนซูมออก (ดูคอมเมนต์ "ไม่ใส่ fog แล้ว" ด้านบน) จึงคงการตัดสินใจเดิมไว้
+//   - เงา: ต้องเรนเดอร์โมเดลซ้ำอีกรอบทุกเฟรม โมเดลมี ~18.5M สามเหลี่ยม (98% ในท่อรวม 15 ก้อน) = ครึ่งหนึ่งของ fps หาย
+//     ตัวละครมีเงาวงกลมใต้เท้าอยู่แล้ว
+//
+// r128 ฝัง tone mapping เป็น #define ตอนคอมไพล์ shader สลับตอนรันไม่ได้ฟรี ต้องสั่ง needsUpdate ให้ทุกวัสดุ
+// -> ตั้งค่าตอนเริ่มจาก URL (ก่อนเฟรมแรก ไม่มีต้นทุน) และมี AecGameFeel.setToneMapping() สำหรับสลับตอนรัน (สะดุดครั้งเดียว)
+//   ?tonemap=off          ปิด
+//   ?tonemap=aces&exposure=0.9   เปิดและปรับ exposure (0.5-1.5)
+// ============================================================
+const TONE_EXPOSURE_MIN = 0.5, TONE_EXPOSURE_MAX = 1.5;
+let toneMode = 'off';
+
+function applyToneMapping(mode, exposure) {
+    toneMode = (mode === 'off') ? 'off' : 'aces';
+    renderer.toneMapping = toneMode === 'aces' ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping;
+    const ex = Number(exposure);
+    renderer.toneMappingExposure = (exposure !== undefined && exposure !== null && exposure !== '' && isFinite(ex))
+        ? THREE.MathUtils.clamp(ex, TONE_EXPOSURE_MIN, TONE_EXPOSURE_MAX) : 1.0;
+    if (renderer.info.render.frame > 0) {           // เคยวาดไปแล้ว: วัสดุที่คอมไพล์ไว้ต้องคอมไพล์ใหม่
+        scene.traverse(o => { if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => { m.needsUpdate = true; }); });
+    }
+}
+
+// ป้ายชื่อ/ตัวเลข/วงโซน/เส้นวัด/หมุด/เมชซ้อนทับ เป็น "UI ในฉาก" สีต้องออกตรงตามที่ตั้ง ไม่ควรถูก tone mapping กดความสว่างหรือทำให้ซีด
+// มีจุดสร้างกระจายกว่า 20 จุด จึงครอบคลาสวัสดุสามชนิดนี้ให้ toneMapped=false ตั้งแต่สร้าง แทนการไล่แก้ทีละจุด
+// (วัสดุของโมเดลโรงงานเป็น Standard/Physical จึงไม่ถูกแตะ; ไฟล์ที่เป็น unlit ก็ถือเป็นสีคงที่ตามเจตนาอยู่แล้ว)
+function exemptMaterialFromToneMapping(name) {
+    const Base = THREE[name];
+    if (!Base || Base.gfUntoned) return;
+    const Sub = class extends Base { constructor(params) { super(params); this.toneMapped = false; } };
+    Sub.gfUntoned = true;
+    THREE[name] = Sub;
+}
+['SpriteMaterial', 'MeshBasicMaterial', 'LineBasicMaterial'].forEach(n => safeCall(() => exemptMaterialFromToneMapping(n), 'tone-exempt:' + n));
+
+// ของที่ถูกสร้างไปแล้วก่อนถึงตรงนี้ (เช่นเมชซ้อนทับของข้อ 3) กวาดครั้งเดียว — ข้ามโมเดลโรงงาน
+(function exemptExisting(o) {
+    for (const c of o.children) {
+        if (c === factoryModel) continue;
+        if (c.material) (Array.isArray(c.material) ? c.material : [c.material]).forEach(m => {
+            if (m.isSpriteMaterial || m.isMeshBasicMaterial || m.isLineBasicMaterial) m.toneMapped = false;
+        });
+        if (c.children.length) exemptExisting(c);
+    }
+})(scene);
+skyDome.material.toneMapped = false;    // ท้องฟ้าเป็น shader เขียนเอง ไม่เรียกใช้ tone mapping อยู่แล้ว ปิดไว้ไม่ให้คอมไพล์ฟังก์ชันที่ไม่ได้ใช้
+
+(function initToneMapping() {
+    let mode = 'aces', exposure;
+    try {
+        const q = new URLSearchParams(window.location.search);
+        if (q.get('tonemap') === 'off') mode = 'off';
+        if (q.has('exposure')) exposure = q.get('exposure');
+    } catch (e) { /* ใช้ค่าเริ่มต้น */ }
+    applyToneMapping(mode, exposure);
+})();
+
+window.AecGameFeel = Object.assign(window.AecGameFeel || {}, {
+    setToneMapping: applyToneMapping,
+    getToneMapping: () => ({ mode: toneMode, exposure: renderer.toneMappingExposure })
+});
+// === END GAME FEEL atmosphere ===
+
 function animate() {
     if (worldDisposed) return; // GAME FEEL ข้อ 4: โลกถูกปล่อยแล้ว ไม่ต้องตั้ง requestAnimationFrame ต่อ
     // ตอนอยู่ในโหมด VR ต้องให้ renderer.setAnimationLoop เป็นคนเรียกแทน
