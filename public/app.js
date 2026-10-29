@@ -164,11 +164,18 @@ groundPlane.rotation.x = -Math.PI / 2;
 groundPlane.position.y = -0.02;
 scene.add(groundPlane);
 
+// GAME FEEL ข้อ 4: resize + ResizeObserver ยิงคู่กัน ถ้าขนาดและ DPR ไม่เปลี่ยนไม่ต้อง setSize ซ้ำ (setSize จัดสรร framebuffer ใหม่)
+let lastFitW = 0, lastFitH = 0, lastFitPR = 0;
 function fitRendererToContainer() {
+    if (window.AEC_XR_ACTIVE) return; // แว่น VR คุมขนาดเอง (three ปฏิเสธ setSize ตอน presenting อยู่แล้ว)
     const w = canvasContainer.clientWidth, h = canvasContainer.clientHeight;
     if (!w || !h) return; // ยัง layout ไม่เสร็จ — ResizeObserver จะเรียกซ้ำเองเมื่อได้ขนาดจริง
+    const pr = Math.min(window.devicePixelRatio || 1, 1.5); // เพดาน 1.5 ตามเดิม (บรรทัดตั้งค่าเริ่มต้นด้านบน)
+    if (w === lastFitW && h === lastFitH && pr === lastFitPR) return;
+    lastFitW = w; lastFitH = h; lastFitPR = pr;
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
+    if (renderer.getPixelRatio() !== pr) renderer.setPixelRatio(pr);
     renderer.setSize(w, h);
 }
 window.addEventListener('resize', fitRendererToContainer);
@@ -1051,12 +1058,7 @@ function applyFocusFromUrl() {
 
 function disposeFactoryModel() {
     if (!factoryModel) return;
-    factoryModel.traverse(child => {
-        if (child.isMesh) {
-            if (child.geometry) child.geometry.dispose();
-            if (child.material) (Array.isArray(child.material) ? child.material : [child.material]).forEach(m => m.dispose());
-        }
-    });
+    disposeObjectDeep(factoryModel); // GAME FEEL ข้อ 4: ล้าง texture ด้วย (เดิมค้างบน GPU ทุกครั้งที่สลับโมเดล)
     scene.remove(factoryModel);
     factoryModel = null;
 }
@@ -5517,6 +5519,9 @@ let hoverModel = null, hoverList = [];
 const hoverByUuid = new Map();
 function rebuildHoverList() {
     hoverModel = factoryModel;
+    for (const ov of [hoverOverlay, popOverlay]) { ov.visible = false; ov.material.opacity = 0; ov.geometry = hoverGeoPlaceholder; }
+    const cancelOldPop = activeTweens.get('gf-pop'); if (cancelOldPop) cancelOldPop();
+    popSrc = null;
     hoverList = [];
     hoverByUuid.clear();
     if (!factoryModel) return;
@@ -5677,7 +5682,147 @@ function disposeHoverFeedback() {
 window.AecGameFeel = Object.assign(window.AecGameFeel || {}, { disposeHover: disposeHoverFeedback });
 // === END GAME FEEL hover ===
 
+// ============================================================
+// === GAME FEEL === lifecycle (ข้อ 4: dispose / resize / context-loss)
+//
+// - dispose: ล้าง geometry + วัสดุ + "texture" (เดิมสลับโมเดลแล้ว texture ค้างบน GPU) และปล่อย GPU ตอนปิดหน้า
+//   (เฉพาะ pagehide ที่ไม่ใช่ bfcache — ถ้าหน้าถูกเก็บไว้กลับมาใช้ได้ ห้ามทำลายโลก)
+// - resize: ตัวกันซ้ำอยู่ที่ fitRendererToContainer() (resize + ResizeObserver ยิงคู่กัน เดิม setSize ซ้ำ)
+//   และตามการเปลี่ยน DPR (ย้ายจอ/ซูมเบราว์เซอร์)
+// - context-loss: three r128 กู้ context เองได้ (render() คืนค่าเงียบๆ ระหว่างหาย) แต่ผู้ใช้เห็นจอค้างโดยไม่รู้สาเหตุ
+//   และถ้า GPU หลุดซ้ำๆ (โมเดลใหญ่เกินกำลัง) จะวนไม่จบ -> แจ้งผู้ใช้ + ปุ่มโหลดใหม่ + นับครั้งที่หลุด
+// ไม่แตะ Socket.IO / การล็อกโมเดล / auth — โลกฝั่งเซิร์ฟเวอร์ยังเชื่อมต่ออยู่ตามเดิมระหว่างกราฟิกหาย
+// ============================================================
+let worldDisposed = false;
+const disposers = [];
+function registerDisposer(fn, label) { disposers.push({ fn, label }); }
+
+function disposeMaterialDeep(m) {
+    if (!m) return;
+    for (const k in m) { const v = m[k]; if (v && v.isTexture) v.dispose(); }
+    if (m.uniforms) for (const k in m.uniforms) { const u = m.uniforms[k]; if (u && u.value && u.value.isTexture) u.value.dispose(); }
+    if (m.dispose) m.dispose();
+}
+// ล้างทุกอย่างใต้ root: geometry, skeleton, วัสดุ และ texture ที่วัสดุถืออยู่ (เรียกซ้ำได้ ปลอดภัย)
+function disposeObjectDeep(root) {
+    if (!root) return;
+    root.traverse(o => {
+        if (o.geometry && o.geometry.dispose) o.geometry.dispose();
+        if (o.skeleton && o.skeleton.dispose) o.skeleton.dispose();
+        if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(disposeMaterialDeep);
+    });
+}
+
+// ---------- context loss ----------
+const CONTEXT_RELOAD_AFTER = 5;       // วินาที: กู้ไม่ได้ภายในเวลานี้ -> ขึ้นปุ่มโหลดใหม่
+const CONTEXT_REPEAT_LIMIT = 3;       // หลุดครบนี้ภายใน CONTEXT_REPEAT_WINDOW วินาที = หลุดซ้ำ ไม่ใช่เหตุสุดวิสัยครั้งเดียว
+const CONTEXT_REPEAT_WINDOW = 60;
+let contextLost = false, contextLostFor = 0, contextLossTimes = [];
+let ctxBox = null, ctxText = null, ctxBtn = null;
+
+function ensureContextBox() {
+    if (ctxBox) return;
+    ctxBox = document.createElement('div');
+    ctxBox.id = 'gf-context-box';
+    ctxBox.setAttribute('role', 'alert');
+    ctxBox.style.cssText = 'position:fixed;left:50%;top:18%;transform:translateX(-50%);z-index:60;display:none;' +
+        'max-width:min(420px,calc(100vw - 32px));padding:14px 18px;border-radius:14px;text-align:center;' +
+        'background:rgba(15,23,42,0.88);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);' +
+        'border:1px solid rgba(245,158,11,0.6);color:#e2e8f0;font-family:inherit;font-size:14px;line-height:1.5;';
+    ctxText = document.createElement('div');
+    ctxBtn = document.createElement('button');
+    ctxBtn.type = 'button';
+    ctxBtn.textContent = 'โหลดหน้าใหม่';
+    ctxBtn.style.cssText = 'display:none;margin-top:10px;padding:8px 16px;border-radius:10px;border:0;cursor:pointer;' +
+        'background:#f59e0b;color:#111827;font-family:inherit;font-weight:600;font-size:13px;';
+    ctxBtn.addEventListener('click', () => window.location.reload());
+    ctxBox.appendChild(ctxText);
+    ctxBox.appendChild(ctxBtn);
+    document.body.appendChild(ctxBox);
+}
+function showContextBox(text, withReload) {
+    ensureContextBox();
+    ctxText.textContent = text;
+    ctxBtn.style.display = withReload ? 'inline-block' : 'none';
+    ctxBox.style.display = 'block';
+}
+function hideContextBox() { if (ctxBox) ctxBox.style.display = 'none'; }
+
+const MSG_LOST = '⚠️ กราฟิกขัดข้อง กำลังกู้คืนภาพ… ระบบยังเชื่อมต่ออยู่ ไม่ต้องรีเฟรช';
+const MSG_STUCK = '⚠️ กู้คืนภาพไม่สำเร็จ ลองโหลดหน้าใหม่ (ข้อมูลที่บันทึกไว้แล้วไม่หาย)';
+const MSG_REPEAT = '⚠️ กราฟิกขัดข้องซ้ำหลายครั้ง อาจเพราะโมเดลใหญ่เกินกำลังการ์ดจอ ลองปิดแท็บอื่นแล้วโหลดหน้าใหม่';
+
+function onContextLost(e) {
+    if (worldDisposed) return;
+    e.preventDefault();             // จำเป็นต่อการกู้คืน (three ทำให้แล้ว ทำซ้ำไม่เสียหาย)
+    contextLost = true; contextLostFor = 0;
+    const now = Date.now();
+    contextLossTimes.push(now);
+    contextLossTimes = contextLossTimes.filter(t => now - t < CONTEXT_REPEAT_WINDOW * 1000);
+    const repeated = contextLossTimes.length >= CONTEXT_REPEAT_LIMIT;
+    showContextBox(repeated ? MSG_REPEAT : MSG_LOST, repeated);
+}
+function onContextRestored() {
+    if (worldDisposed) return;
+    contextLost = false;
+    hideContextBox();
+    lastFitW = 0;                   // บังคับจัดขนาดใหม่ เผื่อหน้าต่างเปลี่ยนขนาดระหว่างที่กราฟิกหาย
+    fitRendererToContainer();
+    safeCall(() => mpAppendChat({ name: 'ระบบกราฟิก', color: '#22c55e', text: '✅ กู้คืนภาพแล้ว' }), 'context-restored-chat');
+}
+renderer.domElement.addEventListener('webglcontextlost', onContextLost);
+renderer.domElement.addEventListener('webglcontextrestored', onContextRestored);
+
+const removeContextTicker = addTicker((dt) => {
+    if (!contextLost) return;
+    contextLostFor += dt;
+    if (contextLostFor >= CONTEXT_RELOAD_AFTER && ctxBtn.style.display === 'none') showContextBox(MSG_STUCK, true);
+}, 'gf-context');
+
+// ---------- DPR (ย้ายจอที่ความละเอียดต่างกัน) ----------
+let dprMq = null, dprHandler = null;
+function unwatchDpr() {
+    if (!dprMq || !dprHandler) return;
+    if (dprMq.removeEventListener) dprMq.removeEventListener('change', dprHandler);
+    else if (dprMq.removeListener) dprMq.removeListener(dprHandler);
+    dprMq = null; dprHandler = null;
+}
+function watchDpr() {               // media query แบบ resolution ยิงครั้งเดียวต่อค่า DPR -> ต้องตั้งใหม่หลังทุกครั้งที่เปลี่ยน
+    if (typeof window.matchMedia !== 'function') return;
+    dprMq = window.matchMedia('(resolution: ' + (window.devicePixelRatio || 1) + 'dppx)');
+    dprHandler = () => { fitRendererToContainer(); unwatchDpr(); watchDpr(); };
+    if (dprMq.addEventListener) dprMq.addEventListener('change', dprHandler);
+    else if (dprMq.addListener) dprMq.addListener(dprHandler);
+}
+watchDpr();
+
+// ---------- ปล่อยทั้งโลก ----------
+function disposeWorld() {
+    if (worldDisposed) return;
+    worldDisposed = true;           // ตั้งก่อนเสมอ: animate() หยุดเรียกตัวเอง และ handler ของ context-loss เงียบ (forceContextLoss จะยิง event)
+    for (let i = disposers.length - 1; i >= 0; i--) safeCall(disposers[i].fn, 'dispose:' + disposers[i].label);
+    safeCall(() => activeTweens.forEach(cancel => cancel()), 'dispose:tweens');
+    tickers.clear();
+    unwatchDpr();
+    safeCall(() => {
+        renderer.domElement.removeEventListener('webglcontextlost', onContextLost);
+        renderer.domElement.removeEventListener('webglcontextrestored', onContextRestored);
+    }, 'dispose:context-listeners');
+    if (ctxBox) { ctxBox.remove(); ctxBox = null; }
+    safeCall(() => controls.dispose(), 'dispose:controls');
+    safeCall(() => { disposeObjectDeep(scene); scene.clear(); }, 'dispose:scene');
+    safeCall(() => renderer.dispose(), 'dispose:renderer');
+    safeCall(() => renderer.forceContextLoss(), 'dispose:forceContextLoss');   // คืน GPU ทันที ไม่รอ GC (สำคัญตอนฝัง iframe หลายหน้า)
+    safeCall(() => renderer.domElement.remove(), 'dispose:canvas');
+}
+registerDisposer(() => window.AecGameFeel.disposeHover(), 'hover');
+window.AecGameFeel = Object.assign(window.AecGameFeel || {}, { disposeWorld, registerDisposer });
+// persisted=true คือหน้าถูกเก็บเข้า bfcache เพื่อกลับมาใช้ใหม่ ห้ามทำลาย
+window.addEventListener('pagehide', (e) => { if (!e.persisted) disposeWorld(); });
+// === END GAME FEEL lifecycle ===
+
 function animate() {
+    if (worldDisposed) return; // GAME FEEL ข้อ 4: โลกถูกปล่อยแล้ว ไม่ต้องตั้ง requestAnimationFrame ต่อ
     // ตอนอยู่ในโหมด VR ต้องให้ renderer.setAnimationLoop เป็นคนเรียกแทน
     // เพราะแว่นวาดคนละจังหวะกับจอ ถ้ายังใช้ requestAnimationFrame ภาพจะไม่ตรงกับการหันหัว
     if (!window.AEC_XR_ACTIVE) requestAnimationFrame(animate);
